@@ -1,0 +1,27 @@
+[package]
+name = "sakura-terminal"
+description = "Sakura desk terminal: a terminal emulator view for GPUI"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[features]
+# GPUI's test support: the headless view tests (`cargo test --features test-support`) and the example's
+# SAKURA_SNAPSHOT mode, which renders its own frame to a PNG using offscreen rendering. It changes
+# GPUI's executor, so it stays off in normal builds and in measurements.
+test-support = ["gpui/test-support", "gpui_platform/test-support", "dep:image"]
+
+[dependencies]
+alacritty_terminal = "0.26"
+async-channel = "2.5"
+gpui = { package = "gpui-pre", version = "=0.3.12" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", default-features = false, features = ["font-kit", "runtime_shaders", "x11", "wayland"], optional = true }
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+sakura-core = { path = "../sakura-core" }
+log = "0.4"
+portable-pty = "0.9.0"
+
+[dev-dependencies]
+sakura-core = { path = "../sakura-core", features = ["test-support"] }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", default-features = false, features = ["font-kit", "runtime_shaders", "x11", "wayland"] }

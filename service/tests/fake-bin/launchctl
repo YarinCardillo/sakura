@@ -1,0 +1,4 @@
+#!/bin/bash
+# Test stand-in for launchctl: records the call, never touches the real launchd.
+echo "$*" >>"${FAKE_LAUNCHCTL_LOG:?}"
+exit "${FAKE_LAUNCHCTL_EXIT:-0}"

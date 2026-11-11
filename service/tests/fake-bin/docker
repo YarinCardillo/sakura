@@ -1,0 +1,287 @@
+#!/bin/bash
+# Test stand-in for the docker CLI. Records every call and answers the few that matter.
+# - The sandbox scripts (facts, extract, bundle, ...) really run, on the host, against the
+#   directories their -v options name. The tests use throwaway repositories only. A container
+#   reaches only what is mounted into it: while a script runs, a verified store that its
+#   container does not mount writable cannot be written (its directory loses the write bits),
+#   as a program started by the workspace's git configuration would find it in a real container.
+# - A "run" of a job container prints FAKE_JOB_SUMMARY and exits with FAKE_JOB_EXIT (default 0),
+#   after FAKE_JOB_DELAY seconds; "inspect" then reports that exit status for the container.
+#   FAKE_JOB_CLIENT_EXIT makes the docker client return another status than the container's.
+#   While the container exists, "stats" reports FAKE_JOB_MEMORY as its memory usage.
+#   FAKE_JOB_RECORD is a file a hostile job leaves in its container; "cp" would give it back.
+# - A Docker that stops answering: FAKE_HANG_RM=1 makes "rm" hang, FAKE_COPY_HANG=1 the container
+#   that copies the dependencies, each for FAKE_HANG_SECONDS. FAKE_INSTALL_DELAY does the same
+#   for the container that builds the pristine dependencies.
+# - A job or install container exists from its start to its end (a state file next to the log
+#   that holds its arguments). "rm -f" ends a container that exists and does nothing to one
+#   that does not exist yet; "ps --filter label=agentbox.request=<key>" lists the ones that exist.
+echo "$*" >>"${FAKE_DOCKER_LOG:?}"
+# FAKE_SLOW_CALL=<text>: a call whose arguments hold that text takes FAKE_SLOW_SECONDS first.
+if [ -n "${FAKE_SLOW_CALL:-}" ] && [[ "$*" == *"$FAKE_SLOW_CALL"* ]]; then sleep "${FAKE_SLOW_SECONDS:-3}"; fi
+# FAKE_DOCKER_DOWN=1: a Docker that is not there.
+[ "${FAKE_DOCKER_DOWN:-0}" != "1" ] || exit 1
+FAKE_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+
+# The verified stores a container must not be able to write: the one it mounts read-only, or,
+# for a container with the workspace of a task, the stores of that task.
+stores_out_of_reach() {
+  local src="$1" verified="$2" writable="$3"
+  [ "$writable" = "0" ] || return 0
+  if [ -n "$verified" ]; then echo "$verified"; fi
+  if [ -n "$src" ]; then /bin/ls -d "${AGENTBOX_HOME:-/nonexistent}/verified/$(basename "$src")".* 2>/dev/null; fi
+}
+
+run_sandbox_script() {
+  local args=("$@") src="" out="" trusted="" verified="" drops="" writable=0 mount script="" i store status usage_source usage=()
+  for ((i = 0; i < ${#args[@]}; i++)); do
+    if [ "${args[i]}" = "-v" ]; then
+      mount="${args[i + 1]}"
+      case "$mount" in
+        *:/usage/*:ro)
+          usage_source="${mount%%:/usage/*}"
+          if [[ "$usage_source" != /* ]]; then usage_source="${FAKE_VOLUME_ROOT:-/nonexistent}/$usage_source"; fi
+          [ ! -d "$usage_source" ] || usage+=("$usage_source") ;;
+        *:/src:ro) src="${mount%:/src:ro}" ;;
+        *:/out) out="${mount%:/out}" ;;
+        *:/drops:ro) drops="${mount%:/drops:ro}" ;;
+        *:/trusted:ro) trusted="${mount%:/trusted:ro}" ;;
+        *:/verified:ro) verified="${mount%:/verified:ro}" ;;
+        *:/verified) verified="${mount%:/verified}"; writable=1 ;;
+      esac
+    fi
+    if [[ "${args[i]}" == /box/*.sh ]] || [[ "${args[i]}" == /box/*.py ]]; then
+      script="$FAKE_ROOT/image/runner/$(basename "${args[i]}")"
+      if [[ "$script" == */storage.py ]]; then
+        python3 -B -I "$script" "${args[i + 1]}" ${usage[@]+"${usage[@]}"}
+        return $?
+      fi
+      while IFS= read -r store; do chmod -R a-w "$store" 2>/dev/null; done < <(stores_out_of_reach "$src" "$verified" "$writable")
+      BOX_SRC="$src" BOX_OUT="$out" BOX_TRUSTED="$trusted" BOX_VERIFIED="$verified" BOX_DROPS="$drops" PYTHONDONTWRITEBYTECODE=1 "$script" "${args[@]:i+1}"
+      status=$?
+      while IFS= read -r store; do chmod -R u+w "$store" 2>/dev/null; done < <(stores_out_of_reach "$src" "$verified" "$writable")
+      return "$status"
+    fi
+  done
+  return 1
+}
+
+# Agent containers are state files next to the log: "running" or "exited <code>".
+fake_agent_inspect() {
+  local name="${*: -1}" state
+  state="$(cat "${FAKE_DOCKER_LOG}.$name" 2>/dev/null)" || return 1
+  case "$*" in
+    *State.Running*) [ "$state" = running ] && echo true || echo false ;;
+    *State.Status*) [ "$state" = running ] && echo "running 2026-11-10T01:02:03.123456789Z 0" || echo "exited 2026-11-10T01:02:03.123456789Z ${state#exited }" ;;
+    *State.ExitCode*) echo "${state#exited }" | sed 's/^running$/0/' ;;
+  esac
+}
+
+# run_fake_container <name> <seconds> <all arguments>: exists for that long, exit 137 when removed.
+run_fake_container() {
+  local name="$1" seconds="$2" state="${FAKE_DOCKER_LOG}.ctr.$1" tick
+  shift 2
+  echo "$*" >"$state"
+  for ((tick = 0; tick < seconds * 5; tick++)); do
+    sleep 0.2
+    [ -f "$state" ] || exit 137
+  done
+  rm -f "$state"
+}
+
+# FAKE_FACTS_DELAY=<seconds> makes every facts read slow, like a real sandbox start; the number of
+# reads in flight is appended to FAKE_ACTIVE_LOG when that file is named.
+fake_slow_facts() {
+  [ -n "${FAKE_FACTS_DELAY:-}" ] || return 0
+  local marker="${FAKE_ACTIVE_DIR:?}/$$"
+  touch "$marker"
+  [ -z "${FAKE_ACTIVE_LOG:-}" ] || ls "$FAKE_ACTIVE_DIR" | wc -l | tr -d ' ' >>"$FAKE_ACTIVE_LOG"
+  sleep "$FAKE_FACTS_DELAY"
+  rm -f "$marker"
+}
+
+case "$1" in
+  run)
+    case "$*" in
+      *" -d "*--name\ agentbox-agent-*)
+        name="$(echo "$*" | grep -o -e '--name agentbox-agent-[^ ]*' | cut -d' ' -f2)"
+        echo running >"${FAKE_DOCKER_LOG}.$name"
+        exit 0
+        ;;
+    esac
+    ;;
+esac
+
+case "$1" in
+  run)
+    case "$*" in
+      *" /box/changes.py"*)
+        run_sandbox_script "$@"
+        exit $?
+        ;;
+      *" /box/facts.py"*)
+        # FAKE_AFTER_FACTS is what the agent does to its workspace right after it was read.
+        fake_slow_facts
+        run_sandbox_script "$@"
+        status=$?
+        [ -z "${FAKE_AFTER_FACTS:-}" ] || eval "$FAKE_AFTER_FACTS"
+        exit "$status"
+        ;;
+      *" /box/verify_import.py"*)
+        # The pack is taken whole before the import starts: by then the container that made it
+        # is gone, and with it the write protection it put on the store (see run_sandbox_script).
+        pack="$(mktemp "${TMPDIR:-/tmp}/box-pack.XXXXXX")"
+        cat >"$pack"
+        run_sandbox_script "$@" <"$pack"
+        status=$?
+        rm -f "$pack"
+        exit "$status"
+        ;;
+      *" /box/log.py"* | *" /box/diff.py"* | *" /box/extract.sh"* | *" /box/bundle.sh"* | *" /box/commit_facts.py"* \
+        | *" /box/head.py"* | *" /box/export_pack.py"* | *" /box/drops.py"* \
+        | *" /box/storage.py"* | *" /box/tree.py"* | *" /box/tree_check.py"* | *" /box/file.py"* | *" /box/search.py"* | *" /box/graph.py"*)
+        run_sandbox_script "$@"
+        exit $?
+        ;;
+      *--name\ agentbox-acp-*)
+        # The conversation container runs the fake adapter with the caller's stdin and stdout
+        # and exists (state and pid files) until the adapter ends; TERM is passed on to it.
+        name="$(echo "$*" | grep -o -e '--name agentbox-acp-[^ ]*' | cut -d' ' -f2)"
+        exec 3<&0
+        "$(dirname "$0")/claude-agent-acp" <&3 3<&- &
+        adapter=$!
+        exec 3<&-
+        echo running >"${FAKE_DOCKER_LOG}.$name"
+        echo "$$" >"${FAKE_DOCKER_LOG}.pid.$name"
+        trap 'kill -TERM "$adapter" 2>/dev/null' TERM INT
+        code=0
+        wait "$adapter" || code=$?
+        while kill -0 "$adapter" 2>/dev/null; do code=0; wait "$adapter" || code=$?; done
+        rm -f "${FAKE_DOCKER_LOG}.$name" "${FAKE_DOCKER_LOG}.pid.$name"
+        exit "$code"
+        ;;
+      *agentbox.kind=acctfiles*)
+        for file_kind in ${FAKE_ACCOUNT_FILES-claude codex}; do echo "$file_kind"; done
+        exit 0
+        ;;
+      *agentbox.kind=acctcheck*)
+        # FAKE_ACCOUNT_STATUS_<name> overrides the status of one account; FAKE_ACCOUNT_DELAY slows every check.
+        for ((tick = 0; tick < ${FAKE_ACCOUNT_DELAY:-0}; tick++)); do sleep 1; done
+        account="$(echo "$*" | grep -o -e 'agentbox-acct-[a-z0-9-]*:/acct' | head -1 | sed 's/^agentbox-acct-//; s/:.*//')"
+        override="FAKE_ACCOUNT_STATUS_${account//-/_}"
+        default_status='{"loggedIn": true, "authMethod": "claude.ai"}'
+        echo "${!override:-$default_status}"
+        exit 0
+        ;;
+      *" cp -a /from/. /to/"*)
+        [ "${FAKE_COPY_HANG:-0}" != "1" ] || exec sleep "${FAKE_HANG_SECONDS:-600}"
+        exit 0
+        ;;
+      *--name\ agentbox-ws-*-install\ *)
+        # The first install of a task: FAKE_WS_INSTALL_HANG=1 makes it never end by itself.
+        [ "${FAKE_WS_INSTALL_HANG:-0}" != "1" ] || exec sleep "${FAKE_HANG_SECONDS:-600}"
+        exit 0
+        ;;
+      *--name\ agentbox-install-*)
+        name="$(echo "$*" | grep -o -e '--name agentbox-install-[^ ]*' | cut -d' ' -f2)"
+        run_fake_container "$name" "${FAKE_INSTALL_DELAY:-0}" "$@"
+        exit 0
+        ;;
+      *agentbox.kind=login*)
+        exit "${FAKE_LOGIN_EXIT:-0}"
+        ;;
+      *--name\ agentbox-job-*)
+        name="$(echo "$*" | grep -o -e '--name agentbox-job-[^ ]*' | cut -d' ' -f2)"
+        run_fake_container "$name" "${FAKE_JOB_DELAY:-0}" "$@"
+        [ -z "${FAKE_JOB_SUMMARY:-}" ] || printf "%b\n" "$FAKE_JOB_SUMMARY"
+        [ -z "${FAKE_JOB_RECORD:-}" ] || printf "%b\n" "$FAKE_JOB_RECORD" >"${FAKE_DOCKER_LOG}.meta.$name"
+        echo "exited ${FAKE_JOB_EXIT:-0}" >"${FAKE_DOCKER_LOG}.exit.$name"
+        exit "${FAKE_JOB_CLIENT_EXIT:-${FAKE_JOB_EXIT:-0}}"
+        ;;
+    esac
+    ;;
+  network)
+    # Networks are state files next to the log; the file lists the containers attached to it.
+    net_state="${FAKE_DOCKER_LOG}.net.${3:-}"
+    case "${2:-}" in
+      create) net_state="${FAKE_DOCKER_LOG}.net.${*: -1}"; : >"$net_state" ;;
+      inspect) [ -f "$net_state" ] || exit 1; [[ "$*" == *-f* ]] && cat "$net_state" ;;
+      connect) echo "${*: -1}" >>"${FAKE_DOCKER_LOG}.net.${*: -2:1}" ;;
+      disconnect) : ;;
+      rm) rm -f "${FAKE_DOCKER_LOG}.net.${3:-}" ;;
+    esac
+    exit 0
+    ;;
+  volume)
+    # Configuration volumes exist once created; every other volume always exists.
+    if [ "${2:-}" = "ls" ] && [[ "$*" != *agentbox-acct-* ]]; then
+      if [ -n "${FAKE_VOLUME_ROOT:-}" ]; then
+        for directory in "$FAKE_VOLUME_ROOT"/*; do [ ! -d "$directory" ] || basename "$directory"; done
+      fi
+      for file in "${FAKE_DOCKER_LOG}.vol."*; do [ ! -f "$file" ] || echo "${file##*.vol.}"; done
+    fi
+    if [ "${2:-}" = "create" ]; then touch "${FAKE_DOCKER_LOG}.vol.${*: -1}"; fi
+    if [ "${2:-}" = "inspect" ] && [[ "${3:-}" == agentbox-cfg-* ]] && [ ! -f "${FAKE_DOCKER_LOG}.vol.${3}" ]; then exit 1; fi
+    # FAKE_ACCOUNTS="a b" makes those account volumes exist.
+    if [ "${2:-}" = "ls" ] && [[ "$*" == *agentbox-acct-* ]]; then
+      for account in ${FAKE_ACCOUNTS:-}; do echo "agentbox-acct-$account"; done
+    fi
+    exit 0
+    ;;
+  inspect)
+    case "$*" in
+      *agentbox-agent-* | *agentbox-acp-*) fake_agent_inspect "$@" ;;
+      *State.ExitCode*agentbox-job-*) cat "${FAKE_DOCKER_LOG}.exit.${*: -1}" 2>/dev/null ;;
+      *) echo false ;;
+    esac
+    exit $?
+    ;;
+  build)
+    if [ "${2:-}" = -t ]; then : >"${FAKE_DOCKER_LOG}.image.$3"; fi
+    exit 0
+    ;;
+  image)
+    if [ "${2:-}" = inspect ] && [ -n "${FAKE_EXISTING_IMAGES+set}" ] \
+      && [[ " $FAKE_EXISTING_IMAGES " != *" $3 "* ]] && [ ! -f "${FAKE_DOCKER_LOG}.image.$3" ]; then exit 1; fi
+    # The identity of the image, for the key of a set of dependencies: FAKE_IMAGE_ID names
+    # another image, FAKE_IMAGE_PLATFORM another system and architecture; FAKE_IMAGE_UNREADABLE=1
+    # makes the question fail.
+    if [ "${2:-}" = "inspect" ] && [[ "$*" == *"{{.Id}}"* ]]; then
+      [ "${FAKE_IMAGE_UNREADABLE:-0}" != "1" ] || exit 1
+      echo "sha256:${FAKE_IMAGE_ID:-$(printf '1%.0s' {1..64})} ${FAKE_IMAGE_PLATFORM:-linux/arm64}"
+    fi
+    exit 0
+    ;;
+  stop)
+    if [ -f "${FAKE_DOCKER_LOG}.pid.${2}" ]; then kill -TERM "$(cat "${FAKE_DOCKER_LOG}.pid.${2}")" 2>/dev/null; exit 0; fi
+    echo "exited 137" >"${FAKE_DOCKER_LOG}.${2}"
+    ;;
+  rm)
+    [ "${FAKE_HANG_RM:-0}" != "1" ] || exec sleep "${FAKE_HANG_SECONDS:-600}"
+    shift
+    for name in "$@"; do
+      rm -f "${FAKE_DOCKER_LOG}.$name" "${FAKE_DOCKER_LOG}.ctr.$name" "${FAKE_DOCKER_LOG}.meta.$name" "${FAKE_DOCKER_LOG}.exit.$name" 2>/dev/null
+    done
+    ;;
+  cp)
+    record="${FAKE_DOCKER_LOG}.meta.${2%%:*}"
+    [ -f "$record" ] || exit 1
+    tar -cf - -C "$(dirname "$record")" "$(basename "$record")"
+    exit 0
+    ;;
+  stats)
+    # Only the memory reading of one container that exists is answered.
+    [[ "$*" == *"{{.MemUsage}}"* ]] && [ -f "${FAKE_DOCKER_LOG}.ctr.${*: -1}" ] || exit 1
+    echo "${FAKE_JOB_MEMORY:-0B / 6GiB}"
+    exit 0
+    ;;
+  ps)
+    request="$(echo "$*" | grep -o -e 'label=agentbox.request=[^ ]*' | cut -d= -f3)"
+    [ -n "$request" ] || exit 0
+    for state in "${FAKE_DOCKER_LOG}".ctr.*; do
+      [ -f "$state" ] && grep -q -e "--label agentbox.request=$request " "$state" && echo "${state#"${FAKE_DOCKER_LOG}".ctr.}"
+    done
+    exit 0
+    ;;
+esac
+exit 0

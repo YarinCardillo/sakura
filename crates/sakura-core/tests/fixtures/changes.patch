@@ -1,0 +1,104 @@
+diff --git a/src/lib/library/scope.ts b/src/lib/library/scope.ts
+index 3f2a1c0..8b7d4e2 100644
+--- a/src/lib/library/scope.ts
++++ b/src/lib/library/scope.ts
+@@ -1,9 +1,9 @@
+ import { z } from "zod";
+ 
+-export const LibraryScope = z.enum(["mine", "team"]);
++export const LibraryScope = z.enum(["mine", "team", "all"]);
+ export type LibraryScope = z.infer<typeof LibraryScope>;
+ 
+ export function scopeLabel(scope: LibraryScope): string {
+   switch (scope) {
+     case "mine":
+       return "Mine";
+@@ -12,5 +12,7 @@ export function scopeLabel(scope: LibraryScope): string {
+       return "Team";
++    case "all":
++      return "All";
+   }
+ }
+ 
+ export const DEFAULT_SCOPE: LibraryScope = "mine";
+diff --git a/src/lib/library/visibility.ts b/src/lib/library/visible.ts
+similarity index 88%
+rename from src/lib/library/visibility.ts
+rename to src/lib/library/visible.ts
+index 1a2b3c4..5d6e7f8 100644
+--- a/src/lib/library/visibility.ts
++++ b/src/lib/library/visible.ts
+@@ -4,6 +4,6 @@ import type { LibraryScope } from "./scope";
+ 
+ export function isVisible(item: LibraryItem, scope: LibraryScope, userId: string): boolean {
+-  if (scope === "mine") return item.ownerId === userId;
++  if (scope === "all") return true;
+   return item.teamId !== null;
+ }
+ 
+diff --git a/docs/notes/old.md b/docs/archive/old.md
+similarity index 100%
+rename from docs/notes/old.md
+rename to docs/archive/old.md
+diff --git a/src/components/library/ItemPicker.tsx b/src/components/library/ItemPicker.tsx
+new file mode 100644
+index 0000000..c0ffee1
+--- /dev/null
++++ b/src/components/library/ItemPicker.tsx
+@@ -0,0 +1,14 @@
++import { useLibraryItems } from "@/lib/library/query";
++
++type Props = { onPick: (id: string) => void };
++
++export function ItemPicker({ onPick }: Props) {
++  const items = useLibraryItems({ scope: "all", kind: "video" });
++  return (
++    <ul className="picker">
++      {items.map((item) => (
++        <li key={item.id} onClick={() => onPick(item.id)}>{item.title}</li>
++      ))}
++    </ul>
++  );
++}
+\ No newline at end of file
+diff --git a/src/components/library/old-picker.tsx b/src/components/library/old-picker.tsx
+deleted file mode 100644
+index 7e7e7e7..0000000
+--- a/src/components/library/old-picker.tsx
++++ /dev/null
+@@ -1,6 +0,0 @@
+-import { LegacyItemPicker } from "./dialog";
+-
+-export function OldPicker() {
+-  // Replaced by ItemPicker.
+-  return <LegacyItemPicker />;
+-}
+diff --git a/public/img/cover.png b/public/img/cover.png
+new file mode 100644
+index 0000000..9a9a9a9
+Binary files /dev/null and b/public/img/cover.png differ
+diff --git a/src/generated/api-contract.json b/src/generated/api-contract.json
+index 4444444..5555555 100644
+--- a/src/generated/api-contract.json
++++ b/src/generated/api-contract.json
+[patch omitted: 612 kB]
+diff --git a/scripts/build.sh b/scripts/build.sh
+old mode 100644
+new mode 100755
+diff --git a/docs/notes with spaces.md b/docs/notes with spaces.md
+index 1111111..2222222 100644
+--- a/docs/notes with spaces.md	
++++ b/docs/notes with spaces.md	
+@@ -1,3 +1,4 @@
+ # Library notes
+ 
+ The All tab shows every item.
++The selector uses the shared read API.
+diff --git a/config/windows.ini b/config/windows.ini
+index 6666666..7777777 100644
+--- a/config/windows.ini
++++ b/config/windows.ini
+@@ -1,2 +1,2 @@
+ [library]
+-scope=mine
++scope=all

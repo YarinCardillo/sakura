@@ -1,0 +1,25 @@
+[package]
+name = "sakura-acp"
+description = "Sakura desk: the agent conversation over the Agent Client Protocol, with no UI dependency"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+# The fake agent the tests and the conversation example talk to. A development tool: the bundle never holds it.
+[[bin]]
+name = "sakura-fake-agent"
+path = "src/bin/sakura-fake-agent/main.rs"
+
+[dependencies]
+sakura-core = { path = "../sakura-core" }
+# Pinned exactly: the SDK publishes a major version every week or two. Only `connection` and `convert` use it.
+agent-client-protocol = "=5.1.0"
+futures = "0.3.34"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+similar = "3.2.1"
+tokio = { version = "1.53.3", features = ["rt", "rt-multi-thread", "process", "io-util", "time", "macros", "sync"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"

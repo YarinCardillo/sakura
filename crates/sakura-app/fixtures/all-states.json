@@ -1,0 +1,335 @@
+{
+  "runner": {
+    "state": "running",
+    "current": {
+      "task": "sample-folders",
+      "verb": "test",
+      "sha": "4f2a9c1d7b3e5a6f8091a2b3c4d5e6f708192a3b",
+      "startedAt": "2026-11-10T06:41:12Z"
+    },
+    "queue": [
+      {
+        "task": "sample-accent",
+        "verb": "build",
+        "sha": "9b1e0c3a5d7f2468ace013579bdf02468ace1357",
+        "queuedAt": "2026-11-10T06:43:50Z"
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "name": "sample-folders",
+      "profile": "example-app",
+      "base": "lab/example-app",
+      "baseSha": "536ea1c688aa01b2c3d4e5f60718293a4b5c6d7e",
+      "readable": true,
+      "branch": "box/sample-folders",
+      "head": "4f2a9c1d7b3e5a6f8091a2b3c4d5e6f708192a3b",
+      "headSubject": "Add a folder tree to the item list",
+      "headTime": "2026-11-10T06:38:02Z",
+      "ahead": 5,
+      "dirtyFiles": 2,
+      "filesChanged": 14,
+      "insertions": 612,
+      "deletions": 48,
+      "taken": null,
+      "agent": {
+        "container": "agentbox-agent-sample-folders",
+        "account": "work",
+        "state": "running",
+        "cpuPercent": 41.5,
+        "memoryMb": 1280,
+        "startedAt": "2026-11-10T05:12:40Z",
+        "exitCode": null
+      },
+      "otherContainers": 0,
+      "results": {
+        "rules": {
+          "sha": "1c3e5a7092b4d6f8e0a1c3e5a7092b4d6f8e0a1c",
+          "exitCode": 0,
+          "seconds": 38,
+          "finishedAt": "2026-11-10T06:10:21Z",
+          "isHead": false,
+          "changesChecks": false,
+          "checksTouched": [],
+          "testsTouched": {
+            "modified": 0,
+            "deleted": 0,
+            "files": []
+          }
+        }
+      }
+    },
+    {
+      "name": "sample-accent",
+      "profile": "example-app",
+      "base": "lab/example-app",
+      "baseSha": "536ea1c688aa01b2c3d4e5f60718293a4b5c6d7e",
+      "readable": true,
+      "branch": "box/sample-accent",
+      "head": "9b1e0c3a5d7f2468ace013579bdf02468ace1357",
+      "headSubject": "Update the accent color in the sample theme",
+      "headTime": "2026-11-10T06:43:31Z",
+      "ahead": 3,
+      "dirtyFiles": 0,
+      "filesChanged": 9,
+      "insertions": 141,
+      "deletions": 133,
+      "taken": null,
+      "agent": {
+        "container": "agentbox-agent-sample-accent",
+        "account": "work",
+        "state": "exited",
+        "cpuPercent": null,
+        "memoryMb": null,
+        "startedAt": "2026-11-10T05:20:03Z",
+        "exitCode": 0
+      },
+      "otherContainers": 0,
+      "results": {
+        "test": {
+          "sha": "9b1e0c3a5d7f2468ace013579bdf02468ace1357",
+          "exitCode": 0,
+          "seconds": 431,
+          "finishedAt": "2026-11-10T06:52:02Z",
+          "isHead": true,
+          "changesChecks": false,
+          "checksTouched": [],
+          "testsTouched": {
+            "modified": 0,
+            "deleted": 0,
+            "files": []
+          },
+          "tests": {
+            "ran": 7880,
+            "skipped": 0,
+            "base": 7880,
+            "baseSkipped": 0
+          }
+        },
+        "rules": {
+          "sha": "9b1e0c3a5d7f2468ace013579bdf02468ace1357",
+          "exitCode": 0,
+          "seconds": 36,
+          "finishedAt": "2026-11-10T06:44:40Z",
+          "isHead": true,
+          "changesChecks": false,
+          "checksTouched": [],
+          "testsTouched": {
+            "modified": 0,
+            "deleted": 0,
+            "files": []
+          }
+        }
+      }
+    },
+    {
+      "name": "quick-search",
+      "profile": "example-app",
+      "base": "lab/example-app",
+      "baseSha": "536ea1c688aa01b2c3d4e5f60718293a4b5c6d7e",
+      "readable": true,
+      "branch": "box/quick-search",
+      "head": "9b1e0c3a5d7f2468ace013579bdf02468ace1357",
+      "headSubject": "Update the accent color in the sample theme",
+      "headTime": "2026-11-10T06:43:31Z",
+      "ahead": 3,
+      "dirtyFiles": 0,
+      "filesChanged": 9,
+      "insertions": 1284,
+      "deletions": 310,
+      "taken": null,
+      "agent": {
+        "container": "agentbox-agent-quick-search",
+        "account": "work",
+        "state": "exited",
+        "cpuPercent": null,
+        "memoryMb": null,
+        "startedAt": "2026-11-10T05:20:03Z",
+        "exitCode": 0
+      },
+      "otherContainers": 0,
+      "results": {}
+    },
+    {
+      "name": "login-sso",
+      "profile": "example-app",
+      "base": "lab/example-app",
+      "baseSha": "536ea1c688aa01b2c3d4e5f60718293a4b5c6d7e",
+      "readable": true,
+      "branch": "box/login-sso",
+      "head": "9b1e0c3a5d7f2468ace013579bdf02468ace1357",
+      "headSubject": "Update the accent color in the sample theme",
+      "headTime": "2026-11-10T06:43:31Z",
+      "ahead": 3,
+      "dirtyFiles": 0,
+      "filesChanged": 9,
+      "insertions": 57,
+      "deletions": 12,
+      "taken": null,
+      "agent": {
+        "container": "agentbox-agent-login-sso",
+        "account": "work",
+        "state": "exited",
+        "cpuPercent": null,
+        "memoryMb": null,
+        "startedAt": "2026-11-10T05:20:03Z",
+        "exitCode": 0
+      },
+      "otherContainers": 0,
+      "results": {
+        "test": {
+          "sha": "9b1e0c3a5d7f2468ace013579bdf02468ace1357",
+          "exitCode": 1,
+          "seconds": 431,
+          "finishedAt": "2026-11-10T06:52:02Z",
+          "isHead": true
+        },
+        "rules": {
+          "sha": "9b1e0c3a5d7f2468ace013579bdf02468ace1357",
+          "exitCode": 0,
+          "seconds": 36,
+          "finishedAt": "2026-11-10T06:44:40Z",
+          "isHead": true,
+          "changesChecks": false,
+          "checksTouched": [],
+          "testsTouched": {
+            "modified": 0,
+            "deleted": 0,
+            "files": []
+          }
+        }
+      }
+    },
+    {
+      "name": "broken-check",
+      "profile": "example-app",
+      "base": "lab/example-app",
+      "baseSha": "536ea1c688aa01b2c3d4e5f60718293a4b5c6d7e",
+      "readable": false,
+      "branch": null,
+      "head": null,
+      "headSubject": null,
+      "headTime": null,
+      "ahead": null,
+      "dirtyFiles": null,
+      "filesChanged": null,
+      "insertions": null,
+      "deletions": null,
+      "taken": null,
+      "agent": null,
+      "otherContainers": 0,
+      "results": {}
+    },
+    {
+      "name": "new-page",
+      "profile": "example-app",
+      "base": "",
+      "baseSha": "",
+      "readable": false,
+      "branch": null,
+      "head": null,
+      "headSubject": null,
+      "headTime": null,
+      "ahead": null,
+      "dirtyFiles": null,
+      "filesChanged": null,
+      "insertions": null,
+      "deletions": null,
+      "taken": null,
+      "agent": null,
+      "otherContainers": 0,
+      "results": {},
+      "preparing": {
+        "line": "Installing dependencies (pnpm install)",
+        "failed": false
+      }
+    },
+    {
+      "name": "broken-page",
+      "profile": "example-app",
+      "base": "",
+      "baseSha": "",
+      "readable": false,
+      "branch": null,
+      "head": null,
+      "headSubject": null,
+      "headTime": null,
+      "ahead": null,
+      "dirtyFiles": null,
+      "filesChanged": null,
+      "insertions": null,
+      "deletions": null,
+      "taken": null,
+      "agent": null,
+      "otherContainers": 0,
+      "results": {},
+      "preparing": {
+        "line": "box new: profile example-app failed to clone",
+        "failed": true
+      }
+    },
+    {
+      "name": "headings-26",
+      "profile": "example-app",
+      "base": "lab/example-app",
+      "baseSha": "536ea1c688aa01b2c3d4e5f60718293a4b5c6d7e",
+      "readable": true,
+      "branch": "box/headings-26",
+      "head": "0a2c4e6f8b1d3f5a7c9e0b2d4f6a8c0e2b4d6f8a",
+      "headSubject": "Set the sample heading size to 26 px",
+      "headTime": "2026-11-09T22:15:44Z",
+      "ahead": 2,
+      "dirtyFiles": 0,
+      "filesChanged": 6,
+      "insertions": 44,
+      "deletions": 39,
+      "taken": {
+        "sha": "0a2c4e6f8b1d3f5a7c9e0b2d4f6a8c0e2b4d6f8a",
+        "at": "2026-11-09T22:40:10Z"
+      },
+      "agent": null,
+      "otherContainers": 0,
+      "results": {
+        "test": {
+          "sha": "0a2c4e6f8b1d3f5a7c9e0b2d4f6a8c0e2b4d6f8a",
+          "exitCode": 1,
+          "seconds": 402,
+          "finishedAt": "2026-11-09T22:31:09Z",
+          "isHead": true
+        }
+      }
+    },
+    {
+      "name": "a-very-long-sample-name-for-truncation",
+      "profile": "example-app",
+      "base": "lab/example-app",
+      "baseSha": "536ea1c688aa01b2c3d4e5f60718293a4b5c6d7e",
+      "readable": true,
+      "branch": "box/zero-0-100-2010",
+      "head": "0a2c4e6f8b1d3f5a7c9e0b2d4f6a8c0e2b4d6f8a",
+      "headSubject": "Set the sample heading size to 26 px",
+      "headTime": "2026-11-09T22:15:44Z",
+      "ahead": 2,
+      "dirtyFiles": 0,
+      "filesChanged": 6,
+      "insertions": 44,
+      "deletions": 39,
+      "taken": {
+        "sha": "0a2c4e6f8b1d3f5a7c9e0b2d4f6a8c0e2b4d6f8a",
+        "at": "2026-11-09T22:40:10Z"
+      },
+      "agent": null,
+      "otherContainers": 0,
+      "results": {
+        "test": {
+          "sha": "0a2c4e6f8b1d3f5a7c9e0b2d4f6a8c0e2b4d6f8a",
+          "exitCode": 1,
+          "seconds": 402,
+          "finishedAt": "2026-11-09T22:31:09Z",
+          "isHead": true
+        }
+      }
+    }
+  ]
+}

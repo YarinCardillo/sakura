@@ -1,0 +1,105 @@
+#!/bin/bash
+# Test stand-in for the Claude ACP adapter: answers a few JSON-RPC requests, one per line, on
+# stdout, logs on stderr and ends when stdin closes.
+# - initialize echoes the client capabilities it was given (result._meta.received).
+# - session/new answers authentication required unless FAKE_ACP_LOGGED_IN=1.
+# - test/agent_talks makes it send what a hostile agent would: requests for the client's files
+#   and terminal, a permission request, an update, an unknown notification, a line that is not
+#   JSON and a message with a duplicate key. The replies it gets are logged on stderr.
+# - test/huge_line makes it write one line of FAKE_ACP_HUGE_BYTES bytes.
+# - test/many_requests makes it send FAKE_ACP_REQUESTS requests the box refuses, each under a
+#   method name of its own.
+# - test/flood makes it write FAKE_ACP_FLOOD_LINES session updates of 1000 bytes each.
+# - test/chatter makes it send requests the box refuses, without end, while it reads the replies.
+# FAKE_ACP_IGNORE_TERM=1 makes it ignore the TERM signal.
+# FAKE_ACP_IGNORE_EOF=1 makes it stay, with its stdout open, after stdin closed.
+# FAKE_ACP_EXIT is the exit code at the end; FAKE_ACP_CRASH=1 dies before reading anything;
+# FAKE_ACP_STDERR_BYTES writes that many bytes to stderr first.
+readonly AUTH_REQUIRED_CODE=-32000
+readonly METHOD_NOT_FOUND_CODE=-32601
+
+echo "fake adapter started in $PWD" >&2
+echo "fake adapter config ${CLAUDE_CONFIG_DIR:-none}" >&2
+# FAKE_ACP_DETACHED_PID_FILE: it leaves a child in a session of its own that keeps its output open.
+if [ -n "${FAKE_ACP_DETACHED_PID_FILE:-}" ]; then
+  perl -MPOSIX -e 'exit if fork; setsid(); open(my $f, ">", $ARGV[0]); print $f "$$\n"; close $f; sleep 300' "$FAKE_ACP_DETACHED_PID_FILE"
+fi
+# FAKE_ACP_ENV_LOG: its whole environment.
+if [ -n "${FAKE_ACP_ENV_LOG:-}" ]; then env >"$FAKE_ACP_ENV_LOG"; fi
+# FAKE_ACP_CHILD_PID_FILE: it starts a program of its own that outlives it, and writes its pid there.
+if [ -n "${FAKE_ACP_CHILD_PID_FILE:-}" ]; then
+  sleep 300 &
+  echo "$!" >"$FAKE_ACP_CHILD_PID_FILE"
+fi
+if [ "${FAKE_ACP_IGNORE_TERM:-0}" = "1" ]; then trap '' TERM; fi
+if [ -n "${FAKE_ACP_STDERR_BYTES:-}" ]; then head -c "$FAKE_ACP_STDERR_BYTES" /dev/zero | tr '\0' 'e' >&2; echo >&2; fi
+if [ "${FAKE_ACP_CRASH:-0}" = "1" ]; then
+  echo "fake adapter: cannot start" >&2
+  exit 3
+fi
+
+answer() {
+  jq -nc --argjson id "$1" --argjson result "$2" '{jsonrpc: "2.0", id: $id, result: $result}'
+}
+
+refuse() {
+  jq -nc --argjson id "$1" --argjson code "$2" --arg message "$3" '{jsonrpc: "2.0", id: $id, error: {code: $code, message: $message}}'
+}
+
+talk_like_a_hostile_agent() {
+  cat <<'LINES'
+{"jsonrpc":"2.0","id":"fs-1","method":"fs/read_text_file","params":{"sessionId":"s","path":"/etc/passwd"}}
+{"jsonrpc":"2.0","id":"term-1","method":"terminal/create","params":{"sessionId":"s","command":"id"}}
+{"jsonrpc":"2.0","id":"perm-1","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"t"},"options":[]}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"café is \"quoted\" 1.5 [1,2]"}}}}
+{"jsonrpc":"2.0","method":"_auth/status_update","params":{"authStatus":{"kind":"none"}}}
+this is not json
+{"jsonrpc":"2.0","id":"dup-1","method":"session/update","method":"fs/write_text_file","params":{"path":"/etc/hosts"}}
+LINES
+}
+
+while IFS= read -r line; do
+  id="$(jq -c '.id' <<<"$line" 2>/dev/null)" || continue
+  method="$(jq -r '.method // empty' <<<"$line")"
+  if [ -z "$method" ]; then
+    [ "${FAKE_ACP_QUIET_REPLIES:-0}" = "1" ] || echo "fake adapter: reply $id $(jq -c 'if has("error") then "error \(.error.code)" else "result" end' <<<"$line")" >&2
+    continue
+  fi
+  case "$method" in
+    initialize)
+      answer "$id" "$(jq -c '{protocolVersion: 1, agentCapabilities: {loadSession: true}, agentInfo: {name: "fake-adapter", version: "0"},
+        authMethods: [], _meta: {received: (.params.clientCapabilities // null)}}' <<<"$line")"
+      ;;
+    session/new)
+      if [ "${FAKE_ACP_LOGGED_IN:-0}" = "1" ]; then answer "$id" '{"sessionId": "fake-session"}'; else refuse "$id" "$AUTH_REQUIRED_CODE" "Authentication required"; fi
+      ;;
+    test/agent_talks)
+      talk_like_a_hostile_agent
+      answer "$id" '{}'
+      ;;
+    test/many_requests)
+      for ((number = 0; number < ${FAKE_ACP_REQUESTS:-500}; number++)); do
+        printf '{"jsonrpc":"2.0","id":"r%d","method":"made/up-%d-%s","params":{}}\n' "$number" "$number" "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      done
+      answer "$id" '{}'
+      ;;
+    test/flood)
+      yes '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"'"$(head -c 850 /dev/zero | tr '\0' 'f')"'"}}}}' \
+        | head -n "${FAKE_ACP_FLOOD_LINES:-20000}"
+      answer "$id" '{}'
+      ;;
+    test/chatter)
+      (while printf '{"jsonrpc":"2.0","id":"c","method":"fs/read_text_file","params":{"path":"/etc/passwd"}}\n' 2>/dev/null; do :; done) &
+      ;;
+    test/huge_line)
+      head -c "${FAKE_ACP_HUGE_BYTES:-10485760}" /dev/zero | tr '\0' 'x'
+      echo
+      ;;
+    *)
+      refuse "$id" "$METHOD_NOT_FOUND_CODE" "Method not found"
+      ;;
+  esac
+done
+echo "fake adapter: stdin closed" >&2
+if [ "${FAKE_ACP_IGNORE_EOF:-0}" = "1" ]; then exec sleep 600; fi
+exit "${FAKE_ACP_EXIT:-0}"

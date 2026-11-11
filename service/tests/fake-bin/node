@@ -1,0 +1,5 @@
+#!/bin/bash
+# Test stand-in for node: runs the script it is given with bash (the fake adapter is a bash
+# script) and records how it was called in FAKE_NODE_LOG.
+echo "$0 $*" >>"${FAKE_NODE_LOG:-/dev/null}"
+exec /bin/bash "$@"

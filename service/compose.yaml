@@ -1,0 +1,35 @@
+name: agentbox
+
+services:
+  agentbox-proxy:
+    container_name: agentbox-proxy
+    image: agentbox-proxy:1
+    build: ./proxy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "8m"
+        max-file: "2"
+    tmpfs:
+      - /tmp:size=16m,nr_inodes=4096,mode=1777
+    labels:
+      agentbox.kind: proxy
+    volumes:
+      - ./proxy/allow.txt:/etc/tinyproxy/allow.txt:ro
+    networks:
+      - agentbox-net
+      - agentbox-egress
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+
+networks:
+  # Agent containers live here. No route out except through the proxy.
+  agentbox-net:
+    name: agentbox-net
+    internal: true
+  # Only the proxy is attached; this is its way to the internet.
+  agentbox-egress:
+    name: agentbox-egress

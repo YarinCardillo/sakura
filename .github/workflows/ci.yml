@@ -1,0 +1,195 @@
+# Checks on every push and pull request, on macOS, Linux and Windows.
+# Actions are pinned by full commit SHA. Nothing here needs a secret.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: "1.99.1"
+  NODE_VERSION: "24"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  app:
+    permissions:
+      contents: read
+    name: app (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-15
+            clippy: --workspace --all-targets
+            tests: --workspace
+          - name: Linux
+            os: ubuntu-24.04
+            clippy: --workspace --all-targets
+            tests: --workspace
+          # The service is a set of Unix shell scripts, and the tests of the window stand a shell
+          # script in its place: on Windows the whole workspace is built and linted, and the tests
+          # of the two crates without a window are run.
+          - name: Windows
+            os: windows-2025
+            clippy: --workspace
+            tests: -p sakura-core -p sakura-acp
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Libraries the window toolkit builds against (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang cmake pkg-config \
+            libasound2-dev libfontconfig-dev libfreetype-dev libssl-dev libzstd-dev \
+            libwayland-dev libx11-dev libx11-xcb-dev libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev
+
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy, warnings denied
+        run: cargo clippy ${{ matrix.clippy }} --locked -- -D warnings
+
+      - name: Tests (one harness thread for UI process timing)
+        run: cargo test ${{ matrix.tests }} --locked -- --test-threads=1
+
+      - name: Build the app
+        if: runner.os == 'Windows'
+        run: cargo build -p sakura-app --locked
+
+  service:
+    permissions:
+      contents: read
+    name: service (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-24.04
+          - name: macOS
+            os: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The engine is a part of the service that a tree may or may not carry: its steps run when
+      # service/engine is there, and the same job serves both.
+      - name: Is the engine in this tree
+        id: engine
+        run: |
+          if [ -f service/engine/package.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No service/engine in this tree: the engine's steps are skipped."
+          fi
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.engine.outputs.present == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Restate server, pinned and checksum verified
+        if: steps.engine.outputs.present == 'true'
+        run: |
+          scripts/install-restate-server.sh "$RUNNER_TEMP/restate"
+          echo "$RUNNER_TEMP/restate" >> "$GITHUB_PATH"
+
+      - name: Engine dependencies from the lock file
+        if: steps.engine.outputs.present == 'true'
+        working-directory: service/engine
+        run: npm ci
+
+      - name: Engine types
+        if: steps.engine.outputs.present == 'true'
+        working-directory: service/engine
+        run: npm run typecheck
+
+      - name: Engine tests (each file starts its own Restate server)
+        if: steps.engine.outputs.present == 'true'
+        working-directory: service/engine
+        run: npm test
+
+      - name: Release scripts
+        run: python3 -m unittest discover -s scripts/tests -v
+
+      - name: Service suite (with the stand-in Docker the suite carries)
+        run: |
+          mkdir -p "$RUNNER_TEMP/Application Support"
+          TMPDIR="$RUNNER_TEMP/Application Support" bash service/tests/run.sh
+
+  # The confinement of a box, against a real Docker. It has not yet passed on a hosted runner, so it
+  # reports without deciding the result of the workflow; main only, because it builds the image.
+  confinement:
+    permissions:
+      contents: read
+    name: confinement (real Docker)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    continue-on-error: true
+    env:
+      AGENTBOX_HOME: ${{ github.workspace }}/.sakura-home
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: A throwaway repository for the self-test project
+        run: |
+          source_repo="$AGENTBOX_HOME/selftest-source"
+          mkdir -p "$source_repo"
+          git init -q -b main "$source_repo"
+          printf '{"name":"selftest","version":"1.0.0","private":true}\n' > "$source_repo/package.json"
+          printf '{"name":"selftest","version":"1.0.0","lockfileVersion":3,"requires":true,"packages":{"":{"name":"selftest","version":"1.0.0"}}}\n' > "$source_repo/package-lock.json"
+          git -C "$source_repo" add -A
+          git -C "$source_repo" -c user.name=ci -c user.email=ci@example.com commit -q -m "Self-test source"
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: hashFiles('service/engine/package.json') != ''
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Engine runtime for the confinement fixture
+        if: hashFiles('service/engine/package.json') != ''
+        run: |
+          scripts/install-restate-server.sh "$RUNNER_TEMP/restate"
+          echo "$RUNNER_TEMP/restate" >> "$GITHUB_PATH"
+          npm ci --prefix service/engine
+
+      - name: Image, network and proxy
+        run: service/bin/box up
+
+      - name: A task in a box
+        run: service/bin/box new ci selftest --where box
+
+      - name: Confinement checks
+        run: service/tests/confinement.sh ci

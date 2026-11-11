@@ -1,0 +1,54 @@
+[package]
+name = "sakura-app"
+description = "Sakura desk: watch and steer coding agents in their agentbox workspaces"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "sakura"
+path = "src/main.rs"
+
+[features]
+# Renders the window's own frame to a PNG (SAKURA_SNAPSHOT=<file>) through GPUI's renderer, for visual checks
+# using offscreen rendering on macOS. Off in normal builds.
+snapshot = ["gpui/test-support", "gpui_platform/test-support", "dep:image", "measure"]
+# The scroll probe (SAKURA_MEASURE_SCROLL), without GPUI's test support, so it measures what a normal build does.
+measure = ["dep:libc"]
+
+[dependencies]
+sakura-core = { path = "../sakura-core" }
+sakura-terminal = { path = "../sakura-terminal" }
+sakura-acp = { path = "../sakura-acp" }
+gpui = { package = "gpui-pre", version = "=0.3.12" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", default-features = false, features = ["font-kit", "runtime_shaders", "x11", "wayland"] }
+# `syntect`: the kit's lighter highlighter (about two hundred languages, MIT), for the colours of the file
+# view, which is the kit's editor in read-only mode.
+gpui-component = { version = "=0.9.1", features = ["syntect"] }
+# The kit's base layer, for its window-wide text selection (`SelectableText`), which the kit does not re-export.
+gpui-base = "=0.9.1"
+# The kit's icons (the 101 its own components use), for its icon buttons.
+gpui-kit-assets = "=0.9.1"
+# Columns of a character in a monospaced font, for wrapping diff lines (already in the tree through the
+# terminal emulator).
+unicode-width = "0.2"
+# The interface's words, in the locale files of this crate. The same crate and version gpui-component
+# uses for its own strings (already in the lock file), so one locale switch changes both. MIT.
+rust-i18n = "4.2.4"
+tokio = { version = "1.53.3", features = ["rt-multi-thread", "time", "sync"] }
+serde_json = "1.0.154"
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+libc = { version = "0.2.191", optional = true }
+
+[dev-dependencies]
+sakura-core = { path = "../sakura-core", features = ["test-support"] }
+tempfile = "3.27.0"
+# GPUI's test platform: simulated pointer and keys on a test window.
+gpui = { package = "gpui-pre", version = "=0.3.12", features = ["test-support"] }
+
+# The Mac's own text system, for the layout tests: the test platform's gives every glyph one width.
+# On the other systems those tests are skipped and say so (`ui/real_text.rs`).
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+gpui_apple = { package = "gpui-pre-apple", version = "=0.3.12", features = ["font-kit"] }
+

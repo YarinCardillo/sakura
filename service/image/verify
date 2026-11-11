@@ -1,0 +1,130 @@
+#!/bin/bash
+# verify <verb>: ask the runner for a verification and wait for the result.
+#
+# Inside an agent container the request channel is the directory /box/requests (a request is
+# an empty file named like the verb) and the results arrive read-only in /box/results. The
+# result counts only for the commit it names, and only if it is new: results that already
+# exist when the request is made are ignored.
+# This script is for the agent, in its container. box verify on the host does not use it and
+# does not write into the request directory (an agent writes that directory): it publishes its
+# request through the queue of box. BOX_REQUESTS_DIR, BOX_RESULTS_DIR, BOX_WORKSPACE and
+# BOX_HEAD_SHA name other places and a commit for the tests of this script.
+set -eo pipefail
+
+readonly WORKSPACE="${BOX_WORKSPACE:-$PWD}"
+readonly REQUESTS_DIR="${BOX_REQUESTS_DIR:-/box/requests}"
+readonly RESULTS_DIR="${BOX_RESULTS_DIR:-/box/results}"
+readonly POLL_SECONDS="${BOX_VERIFY_POLL:-2}"
+# The verb's own timeout plus a margin for the requests queued ahead of it.
+readonly MAX_WAIT_SECONDS="${BOX_VERIFY_WAIT:-4500}"
+# The runner refreshes <results>/.runner-alive (an epoch) every few seconds; older than this is dead.
+readonly HEARTBEAT_STALE_SECONDS="${BOX_VERIFY_STALE:-60}"
+readonly HEARTBEAT_FILE="$RESULTS_DIR/.runner-alive"
+readonly QUARANTINE_MARKER='[box] request quarantined: '
+readonly QUARANTINED_EXIT_CODE=70
+# Exit codes of verify itself (a verb that exits with one of these is indistinguishable).
+readonly EXIT_NO_RUNNER=75
+readonly EXIT_REJECTED=76
+readonly EXIT_DEADLINE=77
+readonly LOG_TAIL_LINES=40
+readonly VERB_PATTERN='^[a-z][a-z0-9-]*$'
+
+die() {
+  echo "verify: $*" >&2
+  exit 2
+}
+
+fail_with() {
+  local code="$1"
+  shift
+  echo "verify: $*" >&2
+  exit "$code"
+}
+
+# Succeeds when the runner refreshed its heartbeat recently.
+runner_is_alive() {
+  local beat
+  beat="$(head -n 1 "$HEARTBEAT_FILE" 2>/dev/null)" || return 1
+  [[ "$beat" =~ ^[0-9]+$ ]] || return 1
+  [ $(( $(date +%s) - beat )) -le "$HEARTBEAT_STALE_SECONDS" ]
+}
+
+# Prints "<reason>" when the runner rejected this verb's drop after epoch $2.
+rejected_drop_reason() {
+  local marker="$RESULTS_DIR/.rejected-$1" at
+  at="$(sed -n '1p' "$marker" 2>/dev/null)"
+  [[ "$at" =~ ^[0-9]+$ ]] && [ "$at" -ge "$2" ] || return 1
+  sed -n '2p' "$marker" | LC_ALL=C tr -cd '[:print:]'
+}
+
+# Prints the reason when a result is the failure the runner writes for a quarantined request.
+quarantine_reason() {
+  local json="$1" line
+  [ "$(json_field "$json" exit_code)" = "$QUARANTINED_EXIT_CODE" ] || return 1
+  line="$(head -n 1 "${json%.json}.log" 2>/dev/null)" || return 1
+  case "$line" in "$QUARANTINE_MARKER"*) printf '%s' "${line#"$QUARANTINE_MARKER"}" | LC_ALL=C tr -cd '[:print:]' ;; *) return 1 ;; esac
+}
+
+# Prints the result files for a commit and verb, NUL-delimited: named by the whole sha, and
+# saying inside that they are for this verb and this commit (and this task, when it is known).
+# Two commits can be made to share the first characters of their shas; a result of one is never
+# the result of the other.
+matching_results() {
+  local sha="$1" verb="$2" file
+  for file in "$RESULTS_DIR"/*-"$sha"-"$verb".json; do
+    [ -f "$file" ] && [ "$(json_field "$file" sha)" = "$sha" ] && [ "$(json_field "$file" verb)" = "$verb" ] \
+      && { [ -z "${BOX_TASK:-}" ] || [ "$(json_field "$file" task)" = "$BOX_TASK" ]; } && printf '%s\0' "$file"
+  done
+  return 0
+}
+
+wait_for_new_result() {
+  local sha="$1" verb="$2" before="$3" requested_at="$4" waited=0 file reason
+  while true; do
+    while IFS= read -r -d '' file; do
+      case "$before" in *"$file"*) ;; *) echo "$file"; return 0 ;; esac
+    done < <(matching_results "$sha" "$verb")
+    if reason="$(rejected_drop_reason "$verb" "$requested_at")"; then
+      fail_with "$EXIT_REJECTED" "rejected: the runner refused '$verb': $reason"
+    fi
+    runner_is_alive || fail_with "$EXIT_NO_RUNNER" "the runner stopped while waiting (no heartbeat for ${HEARTBEAT_STALE_SECONDS}s); the request stays queued, start it with: box runner --daemon"
+    [ "$waited" -ge "$MAX_WAIT_SECONDS" ] && fail_with "$EXIT_DEADLINE" "no result after ${MAX_WAIT_SECONDS}s, giving up (the request may still run; check box status)"
+    sleep "$POLL_SECONDS"
+    waited=$((waited + POLL_SECONDS))
+  done
+}
+
+json_field() {
+  sed -n "s/^ *\"$2\": *\"\{0,1\}\([^\",]*\)\"\{0,1\},\{0,1\}$/\1/p" "$1" | head -1
+}
+
+print_result() {
+  local json="$1" exit_code reason
+  if reason="$(quarantine_reason "$json")"; then
+    fail_with "$EXIT_REJECTED" "rejected: the runner quarantined the request: $reason"
+  fi
+  tail -n "$LOG_TAIL_LINES" "${json%.json}.log" 2>/dev/null | LC_ALL=C tr -cd '\n\t[:print:]' || true
+  exit_code="$(json_field "$json" exit_code)"
+  echo "---"
+  echo "verb=$(json_field "$json" verb) sha=$(json_field "$json" sha) exit=$exit_code seconds=$(json_field "$json" seconds) peak_memory_bytes=$(json_field "$json" peak_memory_bytes)"
+  return "${exit_code:-1}"
+}
+
+main() {
+  local verb="${1:-}" sha before result requested_at
+  [ -n "$verb" ] || die "usage: verify <verb>"
+  [[ "$verb" =~ $VERB_PATTERN ]] || die "invalid verb '$verb' (lowercase letters, digits, hyphen)"
+  sha="${BOX_HEAD_SHA:-$(git -C "$WORKSPACE" rev-parse HEAD)}"
+  if [ -z "${BOX_HEAD_SHA:-}" ] && [ -n "$(git -C "$WORKSPACE" status --porcelain)" ]; then
+    echo "verify: warning, uncommitted changes are not part of the request (commit $sha only)" >&2
+  fi
+  runner_is_alive || fail_with "$EXIT_NO_RUNNER" "the runner is not running, nothing would answer; start it with: box runner --daemon"
+  requested_at="$(date +%s)"
+  before="$(matching_results "$sha" "$verb" | tr '\0' '\n')"
+  : >"$REQUESTS_DIR/$verb"
+  echo "verify: requested '$verb' for ${sha:0:12}, waiting for the runner" >&2
+  result="$(wait_for_new_result "$sha" "$verb" "$before" "$requested_at")"
+  print_result "$result"
+}
+
+main "$@"

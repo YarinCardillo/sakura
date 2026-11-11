@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Sakura
+Comment=Watch and steer coding agents in confined workspaces
+Exec=sakura
+Icon=sakura
+Terminal=false
+Categories=Development;
+StartupWMClass=dev.yarin.sakura

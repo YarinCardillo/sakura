@@ -1,0 +1,26 @@
+[
+  {
+    "sha": "8f3e2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f",
+    "subject": "Add the all scope to the library items read",
+    "time": "2026-11-10T17:40:12Z",
+    "filesChanged": 4,
+    "insertions": 31,
+    "deletions": 9
+  },
+  {
+    "sha": "2c4e6a8b0d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c",
+    "subject": "Replace the item selector with ItemPicker",
+    "time": "2026-11-10T16:58:03Z",
+    "filesChanged": 3,
+    "insertions": 14,
+    "deletions": 6
+  },
+  {
+    "sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+    "subject": "Move the old notes to the archive",
+    "time": "2026-11-10T15:12:44Z",
+    "filesChanged": 1,
+    "insertions": 0,
+    "deletions": 0
+  }
+]

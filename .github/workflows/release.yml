@@ -1,0 +1,161 @@
+# On a version tag: builds the app for macOS, Linux and Windows and uploads the archives, with their
+# checksums, to a DRAFT release. Nothing here needs a secret. The macOS bundle built here is signed
+# ad hoc and named "unsigned": the notarised one is made on a Mac by scripts/release.sh and added to
+# the same draft. Publishing the draft is a person's decision.
+name: release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: "1.99.1"
+  NODE_VERSION: "24"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  prepare:
+    name: validate release metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The tag, the manifest and the changelog agree
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          python3 scripts/release_metadata.py version Cargo.toml "$version"
+          python3 scripts/release_metadata.py notes CHANGELOG.md "$version" > "$RUNNER_TEMP/notes.md"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/notes.md
+          if-no-files-found: error
+          retention-days: 7
+
+  build:
+    name: build (${{ matrix.name }})
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-15
+          - name: Linux
+            os: ubuntu-24.04
+          - name: Windows
+            os: windows-2025
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Libraries the window toolkit builds against (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang cmake pkg-config \
+            libasound2-dev libfontconfig-dev libfreetype-dev libssl-dev libzstd-dev \
+            libwayland-dev libx11-dev libx11-xcb-dev libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev
+
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+
+      # The archives carry the engine's own dependencies when the tree carries the engine.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      - name: Bundle for both Mac architectures
+        if: runner.os == 'macOS'
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          SAKURA_UNIVERSAL=1 scripts/bundle-macos.sh
+          python3 scripts/release_metadata.py bundle target/bundle/Sakura.app/Contents/Info.plist "$VERSION"
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent target/bundle/Sakura.app "dist/Sakura-$VERSION-macos-unsigned.zip"
+
+      - name: Tarball
+        if: runner.os == 'Linux'
+        run: |
+          python3 scripts/build.py --release --locked -p sakura-app
+          python3 scripts/package.py linux "$VERSION" target/release/sakura dist
+
+      - name: Zip
+        if: runner.os == 'Windows'
+        run: |
+          python3 scripts/build.py --release --locked -p sakura-app
+          python3 scripts/package.py windows "$VERSION" target/release/sakura.exe dist
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: archive-${{ runner.os }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  upload:
+    name: upload draft assets
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: archive-*
+          path: archives
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-notes
+          path: metadata
+      - name: SHA-256 of the archives
+        run: (cd archives && sha256sum -- *) > SHA256SUMS
+      - name: Upload to the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            draft="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+            test "$draft" = true || { echo 'Refusing to modify a published release' >&2; exit 1; }
+          else
+            prerelease=()
+            case "$GITHUB_REF_NAME" in *-*) prerelease=(--prerelease) ;; esac
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+              --title "Sakura $VERSION" --notes-file metadata/notes.md \
+              ${prerelease[@]+"${prerelease[@]}"}
+          fi
+          shopt -s nullglob
+          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber archives/*.zip archives/*.tar.gz SHA256SUMS

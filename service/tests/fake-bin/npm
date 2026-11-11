@@ -1,0 +1,20 @@
+#!/bin/bash
+# Test stand-in for npm. "install --prefix <dir> ... <package>@<version>" is recorded in
+# FAKE_NPM_LOG and puts the fake ACP adapter where the real package would put its command.
+# FAKE_NPM_FAIL=1 makes the install fail; FAKE_NPM_DELAY makes it take that many seconds;
+# FAKE_NPM_ADAPTER names another script to install as the adapter.
+echo "$*" >>"${FAKE_NPM_LOG:-/dev/null}"
+# FAKE_NPM_ENV_LOG: the folder it was started in, then its whole environment.
+if [ -n "${FAKE_NPM_ENV_LOG:-}" ]; then { echo "cwd=$PWD"; env; } >"$FAKE_NPM_ENV_LOG"; fi
+[ "${1:-}" = "install" ] || exit 0
+prefix=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--prefix" ]; then prefix="$2"; fi
+  shift
+done
+[ -n "$prefix" ] || exit 2
+sleep "${FAKE_NPM_DELAY:-0}"
+if [ "${FAKE_NPM_FAIL:-0}" = "1" ]; then echo "npm error: the registry is not reachable" >&2; exit 1; fi
+mkdir -p "$prefix/node_modules/.bin"
+cp "${FAKE_NPM_ADAPTER:-$(dirname "$0")/claude-agent-acp}" "$prefix/node_modules/.bin/claude-agent-acp"
+chmod +x "$prefix/node_modules/.bin/claude-agent-acp"

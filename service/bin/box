@@ -1,0 +1,211 @@
+#!/bin/bash
+# box: confined, limited workspaces for coding agents. See README.md.
+set -eo pipefail
+
+# The service and app share the platform's application data folder.
+if [ -z "${AGENTBOX_HOME:-}" ]; then
+  case "${OSTYPE:-}" in
+    darwin*) AGENTBOX_HOME="${HOME:-/nonexistent}/Library/Application Support/Sakura" ;;
+    *) AGENTBOX_HOME="${XDG_DATA_HOME:-${HOME:-/nonexistent}/.local/share}/sakura" ;;
+  esac
+fi
+
+
+# The first thing box does, before it starts any program: it rebuilds PATH from the entries it
+# can trust. box finds its programs (git, sed, jq, perl, stat and the rest) by name, and it works
+# in folders an agent writes: with "." or another relative entry in PATH, or with a folder of
+# the data directory in it, a file of a worktree that happens to be called sed would run in the
+# place of sed, as soon as box stands in that worktree or is started from it. So only absolute
+# entries are kept, resolved to the folder they really are, outside the data directory of box,
+# and not writable by everybody. "Outside the data directory" is decided by what a folder is,
+# not by how its path is spelled: the device and inode of the entry and of every folder above it
+# are compared with those of the data directory and of the folders directly in it (a part of it
+# can be a link to another disk). A spelling in another letter case, or through a link or a
+# mount, names the same folder and is left out the same.
+# What the person runs through box (the commands of a project, the agent, their shell) gets the
+# PATH the person had: PERSON_PATH.
+# Only what bash has built in is used here, and stat by its absolute path, once.
+readonly PERSON_PATH="${PATH:-}"
+readonly DEFAULT_PATH=/usr/bin:/bin:/usr/sbin:/sbin
+# "<device>:<inode> <mode>" of a file: the stat of macOS and the BSDs takes -f and its own
+# letters, the stat of Linux -c and others. /usr/bin/stat is the system's own on both.
+case "$(/usr/bin/uname -s)" in
+  Darwin | *BSD) readonly STAT_IDENTITY_MODE=(-f '%d:%i %Lp') ;;
+  *) readonly STAT_IDENTITY_MODE=(-c '%d:%i %a') ;;
+esac
+
+# Adds the data directory and the folders directly in it to PATHS.
+add_data_directories() {
+  local home="${AGENTBOX_HOME:-${HOME:-/nonexistent}/agentbox-home}" child
+  [ -d "$home" ] || return 0
+  PATHS+=("$home")
+  for child in "$home"/*/; do
+    if [ -d "$child" ]; then PATHS+=("$child"); fi
+  done
+}
+
+# add_with_ancestors <physical folder>: adds the folder and every folder above it to PATHS, and
+# how many they are to COUNTS.
+add_with_ancestors() {
+  local dir="$1" count=0
+  while :; do
+    PATHS+=("$dir")
+    count=$((count + 1))
+    [ "$dir" != "/" ] || break
+    dir="${dir%/*}"
+    dir="${dir:-/}"
+  done
+  COUNTS+=("$count")
+}
+
+# trusted_entries <number of data directories>: the entries of PATHS that are kept, joined with
+# colons. LINES holds "device:inode mode" for each of PATHS, in the same order: the data
+# directories first, then each entry followed by the folders above it.
+trusted_entries() {
+  local offset="$1" data=" " index group inside result=""
+  for ((index = 0; index < offset; index++)); do data="$data${LINES[index]%% *} "; done
+  for group in "${COUNTS[@]}"; do
+    inside=0
+    for ((index = offset; index < offset + group; index++)); do
+      if [[ "$data" == *" ${LINES[index]%% *} "* ]]; then inside=1; fi
+    done
+    if [ "$inside" -eq 0 ] && [ $(( 8#${LINES[offset]##* } & 2 )) -eq 0 ]; then
+      result="${result:+$result:}${PATHS[offset]}"
+    fi
+    offset=$((offset + group))
+  done
+  echo "$result"
+}
+
+# The PATH of box. When the folders cannot all be examined nothing of the person's PATH is
+# trusted and the PATH of the system is used.
+trusted_path() {
+  local entry physical line data_count result="" entries=() PATHS=() COUNTS=() LINES=()
+  add_data_directories
+  data_count="${#PATHS[@]}"
+  IFS=: read -r -a entries <<<"$PERSON_PATH"
+  for entry in ${entries[@]+"${entries[@]}"}; do
+    [[ "$entry" == /* ]] || continue
+    physical="$(cd -P "$entry" 2>/dev/null && pwd -P)" || continue
+    add_with_ancestors "$physical"
+  done
+  if [ "${#COUNTS[@]}" -gt 0 ]; then
+    while IFS= read -r line; do LINES+=("$line"); done < <(/usr/bin/stat -L "${STAT_IDENTITY_MODE[@]}" "${PATHS[@]}" 2>/dev/null)
+    if [ "${#LINES[@]}" -eq "${#PATHS[@]}" ]; then result="$(trusted_entries "$data_count")"; fi
+  fi
+  echo "${result:-$DEFAULT_PATH}"
+}
+PATH="$(trusted_path)"
+export PATH
+
+# Resolve the repository root through symlinks (macOS readlink has no -f).
+resolve_root() {
+  local source="${BASH_SOURCE[0]}" dir
+  while [ -L "$source" ]; do
+    dir="$(cd "$(dirname "$source")" && pwd)"
+    source="$(readlink "$source")"
+    [[ "$source" == /* ]] || source="$dir/$source"
+  done
+  cd "$(dirname "$source")/.." && pwd
+}
+
+BOX_ROOT="$(resolve_root)"
+readonly BOX_ROOT
+
+for lib in common names docker project project_detect project_admin sandbox accounts native native_commands native_read native_checks native_shell journal task request checks factscache cancel launchd runner status report session agent acp native_acp play read up; do
+  # shellcheck disable=SC1090
+  . "$BOX_ROOT/lib/$lib.sh"
+done
+
+usage() {
+  cat <<'USAGE'
+usage: box <command>
+  up                              build the image if missing, start the network and the proxy
+  project detect <path> --json    propose a project from a folder of a repository (writes nothing)
+  project add <name> --repo <path> [--subdir <dir>] [--base <branch>] [--install <cmd>]
+              [--check verb=command]... [--protected <globs>] [--test-files <globs>]
+              [--safe-outside <globs>]
+  project set <name> [options]    change fields of a project; project rm <name> removes it
+  projects --json                 every project
+  branches <project> --json       the branches of a project's repository a lavoro can start from
+  new <task> <project> [--base <branch>] [--where mac|box]
+                                  a new lavoro: on the Mac a worktree of the project's repository, in a box
+                                  a clone with its dependencies (the project names the default place)
+  run <task> -- <command...>      one-off container with the workspace
+  login <account>                 log in a CLI account once (stored in its own volume)
+  agent <task> <account> [args]   claude in the workspace with an account
+  acp <task> [<account>]          the conversation of a task over ACP, on stdin and stdout: the adapter in
+                                  the box with an account of the boxes, or natively in the worktree of a
+                                  lavoro on the Mac with one of the person's logins (default: the project's)
+  play <task> start|stop|status [--json]
+                                  the run command of the project for a lavoro on the Mac, with its ports;
+                                  play <task> log shows the end of its output
+  verify <task> <verb>            queue a heavy check for the runner and wait
+  cancel <task> <verb>            cancel a queued or running check (exit 78: nothing to cancel)
+  runner [--once|--daemon|--stop]  the loop that runs queued checks, one at a time
+  runner --install|--uninstall    start the runner at login (LaunchAgent) or stop doing so
+  tasks --json                    name, profile, base and taken of every task (no container)
+  status [--json]                 tasks, containers, queue and last results
+  facts <task> --json             one task of status --json
+  log <task> [--json]             the commits of a task after its base
+  diff <task> [--commit <sha>]    the patch of a task against its base, or of one of its commits
+  tree <task> [--path <dir>] [--all] --json
+                                  one directory level of a task: name, kind, what differs from the base
+  file <task> <path> [--at <sha>] the bytes of one file of a task (at most 2 MiB)
+  search <task> <text> --json     the files of a task whose name has the text
+  graph <project or task> --json [--limit <n>]
+                                  the commits of the base branch and of the lavori, to draw
+  result-log <task> <verb>        the end of the log of the last result of a check
+  journal                         what happened, newest last
+  accounts --json                 the accounts of the boxes (and whether each is logged in) and of the Mac
+  attach <task>                   the terminal of the agent of a box
+  stop <task>                     end the agent or the conversation of a task
+  shell <task>                    a terminal for a task: the person's own login shell in the folder of a
+                                  lavoro on the Mac (not confined), a shell in a one-off container of a box
+  take <task>                     fetch the task branch into the source repository
+  rm <task> [--force]             remove a task (refuses while work is not taken)
+USAGE
+}
+
+main() {
+  local command="${1:-}"
+  [ "$#" -gt 0 ] && shift
+  import_shipped_projects
+  ensure_config
+  case "$command" in
+    up) cmd_up "$@" ;;
+    new) cmd_new "$@" ;;
+    run) cmd_run "$@" ;;
+    login) cmd_login "$@" ;;
+    agent) cmd_agent "$@" ;;
+    acp) cmd_acp "$@" ;;
+    play) cmd_play "$@" ;;
+    tree) cmd_tree "$@" ;;
+    file) cmd_file "$@" ;;
+    search) cmd_search "$@" ;;
+    graph) cmd_graph "$@" ;;
+    verify) cmd_verify "$@" ;;
+    cancel) cmd_cancel "$@" ;;
+    runner) cmd_runner "$@" ;;
+    status) if [ "${1:-}" = "--json" ]; then shift; cmd_status_json "$@"; else cmd_status "$@"; fi ;;
+    facts) cmd_facts "$@" ;;
+    diff) cmd_diff "$@" ;;
+    log) cmd_log "$@" ;;
+    result-log) cmd_result_log "$@" ;;
+    journal) cmd_journal "$@" ;;
+    profiles | projects) cmd_projects "$@" ;;
+    project) cmd_project "$@" ;;
+    branches) cmd_branches "$@" ;;
+    tasks) cmd_tasks "$@" ;;
+    accounts) cmd_accounts "$@" ;;
+    attach) cmd_attach "$@" ;;
+    stop) cmd_stop "$@" ;;
+    shell) cmd_shell "$@" ;;
+    take) cmd_take "$@" ;;
+    rm) cmd_rm "$@" ;;
+    ""|-h|--help|help) usage ;;
+    *) usage >&2; exit 2 ;;
+  esac
+}
+
+main "$@"

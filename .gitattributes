@@ -1,0 +1,5 @@
+# The service is a set of shell scripts run by bash, on Windows under WSL: line endings stay LF everywhere.
+* text=auto eol=lf
+*.png binary
+*.icns binary
+*.otf binary
