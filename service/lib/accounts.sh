@@ -45,11 +45,13 @@ mac_accounts() {
 
 # Prints the config directory of an account of the Mac; fails when the config does not name it.
 mac_account_directory() {
-  local name path
+  local name path found=""
+  # The whole list is read: leaving at the first match closes the pipe under its writer.
   while IFS=$'\t' read -r name path; do
-    if [ "$name" = "$1" ]; then echo "$path"; return 0; fi
+    if [ "$name" = "$1" ] && [ -z "$found" ]; then found="$path"; fi
   done < <(mac_accounts)
-  return 1
+  [ -n "$found" ] || return 1
+  echo "$found"
 }
 
 # The accounts of the Mac as the elements of box accounts --json: the name and whether the

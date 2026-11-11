@@ -485,6 +485,7 @@ esac"#
         rig.core.runner_end();
     }
 
+    #[cfg_attr(windows, ignore = "Unix shell fixture")]
     #[tokio::test]
     async fn status_parses_the_fixture() {
         let rig = rig("");
