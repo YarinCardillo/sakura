@@ -10,7 +10,7 @@ readonly PLAY_IN_BOX_EXIT=81
 REPO="$TMP/repo"
 git clone -q "$SOURCE" "$REPO"
 # A run command that says what it was given, starts a child of its own and stays.
-RUN_COMMAND="echo \"play of \$SAKURA_LAVORO on \$SAKURA_PORT and \$CONDUCTOR_PORT in \$PWD\"; sh -c 'echo \$\$ >\"$TMP/\"'\$SAKURA_LAVORO'.child; exec sleep 300' & wait"
+RUN_COMMAND="echo \"play of \$SAKURA_TASK on \$SAKURA_PORT and \$CONDUCTOR_PORT in \$PWD\"; sh -c 'echo \$\$ >\"$TMP/\"'\$SAKURA_TASK'.child; exec sleep 300' & wait"
 
 is_alive() {
   ps -p "$1" -o pid= 2>/dev/null | wc -l | tr -d ' '

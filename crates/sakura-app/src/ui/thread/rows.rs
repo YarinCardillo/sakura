@@ -16,7 +16,7 @@ use gpui_component::message_scroller::MessageScroller;
 use gpui_component::shimmer::ShimmerText;
 use gpui_component::text::TextView;
 use sakura_acp::model::{PlanEntry, PlanStatus};
-use sakura_acp::thread::{Entry, EntryKind, Message, Problem};
+use sakura_acp::thread::{Entry, EntryKind, Message, Problem, ProblemKind};
 
 /// A one-line row: a glyph, then what follows it.
 pub(super) fn line_row() -> Div {
@@ -239,6 +239,14 @@ impl ThreadView {
         palette: &Palette,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        if problem.kind == ProblemKind::Stopped {
+            // A stop is no failure: one quiet line, with no mark.
+            let stopped = text(theme::TEXT_SMALL, palette.text_tertiary)
+                .debug_selector(|| "thread-stopped".to_string())
+                .child(tr(copy::problem_sentence(problem.kind)));
+            let line = line_row().pl(tokens::LINE_ROW_INDENT).child(stopped);
+            return div().w_full().child(line).into_any_element();
+        }
         let sentence = line_row().child(glyphs::problem(palette.danger)).child(
             text(theme::TEXT_SMALL, palette.text)
                 .debug_selector(|| "thread-problem-sentence".to_string())

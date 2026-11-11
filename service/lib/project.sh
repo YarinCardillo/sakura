@@ -430,7 +430,8 @@ task_base_branch() {
 
 # A task keeps the project values it was created with (its checks, protected paths, commands):
 # they are copied beside its record when it is created and read from there ever after, so a
-# later box project set changes what new tasks get, never what an existing task runs or reports.
+# later box project set changes what new tasks get. Native Play separately refreshes only
+# RUN, PORTS and RUN_MODE; checks and other task commands retain their snapshot.
 task_project_snapshot() {
   echo "$TASKS_DIR/$1.project"
 }

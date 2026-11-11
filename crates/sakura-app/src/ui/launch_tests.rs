@@ -517,7 +517,7 @@ fn at_the_narrowest_window_a_row_with_trust_notes_keeps_its_action_and_its_notes
         crate::theme::WINDOW_MIN_WIDTH,
         crate::theme::WINDOW_MIN_HEIGHT,
     ));
-    // The header is at rest before anything in it is pressed: the count on "Modifiche" leaves when the
+    // The header is at rest before anything in it is pressed: the count on "Changes" leaves when the
     // patch is read (this `box` has no changes), and the tabs after it move then.
     wait_for(cx, "the changes to be read", |cx| {
         desk.read_with(cx, |desk, cx| {

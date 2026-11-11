@@ -26,11 +26,11 @@ fn fixture_lists_every_file_in_order() {
     assert_eq!(
         paths(&patch),
         vec![
-            "src/lib/library/scope.ts",
-            "src/lib/library/visible.ts",
+            "src/lib/catalogs/scope.ts",
+            "src/lib/catalogs/visible.ts",
             "docs/archive/old.md",
-            "src/components/library/ItemPicker.tsx",
-            "src/components/library/old-picker.tsx",
+            "src/components/catalogs/ItemPicker.tsx",
+            "src/components/catalogs/old-picker.tsx",
             "public/img/cover.png",
             "src/generated/api-contract.json",
             "scripts/build.sh",
@@ -44,7 +44,7 @@ fn fixture_lists_every_file_in_order() {
 #[test]
 fn modified_file_counts_lines_and_numbers_both_sides() {
     let patch = Patch::parse(FIXTURE);
-    let scope = file(&patch, "src/lib/library/scope.ts");
+    let scope = file(&patch, "src/lib/catalogs/scope.ts");
     assert_eq!(scope.change, Change::Modified);
     assert_eq!((scope.added, scope.removed), (3, 1));
     assert_eq!(scope.hunks.len(), 2);
@@ -67,7 +67,7 @@ fn modified_file_counts_lines_and_numbers_both_sides() {
 #[test]
 fn hunk_header_keeps_the_scope_git_reports() {
     let patch = Patch::parse(FIXTURE);
-    let scope = file(&patch, "src/lib/library/scope.ts");
+    let scope = file(&patch, "src/lib/catalogs/scope.ts");
     assert_eq!(
         scope.hunks[1].header,
         "@@ -12,5 +12,7 @@ export function scopeLabel(scope: LibraryScope): string {"
@@ -79,11 +79,11 @@ fn hunk_header_keeps_the_scope_git_reports() {
 #[test]
 fn rename_with_changes_keeps_the_previous_path() {
     let patch = Patch::parse(FIXTURE);
-    let renamed = file(&patch, "src/lib/library/visible.ts");
+    let renamed = file(&patch, "src/lib/catalogs/visible.ts");
     assert_eq!(renamed.change, Change::Renamed);
     assert_eq!(
         renamed.previous_path.as_deref(),
-        Some("src/lib/library/visibility.ts")
+        Some("src/lib/catalogs/visibility.ts")
     );
     assert_eq!((renamed.added, renamed.removed), (1, 1));
 }
@@ -101,7 +101,7 @@ fn rename_without_changes_has_no_hunks() {
 #[test]
 fn new_file_counts_its_lines_and_keeps_the_no_newline_note() {
     let patch = Patch::parse(FIXTURE);
-    let new = file(&patch, "src/components/library/ItemPicker.tsx");
+    let new = file(&patch, "src/components/catalogs/ItemPicker.tsx");
     assert_eq!(new.change, Change::New);
     assert_eq!((new.added, new.removed), (14, 0));
     let last = new.hunks[0]
@@ -115,7 +115,7 @@ fn new_file_counts_its_lines_and_keeps_the_no_newline_note() {
 #[test]
 fn deleted_file_takes_its_old_path() {
     let patch = Patch::parse(FIXTURE);
-    let deleted = file(&patch, "src/components/library/old-picker.tsx");
+    let deleted = file(&patch, "src/components/catalogs/old-picker.tsx");
     assert_eq!(deleted.change, Change::Deleted);
     assert_eq!((deleted.added, deleted.removed), (0, 6));
     assert_eq!(deleted.hunks[0].lines[5].old, Some(6));
@@ -199,7 +199,7 @@ fn crlf_content_is_shown_without_carriage_returns() {
     let patch = Patch::parse(FIXTURE);
     let ini = file(&patch, "config/windows.ini");
     let texts: Vec<&str> = ini.hunks[0].lines.iter().map(|l| l.text.as_str()).collect();
-    assert_eq!(texts, vec!["[library]", "scope=mine", "scope=all"]);
+    assert_eq!(texts, vec!["[catalogs]", "scope=mine", "scope=all"]);
 }
 
 #[test]
@@ -207,7 +207,7 @@ fn whole_patch_in_crlf_parses_like_lf() {
     let patch = Patch::parse(&FIXTURE.replace('\n', "\r\n"));
     assert_eq!(patch.files.len(), 10);
     assert!(patch.is_complete);
-    assert_eq!(file(&patch, "src/lib/library/scope.ts").added, 3);
+    assert_eq!(file(&patch, "src/lib/catalogs/scope.ts").added, 3);
 }
 
 #[test]
@@ -305,8 +305,8 @@ fn totals_add_every_file() {
 #[test]
 fn directory_and_name_split_at_the_last_slash() {
     let patch = Patch::parse(FIXTURE);
-    let scope = file(&patch, "src/lib/library/scope.ts");
-    assert_eq!(scope.directory(), "src/lib/library/");
+    let scope = file(&patch, "src/lib/catalogs/scope.ts");
+    assert_eq!(scope.directory(), "src/lib/catalogs/");
     assert_eq!(scope.file_name(), "scope.ts");
     let top = FilePatch::named("README.md");
     assert_eq!((top.directory(), top.file_name()), ("", "README.md"));

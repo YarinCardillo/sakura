@@ -1,4 +1,4 @@
-//! The changes of a task: the review list beside the agent and in the Modifiche view, its rows, headers and
+//! The changes of a task: the review list beside the agent and in the Changes view, its rows, headers and
 //! code lines, and the sentences it shows when there is nothing to list.
 
 mod code_line;

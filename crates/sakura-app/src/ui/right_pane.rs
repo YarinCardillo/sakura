@@ -25,9 +25,9 @@ pub enum PaneView {
     Files,
     /// The diffs of the lavoro.
     #[default]
-    Modifiche,
+    Changes,
     /// Its checks and their results.
-    Verifiche,
+    Checks,
     /// The commits of the lavoro's project: the base and every lavoro's branch.
     Git,
     /// The run command of the lavoro's project: where it stands and what it wrote.
@@ -38,8 +38,8 @@ impl PaneView {
     /// All views in the order of the row.
     pub const ALL: [PaneView; 5] = [
         PaneView::Files,
-        PaneView::Modifiche,
-        PaneView::Verifiche,
+        PaneView::Changes,
+        PaneView::Checks,
         PaneView::Git,
         PaneView::Play,
     ];
@@ -48,8 +48,8 @@ impl PaneView {
     pub fn id(self) -> &'static str {
         match self {
             PaneView::Files => "files",
-            PaneView::Modifiche => "changes",
-            PaneView::Verifiche => "checks",
+            PaneView::Changes => "changes",
+            PaneView::Checks => "checks",
             PaneView::Git => "git",
             PaneView::Play => "play",
         }
@@ -60,8 +60,8 @@ impl PaneView {
     pub fn named(name: &str) -> Option<PaneView> {
         match name {
             "files" => Some(PaneView::Files),
-            "changes" | "modifiche" => Some(PaneView::Modifiche),
-            "checks" | "verifiche" => Some(PaneView::Verifiche),
+            "changes" | "modifiche" => Some(PaneView::Changes),
+            "checks" | "verifiche" => Some(PaneView::Checks),
             "git" => Some(PaneView::Git),
             "play" => Some(PaneView::Play),
             _ => None,
@@ -72,8 +72,8 @@ impl PaneView {
     pub fn label(self) -> &'static str {
         match self {
             PaneView::Files => tr(Key("view.files")),
-            PaneView::Modifiche => tr(Key("view.changes")),
-            PaneView::Verifiche => tr(Key("view.checks")),
+            PaneView::Changes => tr(Key("view.changes")),
+            PaneView::Checks => tr(Key("view.checks")),
             PaneView::Git => tr(Key("view.git")),
             PaneView::Play => tr(Key("play.start")),
         }
@@ -213,11 +213,11 @@ fn counted(view: PaneView, facts: &PaneFacts, palette: &Palette) -> Option<Count
         return None;
     }
     let (selector, number, colour) = match view {
-        PaneView::Modifiche => {
+        PaneView::Changes => {
             let files = model::changed_files(facts.task, facts.listed_files)?;
             ("pane-count-changes", files, palette.text_tertiary)
         }
-        PaneView::Verifiche => {
+        PaneView::Checks => {
             let failed = model::failed_checks(facts.task)?;
             ("pane-count-checks", failed, palette.danger)
         }
@@ -257,7 +257,7 @@ mod tests {
             assert_eq!(PaneView::named(view.id()), Some(view));
         }
         let older = PaneView::named("verifiche");
-        assert_eq!(older, Some(PaneView::Verifiche), "the scripts' older name");
+        assert_eq!(older, Some(PaneView::Checks), "the scripts' older name");
         assert_eq!(PaneView::named("Checks"), None, "never by a label");
     }
 }

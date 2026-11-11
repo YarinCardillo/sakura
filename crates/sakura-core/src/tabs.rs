@@ -169,7 +169,7 @@ impl Tabs {
         true
     }
 
-    /// "Chiudi le altre schede": keeps the tab `id` only, and shows it. False when nothing closed.
+    /// "Close other tabs": keeps the tab `id` only, and shows it. False when nothing closed.
     pub fn close_others(&mut self, id: TabId) -> bool {
         if self.index_of(id).is_none() || self.tabs.len() == 1 {
             return false;

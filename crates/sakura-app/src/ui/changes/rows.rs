@@ -219,7 +219,7 @@ mod tests {
     #[test]
     fn an_open_file_shows_its_hunks_and_lines_in_place() {
         let patch = patch();
-        let rows = rows(&patch, |path| path == "src/lib/library/scope.ts");
+        let rows = rows(&patch, |path| path == "src/lib/catalogs/scope.ts");
         let scope = &patch.files[0];
         assert_eq!(
             rows.len(),
@@ -269,7 +269,7 @@ mod tests {
             sentence("docs/archive/old.md"),
             "Spostato da docs/notes/old.md senza modifiche."
         );
-        assert_eq!(note(file(&patch, "src/lib/library/scope.ts")), None);
+        assert_eq!(note(file(&patch, "src/lib/catalogs/scope.ts")), None);
     }
 
     #[test]
@@ -277,13 +277,16 @@ mod tests {
         crate::l10n::set_for_test(crate::l10n::Language::Italian);
         let patch = patch();
         let word = |path| change_word(file(&patch, path));
-        assert_eq!(word("src/components/library/ItemPicker.tsx"), Some("Nuovo"));
         assert_eq!(
-            word("src/components/library/old-picker.tsx"),
+            word("src/components/catalogs/ItemPicker.tsx"),
+            Some("Nuovo")
+        );
+        assert_eq!(
+            word("src/components/catalogs/old-picker.tsx"),
             Some("Eliminato")
         );
-        assert_eq!(word("src/lib/library/visible.ts"), Some("Rinominato"));
-        assert_eq!(word("src/lib/library/scope.ts"), None);
+        assert_eq!(word("src/lib/catalogs/visible.ts"), Some("Rinominato"));
+        assert_eq!(word("src/lib/catalogs/scope.ts"), None);
     }
 
     #[test]
@@ -362,7 +365,7 @@ mod tests {
             heights: &open_heights,
         };
         let anchor = anchor_at(laid, &patch, top).unwrap();
-        assert_eq!(anchor.path, "src/components/library/ItemPicker.tsx");
+        assert_eq!(anchor.path, "src/components/catalogs/ItemPicker.tsx");
         let first_closed = rows(&patch, |path| path != patch.files[0].path);
         let closed_heights = heights(&first_closed);
         let relaid = Laid {

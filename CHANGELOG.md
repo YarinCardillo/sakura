@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0
+## 0.1.0 - 2026-11-11
 
 - First release under the name Sakura.
 - One window for every task of your coding agents: the conversation, the changed files and their diffs, the files and the history of the task, a terminal, and the project's checks.

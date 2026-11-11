@@ -98,7 +98,7 @@ mod tests {
         });
         click(cx, "row-sample-accent");
         desk.update(cx, |desk, cx| {
-            desk.show_pane_view(FIRST, PaneView::Verifiche, cx)
+            desk.show_pane_view(FIRST, PaneView::Checks, cx)
         });
         draw(cx);
         let kept = cx.update(|_, cx| Preferences::current(cx).pane_views);

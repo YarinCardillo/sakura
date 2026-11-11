@@ -376,7 +376,8 @@ fn the_header_and_the_sidebars_first_line_share_one_centre_line() {
                 assert_near(centre_y(bounds(cx, selector)), line, selector);
             }
             if panes != Panes::NoSidebar {
-                let label = bounds(cx, "group-review");
+                // What is at work is listed before what is to review: its label is the first line.
+                let label = bounds(cx, "group-working");
                 assert_near(centre_y(label), line, "the sidebar's first line");
             }
         });

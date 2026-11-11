@@ -93,7 +93,7 @@ fn bounds(cx: &mut VisualTestContext, selector: &'static str) -> Bounds<Pixels> 
     super::grid_tests::bounds(cx, selector)
 }
 
-/// Opens the window on a `box` with one commit ahead and shows "Modifiche" with its commit menu's trigger.
+/// Opens the window on a `box` with one commit ahead and shows "Changes" with its commit menu's trigger.
 fn open_modifiche(cx: &mut TestAppContext) -> (&mut VisualTestContext, tempfile::TempDir) {
     let (dir, script) = fake_agentbox(Names::Listed, "0", LOG);
     let commit = serde_json::json!([{

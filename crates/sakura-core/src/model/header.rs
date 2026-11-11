@@ -10,7 +10,7 @@ pub fn has_something_to_take(task: &Task) -> bool {
     !matches!(take_rule(task), TakeRule::Disabled { .. })
 }
 
-/// The figure beside "Modifiche", when there is a file to count: the files the view lists, once the whole
+/// The figure beside "Changes", when there is a file to count: the files the view lists, once the whole
 /// patch of every change was read (`listed`; it counts the files not committed yet, which `box` leaves
 /// out of its own figure), else the files `box` counted in the commits.
 pub fn changed_files(task: &Task, listed: Option<usize>) -> Option<u32> {
@@ -21,7 +21,7 @@ pub fn changed_files(task: &Task, listed: Option<usize>) -> Option<u32> {
     files.filter(|files| *files > 0)
 }
 
-/// How many checks failed on HEAD, when at least one did: the figure beside "Verifiche". The task's state
+/// How many checks failed on HEAD, when at least one did: the figure beside "Checks". The task's state
 /// is said once, beside its name; the tab only counts.
 pub fn failed_checks(task: &Task) -> Option<u32> {
     let failed = task

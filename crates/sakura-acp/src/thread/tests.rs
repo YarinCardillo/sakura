@@ -186,12 +186,7 @@ fn diff_content_replaces_the_content_of_its_call() {
         patch,
     });
     let thread = thread_after(vec![
-        declared(
-            "edit",
-            "Modifica a.rs",
-            ToolKind::Edit,
-            ToolStatus::InProgress,
-        ),
+        declared("edit", "Edit a.rs", ToolKind::Edit, ToolStatus::InProgress),
         with_content("edit", vec![ToolContent::text("working")]),
         with_content("edit", vec![diff.clone()]),
     ]);
@@ -358,10 +353,13 @@ fn cancel_marks_unfinished_calls_and_open_questions_at_once_and_keeps_finished_o
     );
     thread.apply(ThreadEvent::TurnEnded(StopReason::Cancelled));
     assert_eq!(thread.turn(), Turn::Idle);
+    let Some(EntryKind::Problem(stop)) = thread.entries().last().map(|entry| &entry.kind) else {
+        panic!("the line of the stop");
+    };
     assert_eq!(
-        kinds(&thread).last(),
-        Some(&"assistant"),
-        "a cancel is not a problem"
+        stop.kind,
+        ProblemKind::Stopped,
+        "a stop is said where the turn ended, and is no failure"
     );
 }
 
@@ -462,6 +460,77 @@ fn stop_reasons_other_than_end_and_cancel_are_said() {
 }
 
 #[test]
+fn a_replayed_message_that_ends_its_turn_with_kept_words_is_the_refusal_again() {
+    let words = "API Error: unable to respond to this request (request req_011)";
+    let mut thread = Thread::new();
+    thread.replay(vec![
+        Update::UserText("first".into()),
+        Update::AgentText(words.into()),
+        Update::UserText("second".into()),
+        Update::AgentText(words.into()),
+        Update::Thought("thinking".into()),
+        Update::AgentText("Done".into()),
+    ]);
+    thread.take_changes();
+    thread.mark_refusals(&[words.to_string()]);
+    assert_eq!(
+        kinds(&thread),
+        ["user", "problem", "user", "assistant", "thought", "assistant"],
+        "only the message that ended its turn: the same words in the middle of a turn are an answer"
+    );
+    let EntryKind::Problem(problem) = &thread.entries()[1].kind else {
+        panic!("a problem");
+    };
+    assert_eq!(problem.kind, ProblemKind::Refusal);
+    assert_eq!(problem.detail, words);
+    assert!(thread.entries()[1].is_replayed);
+    assert!(
+        thread.take_changes().is_reset,
+        "drawn again from its entries"
+    );
+    thread.mark_refusals(&["other words".to_string()]);
+    assert!(
+        !thread.take_changes().is_reset,
+        "nothing kept, nothing changed"
+    );
+}
+
+#[test]
+fn a_turn_the_person_stopped_leaves_one_line_live_and_when_it_is_replayed() {
+    let mut thread = thread_after(vec![
+        ThreadEvent::Prompted("x".into()),
+        agent("comincio"),
+        ThreadEvent::CancelRequested,
+        ThreadEvent::TurnEnded(StopReason::Cancelled),
+    ]);
+    assert_eq!(kinds(&thread), ["user", "assistant", "problem"]);
+    let EntryKind::Problem(problem) = &thread.entries()[2].kind else {
+        panic!("a line");
+    };
+    assert_eq!(problem.kind, ProblemKind::Stopped);
+    thread.replay(vec![
+        Update::UserText("x".into()),
+        Update::AgentText("comincio".into()),
+        Update::UserText("[Request interrupted by user]".into()),
+        Update::UserText("again".into()),
+    ]);
+    assert_eq!(
+        kinds(&thread),
+        ["user", "assistant", "problem", "user"],
+        "the adapter's words for a stop are the line of a stop, not a message of the person"
+    );
+    let ended_without_a_stop = thread_after(vec![
+        ThreadEvent::Prompted("x".into()),
+        ThreadEvent::TurnEnded(StopReason::Cancelled),
+    ]);
+    assert_eq!(
+        kinds(&ended_without_a_stop),
+        ["user"],
+        "nobody asked to stop"
+    );
+}
+
+#[test]
 fn refusal_keeps_the_providers_words_as_its_detail_and_not_as_an_answer() {
     let words = "API Error: unable to respond to this request (request req_011, see https://example.com/aup)";
     let mut thread = thread_after(vec![
@@ -552,7 +621,7 @@ fn tool_text_over_the_limit_is_cut_on_a_character_boundary_and_says_so() {
 #[test]
 fn permission_keeps_the_subject_it_was_asked_with_when_the_call_changes_under_it() {
     let asked_about = ToolCallFields {
-        title: Some("Esegui i test".into()),
+        title: Some("Run the tests".into()),
         kind: Some(ToolKind::Execute),
         raw_input: Some(json!({ "command": "curl example.com" })),
         ..fields("run")
@@ -619,7 +688,7 @@ fn text_past_the_byte_limit_is_not_kept_and_the_thread_says_once_that_it_is_full
     assert!(held <= 64, "{held} bytes of text were kept");
     assert_eq!(full_notes(&thread), 1);
     thread.take_changes();
-    thread.apply(agent("ancora"));
+    thread.apply(agent("again"));
     thread.apply(declared(
         "late",
         "Tardi",

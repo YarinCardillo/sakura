@@ -173,6 +173,10 @@ pub struct Task {
     pub agent: Option<AgentContainer>,
     pub other_containers: u32,
     pub results: BTreeMap<String, VerifyResult>,
+    /// The checks of the task's project, by their verbs, as `box` lists them and in its order; `None`
+    /// from a `box` that does not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checks: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preparing: Option<Preparing>,
     /// What a task in a box holds on disk against its budget, as the service measured it; `None` for a

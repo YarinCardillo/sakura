@@ -10,7 +10,7 @@ use gpui::{Entity, TestAppContext, VisualTestContext};
 use std::path::PathBuf;
 
 const FOLDER: &str = "/home/someone/demo-site";
-const DETECTED: &str = r#"{"repo":"/home/someone/demo-site","subdir":"","name":"demo-site","currentBranch":"main","defaultBranch":"main","branches":["main","dev"],"install":{"command":"npm ci","reason":"package-lock.json is in the folder"},"checks":[{"verb":"test","command":"npm test","reason":"package.json has a script named test"},{"verb":"lint","command":"npm run lint","reason":"package.json has a script named lint"}],"protected":[],"testFiles":[],"notes":[]}"#;
+const DETECTED: &str = r#"{"repo":"/home/someone/demo-site","subdir":"","name":"demo-site","currentBranch":"main","defaultBranch":"main","branches":["main","dev"],"install":{"command":"npm ci","reason":"package-lock.json is in the folder"},"checks":[{"verb":"test","command":"npm test","reason":"script \"test\" of package.json: vitest run"},{"verb":"lint","command":"npm run lint","reason":"script \"lint\" of package.json: eslint ."}],"protected":[],"testFiles":[],"notes":[]}"#;
 
 /// A `box` with no lavoro whose `projects` lists what `project add` added, and whose `project detect`
 /// does `detect` (a shell command).
@@ -149,6 +149,42 @@ fn a_folder_box_refuses_is_said_in_sakuras_words_with_its_line_under_details(
     );
     let listed = desk.read_with(cx, |desk, cx| desk.projects.read(cx).listed().clone());
     assert_eq!(listed, Listed::Loaded(Vec::new()), "and nothing was added");
+}
+
+#[gpui::test]
+fn a_reason_the_interface_has_no_sentence_for_waits_under_details(cx: &mut TestAppContext) {
+    let newer = r#"echo '{"repo":"/home/someone/demo-site","subdir":"","name":"demo-site","currentBranch":"main","defaultBranch":"main","branches":["main"],"install":{"command":"pnpm install","reason":"pnpm-lock.yaml was found by a newer service"},"checks":[{"verb":"test","command":"cargo test","reason":"Cargo.toml is in the folder"}],"protected":[],"testFiles":[],"notes":[]}'"#;
+    let (_dir, script) = empty_box(newer);
+    let (cx, _desk) = open(cx, script);
+    choose_the_folder(cx);
+    wait_for(cx, "what was recognised", |cx| {
+        is_on_screen(cx, "project-review")
+    });
+    assert!(
+        is_on_screen(cx, "project-reason"),
+        "each proposal says why in the interface's words"
+    );
+    assert!(
+        !is_on_screen(cx, "project-notes-text"),
+        "the service's own line waits"
+    );
+    click(cx, "project-notes");
+    assert!(is_on_screen(cx, "project-notes-text"), "under Details");
+}
+
+#[gpui::test]
+fn the_reasons_the_interface_knows_leave_nothing_under_details(cx: &mut TestAppContext) {
+    let (_dir, script) = empty_box(r#"cat "$d/detected.json""#);
+    let (cx, _desk) = open(cx, script);
+    choose_the_folder(cx);
+    wait_for(cx, "what was recognised", |cx| {
+        is_on_screen(cx, "project-review")
+    });
+    assert!(is_on_screen(cx, "project-reason"));
+    assert!(
+        !is_on_screen(cx, "project-notes"),
+        "every reason has its sentence: there is nothing to keep apart"
+    );
 }
 
 #[gpui::test]

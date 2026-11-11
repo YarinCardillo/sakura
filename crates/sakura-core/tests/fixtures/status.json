@@ -43,6 +43,7 @@
         "exitCode": null
       },
       "otherContainers": 0,
+      "checks": ["test", "rules"],
       "results": {
         "rules": {
           "sha": "1c3e5a7092b4d6f8e0a1c3e5a7092b4d6f8e0a1c",
@@ -86,6 +87,7 @@
         "exitCode": 0
       },
       "otherContainers": 0,
+      "checks": ["test", "rules"],
       "results": {
         "test": {
           "sha": "9b1e0c3a5d7f2468ace013579bdf02468ace1357",
@@ -144,6 +146,7 @@
       },
       "agent": null,
       "otherContainers": 0,
+      "checks": ["test", "rules"],
       "results": {
         "test": {
           "sha": "0a2c4e6f8b1d3f5a7c9e0b2d4f6a8c0e2b4d6f8a",
@@ -172,6 +175,7 @@
       "taken": null,
       "agent": null,
       "otherContainers": 0,
+      "checks": ["test", "rules"],
       "results": {}
     }
   ]

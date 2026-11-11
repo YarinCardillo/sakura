@@ -31,7 +31,7 @@ fn situation() -> Situation {
         tasks: vec!["m1".into(), "m2".into(), "m3".into()],
         shown: Some(ShownTask {
             name: "m1".into(),
-            view: PaneView::Modifiche,
+            view: PaneView::Changes,
             can_publish: true,
             can_archive: true,
             play: PlayState::Absent,

@@ -115,7 +115,7 @@ fn the_palette_lists_what_the_window_offers_now(cx: &mut TestAppContext) {
     let shown = situation.shown.expect("a lavoro is shown");
     assert!(shown.can_publish, "its head was taken");
     assert!(
-        !situation.can_close_tab,
-        "the lavoro chosen took the one tab"
+        situation.can_close_tab,
+        "the lavoro chosen opened in a tab of its own: two are open"
     );
 }

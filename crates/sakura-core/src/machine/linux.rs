@@ -57,7 +57,7 @@ pub(super) fn read(home: &std::path::Path) -> crate::error::BridgeResult<crate::
     let unreadable = |what: &str| internal(format!("{what} could not be read from /proc"));
     let (loadavg, meminfo) = (file("/proc/loadavg")?, file("/proc/meminfo")?);
     let (swap_used_mb, swap_total_mb) = swap_mb(&meminfo).ok_or_else(|| unreadable("the swap"))?;
-    let cpus = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
+    let cpus = std::thread::available_parallelism().map_or(1, usize::from);
     Ok(crate::models::Machine {
         cpus: u32::try_from(cpus).unwrap_or(u32::MAX),
         load1: load_one_minute(&loadavg).ok_or_else(|| unreadable("the load"))?,

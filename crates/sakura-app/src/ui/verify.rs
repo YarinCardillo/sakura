@@ -1,4 +1,4 @@
-//! "Verifiche", a view of the right pane: one row per check, rows not cards, laid out for a narrow pane. A
+//! "Checks", a view of the right pane: one row per check, rows not cards, laid out for a narrow pane. A
 //! row is the check's name with its action at the right ("Run", or "Cancel" while it is queued or runs
 //! and `box` can cancel it), then its state as a mark and its words, then the facts on a quiet line (the
 //! short sha the request or the result is for, the duration, the count of tests; a request for a commit
@@ -23,6 +23,7 @@ use sakura_core::model::{self, VerifyRow, VerifyState};
 use sakura_core::models::Task;
 use std::time::Instant;
 
+const RETRY: Key = Key("common.retry");
 /// The label over the files a green result is held back for, above its log.
 const RESERVE_FILES: Key = Key("verify.files_touched");
 /// Every word the button of a row can show: it keeps the room of the widest, so the columns before it
@@ -46,10 +47,18 @@ pub struct VerifyInputs<'a> {
     pub log_scroll: &'a ScrollHandle,
 }
 
-/// The Verifiche view for one task.
+/// The Checks view for one task.
 pub fn view(inputs: VerifyInputs, palette: &Palette, cx: &Context<Desk>) -> AnyElement {
     let task = inputs.task;
     let rows = model::verify_rows(task, inputs.facts.runner());
+    // The list is the project's own: a project with no check says so, in place of an empty view.
+    let none = rows.is_empty().then(|| {
+        text(theme::TEXT_SMALL, palette.text_secondary)
+            .debug_selector(|| "verify-none".into())
+            .px(theme::ROW_PADDING_X)
+            .py(theme::GAP)
+            .child(tr(Key("verify.none")))
+    });
     let children = rows.into_iter().flat_map(|row| {
         let is_open = inputs.open_verb == Some(row.verb.as_str());
         let log = is_open.then(|| log_panel(&inputs, &row.verb, palette));
@@ -65,6 +74,8 @@ pub fn view(inputs: VerifyInputs, palette: &Palette, cx: &Context<Desk>) -> AnyE
         .flex()
         .flex_col()
         .children(summary(task, palette))
+        .children(queue_notice(&inputs, palette, cx))
+        .children(none)
         .children(children)
         .into_any_element()
 }
@@ -203,8 +214,8 @@ fn verb_cell(verb: &str, palette: &Palette) -> impl IntoElement {
         .child(verb.to_string())
 }
 
-/// The state: its mark in its tone and its words beside it. A sentence ("Verde, ma il commit cambia i
-/// controlli") takes as many lines as the pane's width asks, whole.
+/// The state: its mark in its tone and its words beside it. A sentence ("Green, but the commit changes the
+/// checks") takes as many lines as the pane's width asks, whole.
 fn state_line(state: VerifyState, palette: &Palette, breath: Breath) -> impl IntoElement {
     text(theme::TEXT_SMALL, tone_colour(state.tone(), palette))
         .debug_selector(|| "verify-state".into())
@@ -353,6 +364,36 @@ fn cancel_button(
             cx.stop_propagation();
             desk.cancel_verify(task.clone(), verb.clone(), cx);
         }))
+}
+
+/// Why the checks that wait are not run, when the app's own run of them left them waiting: the sentence,
+/// with the line the service wrote under the pointer, and the control that runs them again.
+fn queue_notice(
+    inputs: &VerifyInputs,
+    palette: &Palette,
+    cx: &Context<Desk>,
+) -> Option<AnyElement> {
+    let (said, details) = inputs.actions.queue_stalled()?;
+    let retry = Button::new("verify-queue-retry")
+        .debug_selector(|| "verify-queue-retry".into())
+        .custom(secondary_variant(cx));
+    let retry = control(retry, tr(RETRY), &[tr(RETRY)])
+        .on_click(cx.listener(|desk, _, _, cx| desk.retry_queue(cx)));
+    let sentence = failure_sentence("verify-queue-notice", say(said), details)
+        .debug_selector(|| "verify-queue-notice".into())
+        .flex_1()
+        .min_w_0()
+        .text_size(theme::TEXT_LABEL)
+        .text_color(palette.danger);
+    let notice = div()
+        .flex()
+        .items_center()
+        .gap(theme::GAP)
+        .px(theme::ROW_PADDING_X)
+        .py(theme::GAP)
+        .child(sentence)
+        .child(retry);
+    Some(notice.into_any_element())
 }
 
 /// "Run": pending word at once, off while the runner already has the verb.

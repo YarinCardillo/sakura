@@ -1,6 +1,6 @@
 //! The task header as its own view, so scrolling a pane below it does not draw it again. It is drawn again
 //! when what it shows can change: facts, actions, consoles (the shell's menu item), the changes read (the
-//! count of files on "Modifiche"), the desk's own changes (selection, view, the removal's confirmation) and
+//! count of files on "Changes"), the desk's own changes (selection, view, the removal's confirmation) and
 //! the appearance. The breath's tick does not draw it: the
 //! breath layer paints its glyph's breathing half.
 

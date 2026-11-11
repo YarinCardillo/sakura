@@ -273,7 +273,7 @@ fn a_press_that_changes_a_buttons_word_changes_no_size() {
         wait_for(cx, "the stop button of the header", |cx| {
             cx.debug_bounds("header-stop").is_some()
         });
-        // This `box` has no changes to count on "Modifiche", and the work of this lavoro is not verified,
+        // This `box` has no changes to count on "Changes", and the work of this lavoro is not verified,
         // so the hold stands where "Prendi" would: every other element of the header, and the button.
         let header = HEADER
             .iter()

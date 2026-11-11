@@ -1,6 +1,6 @@
 //! "Take" in the task header, as the take rule says: a plain press on the primary face (brushed silver on
 //! dark, graphite on light) when everything is verified on HEAD; a hold ("Take without checks") when it is
-//! not, with the reason under the pointer on the button and in "Verifiche"; and nothing at all when there is
+//! not, with the reason under the pointer on the button and in "Checks"; and nothing at all when there is
 //! nothing to take. The pending word shows at once, the outcome when `box` answers.
 
 use super::chrome::{keep_click, steady_label};

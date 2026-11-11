@@ -363,7 +363,7 @@ fn all_bounds(strip: &Entity<Strip>, cx: &mut VisualTestContext) -> Vec<gpui::Bo
 fn strip_choosing_hovering_or_pressing_a_tab_moves_no_tab(cx: &mut TestAppContext) {
     // Ten long titles: more than the strip holds at full width, so every tab is narrowed.
     let long: Vec<String> = (0..10)
-        .map(|n| format!("un-lavoro-dal-nome-molto-lungo-numero-{n}"))
+        .map(|n| format!("a-task-with-a-very-long-name-number-{n}"))
         .collect();
     let names: Vec<&str> = long.iter().map(String::as_str).collect();
     let (cx, strip) = open(cx, &names);

@@ -7,7 +7,7 @@ use crate::theme::thread as tokens;
 use gpui::{App, Context, SharedString, Task, Window};
 use sakura_acp::connection::{Agent, AgentEvent};
 use sakura_acp::model::StopReason;
-use sakura_acp::thread::{Problem, ProblemKind, ThreadEvent, Turn};
+use sakura_acp::thread::{EntryKind, Problem, ProblemKind, ThreadEvent, Turn};
 use tokio::sync::mpsc::Receiver;
 
 /// What asking for the lavoro's agent gave.
@@ -36,6 +36,10 @@ pub type Accounts = Box<dyn Fn(&App) -> Vec<String>>;
 pub type StoredSession = Box<dyn Fn(&App) -> Option<String>>;
 /// Stores the session that just opened.
 pub type StoreSession = Box<dyn Fn(&str, &App)>;
+/// The words of the refusals kept for a session. Reads memory only.
+pub type Refusals = Box<dyn Fn(&str, &App) -> Vec<String>>;
+/// Keeps the words of a refusal said in a session.
+pub type KeepRefusal = Box<dyn Fn(&str, &str, &App)>;
 
 /// Where the lavoro of a first message stands with the service that makes it.
 #[derive(Debug, Clone, PartialEq)]
@@ -68,6 +72,8 @@ pub struct Host {
     /// read memory only.
     pub stored_session: StoredSession,
     pub store_session: StoreSession,
+    pub refusals: Refusals,
+    pub keep_refusal: KeepRefusal,
     /// Whose login the agent needs, as the accounts read now say.
     pub login: Box<dyn Fn(&App) -> Login>,
     /// The accounts the lavoro's agent could start with, when none is named for it. Read memory only.
@@ -201,10 +207,29 @@ impl ThreadView {
                     if problem.kind == ProblemKind::AuthRequired);
                 match is_sign_in {
                     true => self.sign_in_needed(),
-                    false => self.thread.apply(event),
+                    false => self.apply_kept(event, cx),
                 }
             }
             AgentEvent::Ended(problem) => self.ended(problem),
+        }
+    }
+
+    /// Applies an event of the thread. A refusal is kept with its session when it is said, and is the
+    /// refusal again when that session is replayed: the agent replays it as a plain message.
+    fn apply_kept(&mut self, event: ThreadEvent, cx: &App) {
+        let is_refused = event == ThreadEvent::TurnEnded(StopReason::Refusal);
+        let is_replayed = event == ThreadEvent::ReplayFinished;
+        self.thread.apply(event);
+        let Some(session) = (self.host.stored_session)(cx) else {
+            return;
+        };
+        if is_replayed {
+            let kept = (self.host.refusals)(&session, cx);
+            self.thread.mark_refusals(&kept);
+        }
+        let last = self.thread.entries().last().map(|entry| &entry.kind);
+        if let (true, Some(EntryKind::Problem(problem))) = (is_refused, last) {
+            (self.host.keep_refusal)(&session, &problem.detail, cx);
         }
     }
 

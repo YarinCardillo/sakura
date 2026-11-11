@@ -136,7 +136,7 @@ pub(super) fn ask_a_question(cx: &mut VisualTestContext, desk: &Entity<Desk>, ta
         ],
     };
     let events = vec![
-        ThreadEvent::Prompted("Sort the folders per nome.".to_string()),
+        ThreadEvent::Prompted("Sort the folders by name.".to_string()),
         ThreadEvent::Update(Update::AgentText("Mi serve una library.".to_string())),
         question,
     ];
@@ -404,7 +404,7 @@ fn on_the_mac_the_agent_takes_the_only_login_an_expired_one_is_named_and_nothing
 ) {
     let agent = fake_agent();
     let acp = format!("exec \"{}\" --auth-on-prompt", agent.display());
-    let own = r#"[{"name":"mio","where":"mac","exists":true,"loggedIn":null}]"#;
+    let own = r#"[{"name":"mine","where":"mac","exists":true,"loggedIn":null}]"#;
     let (dir, script) = box_with(&acp, own);
     move_to_the_mac(dir.path(), TASK);
     let (cx, desk) = open(cx, script, TASK);
@@ -421,7 +421,7 @@ fn on_the_mac_the_agent_takes_the_only_login_an_expired_one_is_named_and_nothing
         phase(cx, &desk, TASK) == Phase::SignIn
     });
     assert_eq!(
-        asked(&dir, &format!("acp {TASK} mio")),
+        asked(&dir, &format!("acp {TASK} mine")),
         1,
         "the only login of the Mac is the one the window shows, and the one it names"
     );
@@ -492,6 +492,36 @@ fn is_all_replayed(cx: &mut VisualTestContext, desk: &Entity<Desk>, task: &str) 
         let entries = conversation.thread().entries();
         !entries.is_empty() && entries.iter().all(|entry| entry.is_replayed)
     })
+}
+
+/// What the fake agent's provider writes when its model refuses a prompt (its `REFUSAL`).
+const REFUSAL: &str = "API Error: the model is unable to respond to this request, which appears to violate the Usage Policy (https://example.com/legal/aup). Request ID: req_011FakeAgentRefusal. Try rephrasing the request or attempting a different approach.";
+
+#[gpui::test]
+fn a_refusal_of_a_kept_conversation_is_shown_as_the_refusal_again_with_its_details(
+    cx: &mut TestAppContext,
+) {
+    let (dir, script) = agent_box(&format!("{FAST} --refused-history"));
+    // An earlier run of the app kept the session and the refusal said in it.
+    kept(&dir, TASK, "fake-session-1");
+    let store = sakura_acp::store::SessionStore::new(dir.path());
+    store
+        .add_refusal("fake-session-1", REFUSAL)
+        .expect("the kept refusal");
+    untouched(&dir, TASK);
+    let (cx, desk) = open(cx, script, TASK);
+    wait_for(cx, "the conversation to be shown again", |cx| {
+        phase(cx, &desk, TASK) == Phase::Ready && is_on_screen(cx, "thread-problem-sentence")
+    });
+    assert!(is_all_replayed(cx, &desk, TASK), "shown whole, at once");
+    assert!(
+        answered(cx, &desk, TASK).is_empty(),
+        "the provider's words are no answer of the agent"
+    );
+    assert!(
+        !is_on_screen(cx, "thread-problem-detail"),
+        "the provider's words wait under Details, as when the refusal was said"
+    );
 }
 
 #[gpui::test]
@@ -567,6 +597,7 @@ fn an_agent_that_runs_in_a_terminal_keeps_it_and_one_sentence_says_so(cx: &mut T
         !is_on_screen(cx, "thread-composer"),
         "one front end at a time"
     );
+    wait_for(cx, "the terminal to attach", |_| !started(&dir).is_empty());
     let processes = started(&dir);
     assert_eq!(processes.len(), 1, "{processes:?}");
     assert!(processes[0].starts_with(&format!("attach {IN_TERMINAL}")));
@@ -615,10 +646,10 @@ fn the_header_the_sidebar_row_and_the_tab_show_one_state_and_the_group_follows_i
     untouched(&dir, TAKEN);
     let (cx, desk) = open(cx, script, TAKEN);
     let states = [
-        ((false, Live::Unknown), "not-started", "group-idle"),
-        ((false, Live::Starting), "preparing", "group-working"),
+        ((false, Live::Unknown), "not-started", "group-not-started"),
+        ((false, Live::Starting), "preparing", "group-preparing"),
         ((false, Live::Working), "working", "group-working"),
-        ((true, Live::Working), "needs-you", "group-review"),
+        ((true, Live::Working), "needs-you", "group-needs-you"),
         ((false, Live::Answered), "idle", "group-idle"),
         ((false, Live::Stopped), "failed", "group-review"),
     ];
@@ -631,7 +662,15 @@ fn the_header_the_sidebar_row_and_the_tab_show_one_state_and_the_group_follows_i
         let row = top(cx, "row-headings-26");
         let label = top(cx, group);
         assert!(label <= row, "{state}: the row is not under {group}");
-        let lower = ["group-review", "group-working", "group-idle", "group-taken"];
+        let lower = [
+            "group-needs-you",
+            "group-working",
+            "group-preparing",
+            "group-review",
+            "group-idle",
+            "group-not-started",
+            "group-taken",
+        ];
         let between = lower.into_iter().filter(|other| *other != group);
         let is_under_another = between
             .filter_map(|other| cx.debug_bounds(other))
@@ -671,7 +710,7 @@ fn a_lavoro_whose_conversation_is_kept_from_before_reads_idle_not_as_never_start
 /// The project of the fixture's lavori.
 const PROJECT: &str = "example-app";
 /// Two logins of the Mac: neither is "the only one".
-const TWO_OF_THE_MAC: &str = r#"[{"name":"mio","where":"mac","exists":true,"loggedIn":null},
+const TWO_OF_THE_MAC: &str = r#"[{"name":"mine","where":"mac","exists":true,"loggedIn":null},
     {"name":"other","where":"mac","exists":true,"loggedIn":null}]"#;
 
 /// A `box` whose project names no account until `box project set` gives it one, with two logins of the
@@ -709,7 +748,7 @@ fn a_lavoro_whose_project_names_no_account_asks_which_and_starts_with_the_one_ch
     assert!(is_on_screen(cx, "thread-no-account"));
     let can_stop = conversation(cx, &desk, TASK).read_with(cx, |view, _| view.can_stop());
     assert!(!can_stop, "nothing runs yet: there is nothing to stop");
-    assert!(is_on_screen(cx, "thread-account-mio"));
+    assert!(is_on_screen(cx, "thread-account-mine"));
     assert_eq!(started(&dir), Vec::<String>::new(), "no agent without one");
 
     click(cx, "thread-account-other");
@@ -749,9 +788,9 @@ fn an_account_the_service_does_not_take_is_said_in_one_line_with_its_words_under
     let (cx, desk) = open(cx, script, TASK);
     say(cx, &desk, TASK, "plain");
     wait_for(cx, "the question which account", |cx| {
-        is_on_screen(cx, "thread-account-mio")
+        is_on_screen(cx, "thread-account-mine")
     });
-    click(cx, "thread-account-mio");
+    click(cx, "thread-account-mine");
     wait_for(cx, "the refusal", |cx| {
         matches!(phase(cx, &desk, TASK), Phase::Ended(_))
     });

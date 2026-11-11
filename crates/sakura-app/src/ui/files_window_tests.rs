@@ -30,11 +30,11 @@ index 1111111..2222222 100644
 --- a/src/folders/sort.rs
 +++ b/src/folders/sort.rs
 @@ -1,3 +1,4 @@
- riga 1
--riga 2
+ line 1
+-line 2
 +line two
 +line two e mezzo
- riga 3
+ line 3
 ";
 
 /// The cases of the fake `box` for the read verbs: each answers from a file beside the script.
@@ -277,7 +277,7 @@ fn the_pane_follows_the_agent_s_tool_call_and_stops_when_the_person_scrolls(
     cx: &mut TestAppContext,
 ) {
     let (cx, desk, dir) = open(cx);
-    assert_eq!(pane_view(cx, &desk), PaneView::Modifiche);
+    assert_eq!(pane_view(cx, &desk), PaneView::Changes);
     assert_eq!(
         is_following(cx, &desk),
         Some(true),
@@ -320,7 +320,7 @@ fn the_pane_follows_the_agent_s_tool_call_and_stops_when_the_person_scrolls(
     wait_for(cx, "following to stop for another view", |cx| {
         is_following(cx, &desk) == Some(false)
     });
-    assert_eq!(pane_view(cx, &desk), PaneView::Modifiche);
+    assert_eq!(pane_view(cx, &desk), PaneView::Changes);
     drop(dir);
 }
 
@@ -405,7 +405,7 @@ fn a_commit_pressed_in_git_shows_its_diff_in_changes(cx: &mut TestAppContext) {
             .iter()
             .any(|call| call.starts_with("diff demo") && call.contains(COMMIT))
     });
-    assert_eq!(pane_view(cx, &desk), PaneView::Modifiche);
+    assert_eq!(pane_view(cx, &desk), PaneView::Changes);
     settle(cx, &dir);
     assert_eq!(
         asked(&dir, "graph"),

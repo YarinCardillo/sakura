@@ -61,10 +61,9 @@ def carry_documents(destination):
     for name in DOCUMENTS:
         shutil.copy2(ROOT / name, destination / name)
     shutil.copytree(ROOT / "LICENSES", destination / "LICENSES", dirs_exist_ok=True)
-    environment = dict(os.environ, SAKURA_ENGINE_TREE=str(destination / "service/engine"))
     with (destination / "THIRD_PARTY_LICENSES").open("w") as stream:
         subprocess.run([sys.executable, str(ROOT / "scripts/third_party_notices.py"), "--licenses"],
-                       check=True, env=environment, stdout=stream, stdin=subprocess.DEVNULL,
+                       check=True, stdout=stream, stdin=subprocess.DEVNULL,
                        timeout=INSTALL_DEADLINE_SECONDS)
 
 

@@ -1,7 +1,5 @@
-"""Dependency notices accept cargo's multi-root output and npm's production graph."""
-import json
+"""Dependency notices cover the native release and directly adapted assets."""
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,33 +17,33 @@ class TestCargoPackages(unittest.TestCase):
                 ("serde", "1.0.0", "MIT OR Apache-2.0", "https://github.com/serde-rs/serde")])
 
 
-class TestEnginePackages(unittest.TestCase):
-    def test_production_dependencies_include_scoped_packages_and_exclude_test_tools(self):
-        with tempfile.TemporaryDirectory() as folder:
-            engine = Path(folder)
-            lock = {"packages": {"": {"name": "engine"},
-                "node_modules/@restatedev/restate-sdk": {"version": "1.17.4", "license": "MIT"},
-                "node_modules/vitest": {"version": "5.1.0", "dev": True}}}
-            (engine / "package-lock.json").write_text(json.dumps(lock))
-            with patch.object(notices, "ENGINE", engine):
-                packages = notices.engine_packages()
-            self.assertEqual([(entry[0], entry[1]) for entry in packages], [("@restatedev/restate-sdk", "1.17.4")])
+class TestDirectAdaptations(unittest.TestCase):
+    def test_adaptations_identify_every_file_and_both_icon_licences(self):
+        import contextlib
+        import io
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            notices.print_adaptations()
+        text = output.getvalue()
+        for name in ['ime', 'grid_view', 'overlay', 'keys', 'rows', 'mouse', 'pointer']:
+            self.assertIn(f'crates/sakura-terminal/src/{name}.rs', text)
+        for required in ['November 2026', 'ISC License', 'MIT License', 'Feather']:
+            self.assertIn(required, text)
 
 
 class TestNoticeInventory(unittest.TestCase):
-    def test_source_inventory_lists_dependencies_without_copying_upstream_prose(self):
+    def test_source_inventory_lists_native_dependencies_and_required_adaptation_notices(self):
         import contextlib
         import io
         output = io.StringIO()
         crates = [("sample-crate", "1.0.0", "MIT", "https://example.com/source")]
-        npm = [("@restatedev/restate-sdk", "1.17.4", "MIT", "https://example.com/package", Path("cache"))]
-        with patch.object(notices, "cargo_packages", return_value=crates), patch.object(notices, "engine_packages", return_value=npm):
+        with patch.object(notices, "cargo_packages", return_value=crates):
             with contextlib.redirect_stdout(output):
                 notices.print_inventory()
         text = output.getvalue()
         self.assertIn("sample-crate 1.0.0 (MIT)", text)
-        self.assertIn("@restatedev/restate-sdk 1.17.4 (MIT)", text)
-        self.assertIn("Business Source License 1.1", text)
+        self.assertNotIn("Restate", text)
+        self.assertNotIn("npm packages", text)
         self.assertIn("THIRD_PARTY_LICENSES", text)
         self.assertNotIn("example.com/source", text)
 

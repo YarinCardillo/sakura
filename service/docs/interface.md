@@ -94,11 +94,14 @@ adapter is installed on first use).
 - `box take`, `box run`, `box agent`, `box attach`: one `box:` line that says why it does not apply
   and what to do instead (take: "the branch is already in your repository"), exit code 80.
 
+New native tasks use the default `sakura/` branch prefix. Existing tasks keep their actual
+branch, including branches created by earlier versions; no branch is renamed.
+
 ### Commands of the project that run natively
 `SETUP`, `ARCHIVE`, `RUN` and the checks of a lavoro on the Mac are run by `bash -c` in the folder of the
 project inside the worktree (`work/<task>/<SUBDIR>`), as the person, with the person's environment plus:
-`SAKURA_LAVORO` (the task), `SAKURA_WORKTREE` (the worktree), `SAKURA_REPO` (the person's repository), `SAKURA_BASE`
-(the base branch), and the same four values as `CONDUCTOR_WORKSPACE_NAME`, `CONDUCTOR_WORKSPACE_PATH`,
+`SAKURA_TASK` (the task), `SAKURA_WORKTREE` (the worktree), `SAKURA_REPO` (the person's repository), `SAKURA_BASE`
+(the base branch). No previous product environment aliases are exported. The same four values are also exposed as `CONDUCTOR_WORKSPACE_NAME`, `CONDUCTOR_WORKSPACE_PATH`,
 `CONDUCTOR_ROOT_PATH` and `CONDUCTOR_DEFAULT_BRANCH`, for scripts written for that tool. Where `box` finds its own programs: the first thing `box` does is rebuild `PATH` for itself from the entries
 it can trust: absolute ones, resolved to the folder they really are, outside the data directory of `box` and
 not writable by everybody. `.` and every relative entry are dropped, and so is a worktree that was put in
@@ -220,6 +223,10 @@ ended when standard input closes (within `BOX_ACP_END_SECONDS`), on a signal to 
 ### Play
 A project names `RUN` (the command), `PORTS` (how many ports a lavoro gets, 1 to 100, default 10) and `RUN_MODE`
 (`one`, the default, or `many`), set with `--run`, `--ports`, `--run-mode`.
+For native tasks, each Play start reads these three current values from the host-private
+project file, including for tasks created before a run command was configured. Other task
+values, including checks, setup, archive and the worktree folder, keep their creation-time
+snapshot. A task in a box retains its existing behavior.
 
 `box play <task> start|stop|status [--json]`, `box play <task> log`. With `--json` each of the three prints the
 status after acting:
@@ -232,11 +239,15 @@ run). Without `--json` the three print one line for people.
 - `start` runs `RUN` detached from `box` (a session of its own), as described under "Commands of the project",
   without a deadline, with `SAKURA_PORT` set to the first port of the range, `CONDUCTOR_PORT` to the same value
   and `SAKURA_PORTS` to the size of the range. The range is the lowest one from 56000 up that no other lavoro
-  holds; it is reserved at the first start and stays the lavoro's until `box rm`, whether its Play runs or not
+  holds. A reservation stays with the task between starts when its port count is unchanged.
+  If the current count changed, the next start reserves a new non-overlapping range; `box rm` releases it
   (`box` reserves the numbers among lavori; it does not check that another program is not listening on them).
   With `RUN_MODE=one`, starting the Play of a lavoro first stops the Plays of the other lavori of the same
   project. A Play that already runs is left as it is. A command that ends within half a second is not a Play:
-  exit 1, with `box play <task> log` named. A project without `RUN`: exit 1 and how to set it.
+  exit 1, with `box play <task> log` named. A project without a current `RUN` refuses start with
+  exit 1 and one plain `box:` line naming `box project set <project> --run '<command>'`,
+  even if the task snapshot still contains an older command. An already running preview
+  keeps its process and environment until stopped; changed settings apply to its next start.
 - `stop` ends the whole process group (asked, 3 s later killed). Not running is not an error.
 - `log`: the last 400 lines of the output (control characters removed); the log is
   `$AGENTBOX_HOME/play/<task>.log`, cut at 8 MiB (`BOX_PLAY_MAX_LOG_BYTES`) with a last line that says so, and
@@ -658,7 +669,8 @@ that is not safe (a repository that is not an absolute path, a subfolder that cl
 branch name, a control character, a value over 2000 characters) is refused wherever it is used, with one `box:`
 line that names the project and the reason. Commands are text: for a task in a box they only ever run inside a
 container; for a lavoro on the Mac they run natively, as the person (see "Lavori on the Mac"). A task keeps the
-project values it was created with. `SUBDIR` and
+project values it was created with, except native Play reads current `RUN`, `PORTS` and
+`RUN_MODE` on each start. `SUBDIR` and
 `INSTALL` may be empty: a project at the root of its repository works, and one without an install command has no
 dependency volume, no install container and no `node_modules` mount. The runner prepares dependencies for jobs
 only from `package.json` and `package-lock.json`.

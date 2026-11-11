@@ -61,7 +61,7 @@ impl Desk {
         Some(page::header(&facts, switch, actions, &palette, cx).into_any_element())
     }
 
-    /// How many files "Modifiche" lists for `task`, once the whole patch of every change was read
+    /// How many files "Changes" lists for `task`, once the whole patch of every change was read
     /// (a patch `box` cut short, or the patch of one commit, is not the count of the task's files).
     pub(super) fn listed_files(&self, task: &str, cx: &gpui::App) -> Option<usize> {
         let read = self.changes.read(cx).task(task)?;
@@ -249,8 +249,9 @@ impl Desk {
         branch + agent + play + publish + take + overflow
     }
 
-    /// What is said under the header, when there is something to say: why removing would lose work, while
-    /// its confirmation is asked; else the failure of the last action on the task, in `box`'s words.
+    /// What is said under the header, when there is something to say: the failure of the last action on
+    /// the task. Why removing would lose work is under the pointer on its hold: a confirmation that is
+    /// asked moves nothing on the page.
     pub(super) fn page_notice(&self, task: &Task, cx: &Context<Self>) -> Option<AnyElement> {
         let palette = Theme::palette(cx);
         let actions = self.actions.read(cx);
@@ -262,21 +263,12 @@ impl Desk {
         let failed = failed.iter().find(|key| actions.error(key).is_some());
         let failure =
             failed.and_then(|key| Some((actions.error(key)?, actions.error_details(key))));
-        let is_removing = self.removing.as_deref() == Some(task.name.as_str());
-        let (sentence, details, colour) = match (failure, model::remove_rule(task)) {
-            (Some((failure, details)), _) => (say(failure).to_string(), details, palette.danger),
-            (None, RemoveRule::Hold { reason } | RemoveRule::Disabled { reason })
-                if is_removing =>
-            {
-                (say(&reason).to_string(), None, palette.text_secondary)
-            }
-            _ => return None,
-        };
+        let (failure, details) = failure?;
         // A failure is said in Sakura's words; what `box` wrote is under the pointer.
-        let notice = failure_sentence("page-notice", sentence, details)
+        let notice = failure_sentence("page-notice", say(failure).to_string(), details)
             .debug_selector(|| "page-notice".into())
             .text_size(theme::TEXT_LABEL)
-            .text_color(colour)
+            .text_color(palette.danger)
             .flex_none()
             .px(theme::CONTENT_PADDING)
             .py(theme::GAP)
@@ -319,7 +311,7 @@ impl Desk {
             .update(cx, |actions, cx| actions.remove(task, force, cx));
     }
 
-    /// "Cancel" and the hold that removes; the reason is in the notice under the header.
+    /// "Cancel" and the hold that removes, with the reason work would be lost under the pointer on it.
     fn remove_confirmation(&mut self, task: &Task, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let key = ActionKey::remove(&task.name);
         let is_pending = self.actions.read(cx).is_running(&key);
@@ -336,7 +328,11 @@ impl Desk {
             is_pending,
             cx,
         );
-        remove::confirm(&task.name, &hold, cx)
+        let reason = match model::remove_rule(task) {
+            RemoveRule::Hold { reason } | RemoveRule::Disabled { reason } => Some(say(&reason)),
+            RemoveRule::Plain => None,
+        };
+        remove::confirm(&task.name, reason, &hold, cx)
     }
 
     /// The take's hold for `task`, labelled and reset once `box` answered.

@@ -174,7 +174,7 @@ fn what_is_chosen_before_the_person_chooses_is_the_projects_own(cx: &mut TestApp
 fn two_projects() -> (tempfile::TempDir, std::path::PathBuf) {
     let cases = r#"  projects) echo '[{"name":"demo-site","base":"main","where":"mac","account":"personal"},{"name":"engine-demo","base":"dev","where":"box"}]' ;;
   branches) echo "{\"project\":\"$2\",\"default\":\"main\",\"branches\":[{\"name\":\"main\"},{\"name\":\"dev\"},{\"name\":\"trial\"}]}" ;;
-  accounts) echo '[{"name":"personal","where":"mac","exists":true,"loggedIn":true},{"name":"other","where":"mac","exists":true,"loggedIn":true},{"name":"scatola","where":"box","loggedIn":true}]' ;;
+  accounts) echo '[{"name":"personal","where":"mac","exists":true,"loggedIn":true},{"name":"other","where":"mac","exists":true,"loggedIn":true},{"name":"box","where":"box","loggedIn":true}]' ;;
   new) echo 'cloning'; sleep 20 ;;"#;
     fake_agentbox(Names::Listed, "0", cases)
 }
@@ -193,11 +193,7 @@ fn each_choice_is_changed_in_place_and_the_last_project_is_offered_next(cx: &mut
             sheet.choose_project("engine-demo", window, cx)
         })
     });
-    assert_eq!(
-        read(cx),
-        ["engine-demo", "dev", "box", "scatola"],
-        "its own"
-    );
+    assert_eq!(read(cx), ["engine-demo", "dev", "box", "box"], "its own");
     cx.update(|window, cx| {
         sheet.update(cx, |sheet, cx| {
             sheet.choose_place(Place::Mac, window, cx);
@@ -395,7 +391,7 @@ fn asks_for_a_lavoro(
 fn in_a_box_with_no_account_signed_in_none_is_chosen_and_choosing_one_starts_its_sign_in(
     cx: &mut TestAppContext,
 ) {
-    let accounts = r#"[{"name":"scatola","where":"box","loggedIn":false},{"name":"seconda","where":"box","loggedIn":false}]"#;
+    let accounts = r#"[{"name":"box","where":"box","loggedIn":false},{"name":"second","where":"box","loggedIn":false}]"#;
     let (dir, script) = a_project_in_a_box(accounts);
     // With its terminals: the sign-in is one.
     let (cx, desk, _) = open_live(cx, script, Some(TASK), true);
@@ -417,10 +413,8 @@ fn in_a_box_with_no_account_signed_in_none_is_chosen_and_choosing_one_starts_its
     assert!(is_on_screen(cx, "new-task-field"), "the sheet stays");
     // One that is not signed in can be chosen (its row says so): the app's sign-in to it starts in
     // the lavoro on screen, and the sheet gives it the window.
-    cx.update(|window, cx| {
-        sheet.update(cx, |sheet, cx| sheet.choose_account("scatola", window, cx))
-    });
-    let signs_in = |call: &String| call.starts_with("login scatola");
+    cx.update(|window, cx| sheet.update(cx, |sheet, cx| sheet.choose_account("box", window, cx)));
+    let signs_in = |call: &String| call.starts_with("login box");
     wait_for(cx, "the sign-in", |_| {
         super::launch_tests::calls(&dir).iter().any(signs_in)
     });

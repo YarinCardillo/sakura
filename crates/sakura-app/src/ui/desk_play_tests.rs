@@ -246,8 +246,8 @@ fn at_the_smallest_window_the_view_chosen_is_whole_in_the_row_of_five(cx: &mut T
     };
     let views = [
         (PaneView::Files, "pane-view-files"),
-        (PaneView::Modifiche, "pane-view-changes"),
-        (PaneView::Verifiche, "pane-view-checks"),
+        (PaneView::Changes, "pane-view-changes"),
+        (PaneView::Checks, "pane-view-checks"),
         (PaneView::Git, "pane-view-git"),
         (PaneView::Play, "pane-view-play"),
     ];

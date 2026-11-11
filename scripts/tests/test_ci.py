@@ -98,3 +98,24 @@ class TestReleasePermissions(unittest.TestCase):
         ci = (ROOT / '.github/workflows/ci.yml').read_text()
         self.assertNotIn('GH_TOKEN', ci)
         self.assertNotIn('contents: write', ci)
+
+class TestNativeOnlyRelease(unittest.TestCase):
+    def test_release_docs_and_workflows_do_not_offer_the_excluded_engine(self):
+        for name in ['README.md', 'THIRD_PARTY_NOTICES', '.github/workflows/ci.yml', '.github/workflows/release.yml']:
+            text = (ROOT / name).read_text()
+            self.assertNotIn('service/engine', text, name)
+            self.assertNotIn('Restate', text, name)
+
+    def test_each_zed_adaptation_has_the_prominent_modification_date(self):
+        for name in ['ime', 'grid_view', 'overlay', 'keys', 'rows', 'mouse', 'pointer']:
+            text = (ROOT / f'crates/sakura-terminal/src/{name}.rs').read_text()
+            self.assertIn("//! Modified for Sakura in November 2026: this file is a changed adaptation, not Zed's original.", text)
+
+class TestHostedWorkspaceAccess(unittest.TestCase):
+    def test_hosted_fixture_grants_only_the_task_worktree_to_the_container_uid(self):
+        text = (ROOT / '.github/workflows/ci.yml').read_text()
+        block = text.split('      - name: Writable throwaway workspace for the container UID', 1)[1].split('\n      - ', 1)[0]
+        self.assertIn('$AGENTBOX_HOME/work/ci', block)
+        self.assertIn('u:1000:rwX', block)
+        self.assertNotIn('chmod 777', block)
+        self.assertNotIn('setfacl -R -m u:1000:rwX "$AGENTBOX_HOME"', block)

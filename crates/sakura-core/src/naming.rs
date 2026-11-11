@@ -11,15 +11,13 @@ const MAX_LENGTH: usize = 32;
 /// The name when the sentence has no letter or digit at all.
 const FALLBACK: &str = "task";
 /// Words that say nothing of the work, in the two languages of the window.
-const FILLER: [&str; 89] = [
-    "il", "lo", "la", "i", "gli", "le", "un", "uno", "una", "di", "a", "da", "in", "con", "su",
-    "per", "tra", "fra", "e", "ed", "o", "che", "del", "dello", "della", "dei", "degli", "delle",
-    "al", "allo", "alla", "ai", "agli", "alle", "dal", "dalla", "nel", "nello", "nella", "nei",
-    "sul", "sulla", "mi", "ti", "ci", "si", "non", "come", "vorrei", "voglio", "puoi", "potresti",
-    "favore", "questo", "questa", "the", "an", "of", "to", "on", "for", "with", "and", "or",
-    "that", "this", "is", "are", "be", "please", "can", "could", "would", "want", "you", "it",
-    "its", "me", "my", "we", "our", "so", "at", "by", "as", "from", "into", "should", "need",
+const FILLER: [&str; 34] = [
+    "the", "an", "of", "to", "on", "for", "with", "and", "or", "that", "this", "is", "are", "be",
+    "please", "can", "could", "would", "want", "you", "it", "its", "me", "my", "we", "our", "so",
+    "at", "by", "as", "from", "into", "should", "need",
 ];
+/// Italian localization data for task-name generation.
+const ITALIAN_FILLER: &str = include_str!("../locales/it-name-stopwords.txt");
 
 /// A name for the lavoro requested with `sentence`, that none of `taken` has.
 pub fn name_for(sentence: &str, taken: &[&str]) -> String {
@@ -62,7 +60,11 @@ fn plain_letters(c: char) -> Vec<char> {
 }
 
 fn is_meaningful(word: &str) -> bool {
-    word.len() > 1 && !FILLER.contains(&word)
+    word.len() > 1
+        && !FILLER.contains(&word)
+        && !ITALIAN_FILLER
+            .split_whitespace()
+            .any(|filler| filler == word)
 }
 
 /// The first words that fit the length, joined by hyphens; one word too long is cut.
@@ -100,6 +102,13 @@ fn unique(stem: &str, taken: &[&str]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn italian_locale_stop_words_do_not_enter_task_names() {
+        for word in ITALIAN_FILLER.split_whitespace() {
+            assert_eq!(name_for(&format!("{word} example"), &[]), "example");
+        }
+    }
 
     #[test]
     fn a_name_is_the_first_meaningful_words_of_the_sentence() {

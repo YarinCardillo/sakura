@@ -459,8 +459,8 @@ esac"#
             place: None,
         };
         assert_eq!(
-            plain.arguments("sistema-login").unwrap(),
-            ["new", "sistema-login", "web"]
+            plain.arguments("fix-login").unwrap(),
+            ["new", "fix-login", "web"]
         );
         let chosen = NewLavoro {
             base: Some("feature/cart".into()),
@@ -468,10 +468,10 @@ esac"#
             ..plain
         };
         assert_eq!(
-            chosen.arguments("sistema-login").unwrap(),
+            chosen.arguments("fix-login").unwrap(),
             [
                 "new",
-                "sistema-login",
+                "fix-login",
                 "web",
                 "--base",
                 "feature/cart",

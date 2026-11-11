@@ -161,14 +161,10 @@ impl Strip {
         self.haptics = haptics;
     }
 
-    /// Shows the lavoro `task` in the current tab, or in the tab already on it (a click on a sidebar row);
-    /// with no tab open it gets the first.
+    /// Shows the lavoro `task` in the tab already on it, else in a new tab of its own (a click on a sidebar
+    /// row, a lavoro just made): one rule, and the lavoro on screen never loses its tab to another.
     pub fn show(&mut self, task: &str, cx: &mut Context<Self>) {
-        self.change(cx, |tabs| {
-            let before = tabs.clone();
-            tabs.show(task);
-            *tabs != before
-        });
+        self.open(task, Placement::Foreground, cx);
     }
 
     /// Opens the lavoro `task` in a tab of its own (Cmd+click on a sidebar row).
@@ -197,7 +193,7 @@ impl Strip {
         }
     }
 
-    /// "Chiudi le altre schede": keeps the tab `id` only.
+    /// "Close other tabs": keeps the tab `id` only.
     pub fn close_others(&mut self, id: TabId, cx: &mut Context<Self>) {
         self.change(cx, |tabs| tabs.close_others(id));
     }

@@ -133,6 +133,7 @@ pub fn problem_sentence(kind: ProblemKind) -> Key {
         ProblemKind::TimedOut => Key("thread.problem.timed_out"),
         ProblemKind::RequestFailed => Key("thread.problem.request_failed"),
         ProblemKind::Refusal => Key("thread.problem.refusal"),
+        ProblemKind::Stopped => Key("thread.problem.stopped"),
         ProblemKind::MaxTokens => Key("thread.problem.max_tokens"),
         ProblemKind::MaxTurnRequests => Key("thread.problem.max_requests"),
     }

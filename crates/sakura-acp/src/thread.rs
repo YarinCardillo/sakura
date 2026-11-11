@@ -129,6 +129,8 @@ pub enum ProblemKind {
     RequestFailed,
     /// The model refused to go on.
     Refusal,
+    /// The person stopped the turn: no failure, one quiet line where it ended.
+    Stopped,
     /// The turn ran out of tokens.
     MaxTokens,
     /// The turn ran out of model requests.

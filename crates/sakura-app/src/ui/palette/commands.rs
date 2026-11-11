@@ -267,7 +267,7 @@ mod tests {
         Situation {
             shown: Some(ShownTask {
                 name: "m1".into(),
-                view: PaneView::Modifiche,
+                view: PaneView::Changes,
                 can_publish,
                 can_archive,
                 play: PlayState::Absent,

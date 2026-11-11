@@ -52,11 +52,6 @@ With Docker Desktop, add the folder that holds Sakura (for example `/Application
 Resources, File sharing: a box mounts two read-only files of the service the app carries. OrbStack
 shares it already.
 
-If your copy carries the durable engine (the folder `service/engine`; the release notes say so), the
-checks are queued by it and it needs Node.js 24 or later and `restate-server` 1.8.1:
-`brew install restatedev/tap/restate-server`, or `scripts/install-restate-server.sh <folder>`, which
-downloads the pinned release and verifies its checksum. The engine starts on demand and stops when idle.
-
 Weekly usage is read from [Leeway](https://github.com/YarinCardillo/leeway) when it is installed.
 
 ## The first task
@@ -102,6 +97,8 @@ A green result proves that the command passed on that commit. It does not prove 
 means what it meant. So a green result is never shown as plain green when the commit changes the
 checks themselves, touches tests that existed at the base, runs fewer tests than the base or skips
 more of them: the row says which, and **Take** then asks you to hold the button, with the reason.
+
+On native Linux, the container user (UID 1000) needs write access to its task workspace. The hosted confinement fixture grants that UID an ACL on its throwaway workspace; Docker Desktop supplies its own host-volume mapping.
 
 ## Where things are
 
@@ -154,7 +151,7 @@ lavoro: a task, the Italian word the code uses for one piece of work.
 
 ## What is verified on each system
 
-The CI entries below describe configured checks. Their first hosted run is pending.
+The CI entries below describe configured checks. Hosted results are available in [Actions](https://github.com/YarinCardillo/sakura/actions).
 
 | | macOS | Linux | Windows |
 |-|-|-|-|

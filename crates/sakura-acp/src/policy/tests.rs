@@ -199,7 +199,7 @@ fn decide_one_known_command_with_arguments_inside_the_workspace_is_allowed() {
         "git status",
         "git diff HEAD~1",
         "git log --oneline main..HEAD",
-        "git commit -m \"sort the folders; poi i test\"",
+        "git commit -m \"sort the folders; then the tests\"",
         "git add src/folders/sort.rs",
         "rg sort_by src",
         "ls -la /work/demo/src",

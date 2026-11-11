@@ -1,4 +1,4 @@
-//! What the person asks `box` to do: verify, cancel a verification, take, start an agent; and the log tails the Verifiche rows open
+//! What the person asks `box` to do: verify, cancel a verification, take, start an agent; and the log tails the Checks rows open
 //! to. Each action runs at most once at a time (a second press while the first runs is ignored), shows its
 //! pending word at once and its outcome only when `box` answers. After take, stop, remove and start agent
 //! succeed, the action stays pending until facts read after it arrive, so the old facts never offer it again;
@@ -7,11 +7,12 @@
 
 use super::facts::{Facts, StatusRead};
 use super::retain_tasks;
-use super::source::{Pending, Source};
+use super::source::{Pending, QueueEnd, Source};
 use crate::l10n::Key;
 use gpui::{Context, Entity, SharedString, Subscription};
+use sakura_core::box_words;
 use sakura_core::error::{BridgeError, ErrorCode};
-use sakura_core::models::Account;
+use sakura_core::models::{Account, QueuedRequest, RunnerPhase};
 use sakura_core::projects::NewLavoro;
 use sakura_core::said::Said;
 use std::collections::{HashMap, HashSet};
@@ -84,6 +85,32 @@ impl ActionKey {
     }
 }
 
+/// When a run of the checks that wait ended and what it ended with, as it is kept.
+fn ended_of(ended: Result<QueueEnd, BridgeError>) -> (Instant, QueueOutcome) {
+    let (at, ended) = ended.unwrap_or_else(|error| (Instant::now(), Err(error)));
+    (at, ended.map_err(|error| (error.said, error.details)))
+}
+
+/// Why a run left the requests it was started for: its failure, or the general sentence with the warning
+/// `box` ended with.
+fn why_left(ended: &QueueOutcome) -> Failure {
+    match ended {
+        Ok(None) => (Said::new(QUEUE_STALLED), None),
+        // The line `box` ended with says why, when it is one the app has a sentence for.
+        Ok(Some(line)) => {
+            let told = box_words::said(line);
+            let is_known = told.said != Said::from(box_words::UNKNOWN);
+            let said = if is_known {
+                told.said
+            } else {
+                Said::new(QUEUE_STALLED)
+            };
+            (said, Some(line.clone()))
+        }
+        Err(failure) => failure.clone(),
+    }
+}
+
 /// Whether facts read after an action that finished at `finished_at` have arrived: a read of its task, or a
 /// full `box status` (which also says a removed task is gone), started after it.
 pub fn is_settled(
@@ -139,9 +166,34 @@ pub struct Actions {
     accounts_asked_at: Option<Instant>,
     /// Whether this `box` can cancel a check; false until it has said so.
     can_cancel: bool,
+    /// The app's own run of the checks that wait.
+    queue_run: QueueRun,
     _facts_observer: Subscription,
     _status_read: Subscription,
+    _quit: Subscription,
 }
+
+/// What is said when a run of the checks that wait left them waiting.
+const QUEUE_STALLED: &str = "verify.queue.stalled";
+
+/// The app's own run of the checks that wait (`box runner --once`): one at a time, started when the facts
+/// say requests wait and no runner is alive, never with nothing waiting.
+#[derive(Default)]
+struct QueueRun {
+    is_running: bool,
+    /// When the last run ended: the next one waits for a status read after it.
+    ended_at: Option<Instant>,
+    /// The requests the last run was started for, and the warning or the failure it ended with.
+    last: Option<(Vec<QueuedRequest>, QueueOutcome)>,
+    /// Why the requests that wait are not run: said in "Checks" until the person asks again or nothing
+    /// waits any more.
+    stalled: Option<Failure>,
+}
+
+/// A failure as it is said: the sentence, and the line `box` wrote when there is one.
+type Failure = (Said, Option<String>);
+/// How a run of the checks that wait ended: the warning `box` ended with, or its failure.
+type QueueOutcome = Result<Option<String>, Failure>;
 
 impl Actions {
     /// No action yet; the accounts are read once now.
@@ -149,6 +201,11 @@ impl Actions {
         let facts_observer = cx.observe(&facts, |actions, _, cx| {
             actions.settle(cx);
             actions.reload_stale_logs(cx);
+            actions.keep_queue_moving(cx);
+        });
+        let quit = cx.on_app_quit(|actions, _| {
+            actions.source.end_queue();
+            async {}
         });
         let status_read = cx.subscribe(&facts, |actions, facts, _: &StatusRead, cx| {
             let facts = facts.read(cx);
@@ -165,15 +222,17 @@ impl Actions {
             accounts: Accounts::Loading,
             accounts_asked_at: None,
             can_cancel: false,
+            queue_run: QueueRun::default(),
             _facts_observer: facts_observer,
             _status_read: status_read,
+            _quit: quit,
         };
         actions.reload_accounts(cx);
         actions.ask_can_cancel(cx);
         actions
     }
 
-    /// Whether a queued or running check can be cancelled: "Annulla" is offered only then.
+    /// Whether a queued or running check can be cancelled: "Cancel" is offered only then.
     pub fn can_cancel(&self) -> bool {
         self.can_cancel
     }
@@ -207,7 +266,7 @@ impl Actions {
         Some(&open.tail)
     }
 
-    /// The accounts for "Avvia agente".
+    /// The accounts for "Start agent".
     pub fn accounts(&self) -> &Accounts {
         &self.accounts
     }
@@ -217,6 +276,82 @@ impl Actions {
         self.accounts_asked_at
             .is_some_and(|asked| asked > at)
             .then_some(&self.accounts)
+    }
+
+    /// Why the checks that wait are not run, when the app's run of them left them: the sentence and the
+    /// line `box` wrote.
+    pub fn queue_stalled(&self) -> Option<(&Said, Option<&str>)> {
+        let (said, details) = self.queue_run.stalled.as_ref()?;
+        Some((said, details.as_deref()))
+    }
+
+    /// "Try again": runs the checks that wait again, whatever the last run said.
+    pub fn retry_queue(&mut self, cx: &mut Context<Self>) {
+        self.queue_run = QueueRun::default();
+        self.keep_queue_moving(cx);
+        cx.notify();
+    }
+
+    /// Keeps the queue of checks moving: when the facts say requests wait and no runner is alive, starts
+    /// one run of them, never two at once and never with nothing waiting. A run that left the very
+    /// requests it was started for is not started again by itself: why is said in "Checks".
+    fn keep_queue_moving(&mut self, cx: &mut Context<Self>) {
+        let facts = self.facts.read(cx);
+        let Some(runner) = facts.runner() else {
+            return;
+        };
+        let read_at = facts.status_started_at();
+        let is_alive = runner.state == RunnerPhase::Running;
+        let waiting = runner.queue.clone();
+        if is_alive || waiting.is_empty() {
+            // Nothing waits for a runner: what the last run said is no longer true.
+            let had_stalled = self.queue_run.stalled.take().is_some();
+            self.queue_run.last = None;
+            if had_stalled {
+                cx.notify();
+            }
+            return;
+        }
+        let run = &self.queue_run;
+        let is_read_since = run
+            .ended_at
+            .is_none_or(|ended| read_at.is_some_and(|read| read > ended));
+        if run.is_running || !is_read_since || run.stalled.is_some() {
+            return;
+        }
+        let left = run.last.as_ref().filter(|(asked, _)| *asked == waiting);
+        match left.map(|(_, ended)| why_left(ended)) {
+            Some(why) => {
+                self.queue_run.stalled = Some(why);
+                cx.notify();
+            }
+            None => self.run_queue(waiting, cx),
+        }
+    }
+
+    /// Starts one run of the checks that wait, for the requests `waiting` now.
+    fn run_queue(&mut self, waiting: Vec<QueuedRequest>, cx: &mut Context<Self>) {
+        let Some(pending) = self.source.run_queue() else {
+            return;
+        };
+        self.queue_run = QueueRun {
+            is_running: true,
+            ..QueueRun::default()
+        };
+        cx.spawn(async move |this, cx| {
+            let (at, ended) = ended_of(pending.await);
+            drop(this.update(cx, |actions, cx| {
+                actions.queue_run = QueueRun {
+                    ended_at: Some(at),
+                    last: Some((waiting, ended)),
+                    ..QueueRun::default()
+                };
+                actions.facts.update(cx, |facts, cx| facts.refresh_all(cx));
+                cx.notify();
+            }));
+        })
+        .detach();
+        cx.notify();
     }
 
     /// Queues `verb` for `task` with the runner.
@@ -382,7 +517,7 @@ impl Actions {
         .detach();
     }
 
-    /// Asks once whether this `box` can cancel a check. A failed question leaves "Annulla" not offered.
+    /// Asks once whether this `box` can cancel a check. A failed question leaves "Cancel" not offered.
     fn ask_can_cancel(&mut self, cx: &mut Context<Self>) {
         let pending = self.source.can_cancel();
         cx.spawn(async move |this, cx| {

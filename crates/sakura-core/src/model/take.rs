@@ -1,8 +1,8 @@
 //! The take rule: when "Prendi" is a plain press, when it needs a hold, and when it is not offered.
 
+use super::required_verbs;
 use super::result::{result_view, ResultView};
 use super::trust::{distrust, Distrust};
-use super::REQUIRED_VERBS;
 use crate::models::Task;
 use crate::said::Said;
 
@@ -18,7 +18,7 @@ pub enum TakeRule {
 }
 
 /// The take rule for `task`. Plain only when there are commits ahead, no uncommitted file, and every verb
-/// in [`REQUIRED_VERBS`] has a passed result for HEAD. The first reason that applies is the one written.
+/// of [`required_verbs`] has a passed result for HEAD. The first reason that applies is the one written.
 pub fn take_rule(task: &Task) -> TakeRule {
     if let Some(reason) = disabled_reason(task) {
         return TakeRule::Disabled { reason };
@@ -70,15 +70,15 @@ fn hold_cause(task: &Task) -> Option<HoldCause> {
         Some(0) => {}
         Some(n) => return sentence(Said::new("reason.uncommitted_files").count(u64::from(n))),
     }
-    let not_passed = REQUIRED_VERBS
+    let not_passed = required_verbs(task)
         .iter()
         .find_map(|verb| verb_reason(verb, result_view(task, verb)));
     if let Some(reason) = not_passed {
         return sentence(reason);
     }
-    let distrusted = REQUIRED_VERBS
+    let distrusted = required_verbs(task)
         .iter()
-        .find_map(|verb| distrust(verb, task.results.get(*verb)?));
+        .find_map(|verb| distrust(verb, task.results.get(verb)?));
     distrusted.map(HoldCause::Distrust)
 }
 

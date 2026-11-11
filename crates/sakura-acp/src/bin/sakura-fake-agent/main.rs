@@ -7,7 +7,8 @@
 //! `--delay-ms N` (pause between streamed steps, default 12), `--auth-required` (sessions answer
 //! `auth_required`), `--auth-on-prompt` (sessions open, every prompt answers `auth_required`, as the Claude
 //! adapter does without a login), `--crash-at-start` (exit before reading), `--no-list`, `--no-load` (capabilities off),
-//! `--empty` (no stored session to list or load), `--mute` (reads and never answers), `--noise` (a line that
+//! `--empty` (no stored session to list or load), `--refused-history` (the stored session is one prompt
+//! the model refused), `--mute` (reads and never answers), `--noise` (a line that
 //! is not JSON before every answer), `--read-lines N` (stops reading its input after N lines and stays
 //! alive), `--exit-after-ms N` (exits with the crash code N ms after it started, whatever it is doing).
 
@@ -54,6 +55,7 @@ struct Options {
     has_list: bool,
     has_load: bool,
     has_stored_session: bool,
+    is_history_refused: bool,
     is_mute: bool,
 }
 
@@ -68,6 +70,7 @@ impl Options {
             has_list: !has("--no-list"),
             has_load: !has("--no-load"),
             has_stored_session: !has("--empty"),
+            is_history_refused: has("--refused-history"),
             is_mute: has("--mute"),
         }
     }
@@ -239,7 +242,11 @@ fn load(shared: &Shared, id: &Value, params: &Value) {
             .wire
             .error(id, RESOURCE_NOT_FOUND, "Session not found");
     }
-    for update in scripts::history() {
+    let history = match shared.options.is_history_refused {
+        true => scripts::refused_history(),
+        false => scripts::history(),
+    };
+    for update in history {
         shared.wire.update(session, update);
     }
     shared.wire.result(id, json!({}));

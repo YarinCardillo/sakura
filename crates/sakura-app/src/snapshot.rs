@@ -196,7 +196,7 @@ pub fn selection() -> Option<String> {
 }
 
 /// With the `measure` feature (also part of `snapshot`), `SAKURA_SNAPSHOT_VIEW=changes|checks` picks the pane view, and
-/// `SAKURA_SNAPSHOT_LOG=<verb>` opens that verb's log on the Verifiche view.
+/// `SAKURA_SNAPSHOT_LOG=<verb>` opens that verb's log on the Checks view.
 #[cfg(feature = "measure")]
 pub fn view_and_log() -> (Option<String>, Option<String>) {
     let read = |name: &str| std::env::var(name).ok();

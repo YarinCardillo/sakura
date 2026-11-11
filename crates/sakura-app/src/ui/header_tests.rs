@@ -152,8 +152,8 @@ fn ferma_in_the_header_stops_the_agent_once(cx: &mut TestAppContext) {
 }
 
 in_every_language! {
-fn the_header_says_no_sentence_and_the_reasons_are_in_verifiche_and_under_it(cx: &mut TestAppContext) {
-    let (cx, desk) = open_on(cx, "row-sample-folders");
+fn the_header_says_no_sentence_and_the_reasons_are_in_verifiche(cx: &mut TestAppContext) {
+    let (cx, _desk) = open_on(cx, "row-sample-folders");
     assert!(!is_on_screen(cx, "take-note") && !is_on_screen(cx, "page-notice"));
     click(cx, "pane-view-checks");
     assert!(
@@ -164,18 +164,34 @@ fn the_header_says_no_sentence_and_the_reasons_are_in_verifiche_and_under_it(cx:
         is_on_screen(cx, "verify-summary-reason"),
         "why taking needs a hold"
     );
-    click(cx, "row-sample-accent");
+}
+}
+
+in_every_language! {
+fn asking_to_confirm_an_archive_moves_nothing_on_the_page(cx: &mut TestAppContext) {
+    let (cx, desk) = open_on(cx, "row-sample-accent");
+    let page = |cx: &mut VisualTestContext| {
+        ["page-header", "pane-view-checks", "row-sample-accent"]
+            .map(|part| cx.debug_bounds(part).expect(part))
+    };
+    let before = page(cx);
     desk.update(cx, |desk, cx| desk.ask_remove("sample-accent", cx));
     wait_for(cx, "the confirmation", |cx| {
         is_on_screen(cx, "remove-cancel")
     });
-    let notice = cx
-        .debug_bounds("page-notice")
-        .expect("why work would be lost");
-    let header = cx.debug_bounds("page-header").expect("the header");
     assert!(
-        notice.top() >= header.bottom(),
-        "under the header, not in it"
+        is_on_screen(cx, "remove-hold"),
+        "the hold stands where the header's action is, with its reason under the pointer"
     );
+    assert!(
+        !is_on_screen(cx, "page-notice"),
+        "no line is added under the header"
+    );
+    assert_eq!(page(cx), before, "while the hold is asked");
+    click(cx, "remove-cancel");
+    wait_for(cx, "the confirmation put away", |cx| {
+        !is_on_screen(cx, "remove-cancel")
+    });
+    assert_eq!(page(cx), before, "and after it");
 }
 }

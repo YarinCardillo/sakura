@@ -241,7 +241,7 @@ impl ThreadView {
     }
 }
 
-/// The row under a folded block: "Mostra tutte le N righe".
+/// The row under a folded block: "Show all N lines".
 pub(super) fn unfold_row(id: u64, lines: usize, palette: &Palette) -> gpui::Stateful<gpui::Div> {
     text(theme::TEXT_LABEL, palette.text_tertiary)
         .id(SharedString::from(format!("thread-unfold-{id}")))
@@ -275,15 +275,15 @@ mod tests {
             "hello.txt\nREADME.md"
         );
         assert_eq!(unfenced("```console\n$ ls\na\n```\n", false), "$ ls\na");
-        assert_eq!(unfenced("~~~~\nuna riga\n~~~~", false), "una riga");
+        assert_eq!(unfenced("~~~~\none line\n~~~~", false), "one line");
         assert_eq!(unfenced("```\n```", false), "");
     }
 
     #[test]
     fn unfenced_text_that_only_holds_a_fence_somewhere_is_left_as_it_is() {
         for text in [
-            "riga\n```\ncodice\n```",
-            "```\ncodice\n```\ndopo",
+            "line\n```\ncode\n```",
+            "```\ncode\n```\ndopo",
             "```\nsenza chiusura",
             "``` a single line ```",
             "text semplice",

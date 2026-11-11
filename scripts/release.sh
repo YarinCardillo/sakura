@@ -3,7 +3,7 @@
 #
 # Usage: scripts/release.sh <version>
 # Environment:
-#   SAKURA_SIGN_IDENTITY    the signing identity (default: Developer ID Application)
+#   SAKURA_SIGN_IDENTITY    the signing identity (default: Developer ID Application); - forces ad hoc without keychain probes
 #   SAKURA_NOTARY_PROFILE   the notarytool keychain profile (default: sakura-notary)
 #   SAKURA_APP_BUNDLE       a Sakura.app that is already built (for example the one CI built); it is
 #                           copied and signed instead of building here
@@ -59,6 +59,7 @@ with_deadline() {
 
 # Whether the keychain holds the identity and the notary profile answers. Nothing they print is shown.
 can_sign_for_distribution() {
+    [[ "$IDENTITY" != "-" ]] || return 1
     local identities
     identities=$(with_deadline "$CALL_DEADLINE_SECONDS" security find-identity -v -p codesigning 2> /dev/null) || return 1
     grep -Fq "$IDENTITY" <<< "$identities" || return 1

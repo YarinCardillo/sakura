@@ -562,7 +562,7 @@ fn view_last_line_is_the_last_row_with_text(app: &mut TestAppContext) {
 #[gpui::test]
 fn view_the_pointer_is_the_arrow_over_an_address_while_cmd_is_held(app: &mut TestAppContext) {
     let mut rig = rig(app);
-    rig.output("vai su https://example.com ora");
+    rig.output("go to https://example.com now");
     let address = rig.cell_center(0, 12);
     let style = |rig: &mut Rig| rig.view.read_with(rig.cx, |view, _| view.pointer_style());
     rig.cx.simulate_mouse_move(address, None, Modifiers::none());

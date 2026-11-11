@@ -1,7 +1,7 @@
-diff --git a/src/lib/library/scope.ts b/src/lib/library/scope.ts
+diff --git a/src/lib/catalogs/scope.ts b/src/lib/catalogs/scope.ts
 index 3f2a1c0..8b7d4e2 100644
---- a/src/lib/library/scope.ts
-+++ b/src/lib/library/scope.ts
+--- a/src/lib/catalogs/scope.ts
++++ b/src/lib/catalogs/scope.ts
 @@ -1,9 +1,9 @@
  import { z } from "zod";
  
@@ -21,13 +21,13 @@ index 3f2a1c0..8b7d4e2 100644
  }
  
  export const DEFAULT_SCOPE: LibraryScope = "mine";
-diff --git a/src/lib/library/visibility.ts b/src/lib/library/visible.ts
+diff --git a/src/lib/catalogs/visibility.ts b/src/lib/catalogs/visible.ts
 similarity index 88%
-rename from src/lib/library/visibility.ts
-rename to src/lib/library/visible.ts
+rename from src/lib/catalogs/visibility.ts
+rename to src/lib/catalogs/visible.ts
 index 1a2b3c4..5d6e7f8 100644
---- a/src/lib/library/visibility.ts
-+++ b/src/lib/library/visible.ts
+--- a/src/lib/catalogs/visibility.ts
++++ b/src/lib/catalogs/visible.ts
 @@ -4,6 +4,6 @@ import type { LibraryScope } from "./scope";
  
  export function isVisible(item: LibraryItem, scope: LibraryScope, userId: string): boolean {
@@ -40,13 +40,13 @@ diff --git a/docs/notes/old.md b/docs/archive/old.md
 similarity index 100%
 rename from docs/notes/old.md
 rename to docs/archive/old.md
-diff --git a/src/components/library/ItemPicker.tsx b/src/components/library/ItemPicker.tsx
+diff --git a/src/components/catalogs/ItemPicker.tsx b/src/components/catalogs/ItemPicker.tsx
 new file mode 100644
 index 0000000..c0ffee1
 --- /dev/null
-+++ b/src/components/library/ItemPicker.tsx
++++ b/src/components/catalogs/ItemPicker.tsx
 @@ -0,0 +1,14 @@
-+import { useLibraryItems } from "@/lib/library/query";
++import { useLibraryItems } from "@/lib/catalogs/query";
 +
 +type Props = { onPick: (id: string) => void };
 +
@@ -61,10 +61,10 @@ index 0000000..c0ffee1
 +  );
 +}
 \ No newline at end of file
-diff --git a/src/components/library/old-picker.tsx b/src/components/library/old-picker.tsx
+diff --git a/src/components/catalogs/old-picker.tsx b/src/components/catalogs/old-picker.tsx
 deleted file mode 100644
 index 7e7e7e7..0000000
---- a/src/components/library/old-picker.tsx
+--- a/src/components/catalogs/old-picker.tsx
 +++ /dev/null
 @@ -1,6 +0,0 @@
 -import { LegacyItemPicker } from "./dialog";
@@ -99,6 +99,6 @@ index 6666666..7777777 100644
 --- a/config/windows.ini
 +++ b/config/windows.ini
 @@ -1,2 +1,2 @@
- [library]
+ [catalogs]
 -scope=mine
 +scope=all

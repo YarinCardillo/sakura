@@ -69,8 +69,8 @@ mod tests {
         vec![
             account("personal", Place::Mac, true),
             account("assente", Place::Mac, false),
-            account("scatola", Place::Box, false),
-            account("seconda", Place::Box, true),
+            account("box", Place::Box, false),
+            account("second", Place::Box, true),
         ]
     }
 
@@ -81,7 +81,7 @@ mod tests {
             .iter()
             .map(|offer| (offer.name.as_str(), offer.is_signed_in))
             .collect();
-        assert_eq!(listed, [("scatola", false), ("seconda", true)]);
+        assert_eq!(listed, [("box", false), ("second", true)]);
     }
 
     #[test]
@@ -96,9 +96,9 @@ mod tests {
         let offers = offered(&accounts(), Place::Box);
         assert_eq!(blocker(&[], Place::Box, None), Some(NO_BOX_ACCOUNT));
         assert_eq!(blocker(&offers, Place::Box, None), Some(CHOOSE_ACCOUNT));
-        let not_signed_in = blocker(&offers, Place::Box, Some("scatola"));
+        let not_signed_in = blocker(&offers, Place::Box, Some("box"));
         assert_eq!(not_signed_in, Some(NOT_SIGNED_IN));
-        assert_eq!(blocker(&offers, Place::Box, Some("seconda")), None);
+        assert_eq!(blocker(&offers, Place::Box, Some("second")), None);
     }
 
     #[test]

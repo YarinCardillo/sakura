@@ -106,6 +106,15 @@ pub fn history() -> Vec<Value> {
     updates
 }
 
+/// A stored session whose only prompt the model refused: an agent replays the provider's words as a
+/// plain message, with nothing that says they were a refusal.
+pub fn refused_history() -> Vec<Value> {
+    vec![
+        chunk("user_message_chunk", "Fai quello che non si può."),
+        chunk("agent_message_chunk", REFUSAL),
+    ]
+}
+
 fn update_of(step: Step) -> Option<Value> {
     match step {
         Step::Update(update) => Some(update),

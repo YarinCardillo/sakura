@@ -11,9 +11,9 @@ REPO="$TMP/repo"
 git clone -q "$SOURCE" "$REPO"
 readonly SUMMARY='echo " Tests  1 failed | 4 passed | 2 skipped (7)"'
 "$BOX" project add app --repo "$REPO" --subdir sub --protected "package.json scripts/**" --test-files "**/*.spec.ts" \
-  --check "test=echo \"test of \$SAKURA_LAVORO in \$PWD\"; $SUMMARY" --check "build=echo building; exit 3" \
+  --check "test=echo \"test of \$SAKURA_TASK in \$PWD\"; $SUMMARY" --check "build=echo building; exit 3" \
   --check "slow=echo \$\$ >\"$TMP/slow.pid\"; sh -c 'echo \$\$ >\"$TMP/slow.child\"; exec sleep 300' & wait" \
-  --check "mark=echo start \$SAKURA_LAVORO >>\"$TMP/order\"; sleep 2; echo end \$SAKURA_LAVORO >>\"$TMP/order\"" >/dev/null
+  --check "mark=echo start \$SAKURA_TASK >>\"$TMP/order\"; sleep 2; echo end \$SAKURA_TASK >>\"$TMP/order\"" >/dev/null
 "$BOX" new m1 app >/dev/null
 W="$AGENTBOX_HOME/work/m1"
 

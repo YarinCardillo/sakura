@@ -1,4 +1,4 @@
-//! The diffs of one lavoro, "Modifiche" in the right pane: every changed file in one virtualised scroll.
+//! The diffs of one lavoro, "Changes" in the right pane: every changed file in one virtualised scroll.
 //! Files start closed and open in place. Open files and the scroll position are kept by path, so a refresh
 //! of the patch moves nothing the person set. A line too long for the list wraps to its width (see [`super::wrap`]): the list
 //! is built once its width is known, row heights follow the wrap, and nothing scrolls sideways.

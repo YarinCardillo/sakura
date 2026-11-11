@@ -30,7 +30,7 @@ use std::time::Instant;
 pub enum Owner {
     Sidebar,
     Header,
-    /// The page below the header (the Verifiche rows).
+    /// The page below the header (the Checks rows).
     Page,
 }
 

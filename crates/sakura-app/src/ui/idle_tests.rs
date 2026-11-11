@@ -11,7 +11,7 @@ use super::launch_tests::{calls, fake_agentbox, open_live, settled_calls, Names,
 use super::thread::Phase;
 use crate::data::source::Signal;
 use gpui::{Entity, TestAppContext, VisualTestContext};
-use sakura_core::models::{AgentPhase, BoxStatus};
+use sakura_core::models::{AgentPhase, BoxStatus, QueuedRequest, RunnerPhase};
 use sakura_core::watcher::TICK;
 use std::time::{Duration, Instant};
 
@@ -177,6 +177,50 @@ fn ten_idle_minutes_with_five_tasks_start_no_box_process_after_the_launch(cx: &m
     // window that has lavori to show.
     let of_projects = |call: &&String| call.starts_with("project") || call.starts_with("branches");
     assert_eq!(after.iter().filter(of_projects).count(), 0, "{after:#?}");
+}
+
+/// What the stand-in runner wrote: "start" and "end" of each of its runs, in order.
+fn runs(dir: &tempfile::TempDir) -> Vec<String> {
+    let order = std::fs::read_to_string(dir.path().join("order")).unwrap_or_default();
+    order.lines().map(str::to_string).collect()
+}
+
+#[gpui::test]
+fn checks_that_wait_with_no_runner_are_run_by_the_app_one_run_at_a_time(cx: &mut TestAppContext) {
+    // The stand-in runner takes one request per run: its first run leaves one waiting, its second none.
+    let runner = r#"  runner) echo start >> "$d/order"; sleep 0.3; n=$(ls "$d" | grep -c '^ran-'); touch "$d/ran-$n"; cp "$d/status-after-$n.json" "$d/status.json"; echo end >> "$d/order" ;;"#;
+    let (dir, script) = five_tasks(false, runner);
+    let path = dir.path().join("status.json");
+    let written = std::fs::read_to_string(&path).expect("the status");
+    let mut status: BoxStatus = serde_json::from_str(&written).expect("the status parses");
+    status.runner.state = RunnerPhase::Stopped;
+    let request = |verb: &str| QueuedRequest {
+        task: TALKED.into(),
+        verb: verb.into(),
+        sha: "9b1e0c3a5d7f2468ace013579bdf02468ace1357".into(),
+        queued_at: "2026-11-10T06:43:50Z".into(),
+    };
+    let queues = [
+        ("status.json", vec![request("test"), request("build")]),
+        ("status-after-0.json", vec![request("build")]),
+        ("status-after-1.json", Vec::new()),
+    ];
+    for (name, queue) in queues {
+        status.runner.queue = queue;
+        let text = serde_json::to_string(&status).expect("the status");
+        std::fs::write(dir.path().join(name), text).expect("the status");
+    }
+    let (cx, desk, _) = open_settled(cx, &dir, script, false);
+    let both = ["start", "end", "start", "end"];
+    wait_for(cx, "the two runs, one after the other", |_| {
+        runs(&dir) == both
+    });
+    idle_ten_minutes(cx, &desk);
+    assert_eq!(
+        runs(&dir),
+        both,
+        "never two at once, and none once nothing waits"
+    );
 }
 
 #[gpui::test]

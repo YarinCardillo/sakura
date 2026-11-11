@@ -43,6 +43,9 @@ pub enum Signal {
 /// The signals for the facts.
 pub type FactsEvents = UnboundedReceiver<Signal>;
 
+/// When a run of the checks that wait ended, and the warning or the failure it ended with.
+pub type QueueEnd = (std::time::Instant, BridgeResult<Option<String>>);
+
 #[derive(Clone)]
 enum Kind {
     Live(Core),
@@ -269,6 +272,28 @@ impl Source {
             return pending;
         }
         self.live(move |core| async move { core.verify_request(&task, &verb).await })
+    }
+
+    /// `box runner --once`: runs the checks that wait and ends, answering when and how it ended. `None`
+    /// on the fixture, which has no check to run.
+    pub fn run_queue(&self) -> Option<Pending<QueueEnd>> {
+        if let Some(pending) = self.recorded("runner --once".to_string()) {
+            return Some(pending);
+        }
+        match &self.kind {
+            Kind::Live(core) => {
+                let core = core.clone();
+                Some(self.spawn(async move { Ok(core.runner_once().await) }))
+            }
+            Kind::Fixture(_) => None,
+        }
+    }
+
+    /// Ends the run of the checks this app started, if one runs: the app quits.
+    pub fn end_queue(&self) {
+        if let Kind::Live(core) = &self.kind {
+            core.runner_end();
+        }
     }
 
     /// `box cancel <task> <verb>`, answering whether there was a queued or running check to cancel.

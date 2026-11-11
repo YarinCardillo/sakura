@@ -30,6 +30,7 @@ pub fn readable(name: &str) -> Task {
         agent: None,
         other_containers: 0,
         results: BTreeMap::new(),
+        checks: Some(vec!["test".into(), "rules".into()]),
         preparing: None,
         disk: None,
     }

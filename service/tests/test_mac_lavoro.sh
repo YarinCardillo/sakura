@@ -26,7 +26,7 @@ assert_status "a project without one" 0 "$BOX" project add plain --repo "$REPO" 
 assert_eq "gets sakura/" "sakura/" "$("$BOX" projects --json | jq -r '.[] | select(.name == "plain") | .branchPrefix')"
 
 echo " the setup command runs once, in the folder of the project, with its output in a private log"
-assert_status "set --setup" 0 "$BOX" project set app --setup 'echo "setup of $SAKURA_LAVORO in $PWD"; echo "root $SAKURA_REPO and $CONDUCTOR_ROOT_PATH"; echo "tree $SAKURA_WORKTREE"; touch setup-ran'
+assert_status "set --setup" 0 "$BOX" project set app --setup 'echo "setup of $SAKURA_TASK in $PWD"; echo "root $SAKURA_REPO and $CONDUCTOR_ROOT_PATH"; echo "tree $SAKURA_WORKTREE"; touch setup-ran'
 assert_eq "projects --json carries it" "1" "$("$BOX" projects --json | jq -r '.[] | select(.name == "app") | .setup' | grep -c 'touch setup-ran')"
 : >"$FAKE_DOCKER_LOG"
 assert_status "box new" 0 "$BOX" new s1 app
@@ -89,7 +89,7 @@ assert_eq "the worktree is still there" "1" "$([ -d "$W" ] && echo 1 || echo 0)"
 git init -q --bare "$TMP/remote.git"
 git -C "$REPO" remote add backup "$TMP/remote.git"
 git -C "$W" push -q backup me/r1
-"$BOX" project set app --archive "echo \"archive of \$SAKURA_LAVORO in \$PWD\" >\"$TMP/archived\"" >/dev/null
+"$BOX" project set app --archive "echo \"archive of \$SAKURA_TASK in \$PWD\" >\"$TMP/archived\"" >/dev/null
 "$BOX" new r2 app >/dev/null
 : >"$FAKE_DOCKER_LOG"
 assert_status "once pushed, it goes" 0 "$BOX" rm r1

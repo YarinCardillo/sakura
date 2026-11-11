@@ -110,11 +110,30 @@ const ALLOWED: [(&str, &str); 11] = [
 const BEFORE_A_BOX: [&str; 7] = ["a", "the", "un", "una", "la", "le", "nei"];
 
 #[test]
-fn no_value_names_the_command_behind_it() {
+fn locale_examples_use_public_variables_without_naming_the_service_command() {
     for (language, text) in [("English", ENGLISH), ("Italian", ITALIAN)] {
         for (key, words) in locale(text) {
             let is_word = |c: char| c.is_alphanumeric();
             let said: Vec<&str> = words.split(|c| !is_word(c)).collect();
+            // Nor in what the app writes as an example: a branch prefix, a variable of a command.
+            let is_unknown_variable = |word: &&str| {
+                let name = word.to_ascii_lowercase();
+                name.starts_with("sakura_")
+                    && ![
+                        "sakura_task",
+                        "sakura_worktree",
+                        "sakura_repo",
+                        "sakura_base",
+                        "sakura_port",
+                        "sakura_ports",
+                    ]
+                    .contains(&name.as_str())
+            };
+            let named: Vec<&str> = words.split(|c: char| !is_word(c) && c != '_').collect();
+            assert!(
+                !named.iter().any(is_unknown_variable),
+                "{key} writes an unknown Sakura variable in {language}: {words}"
+            );
             let boxes = said.iter().enumerate().filter(|(_, word)| **word == "box");
             for (nth, _) in boxes {
                 let before = nth.checked_sub(1).map(|nth| said[nth].to_lowercase());
@@ -327,7 +346,10 @@ fn a_state_reads_as_the_group_the_sidebar_lists_it_under() {
     for text in [ENGLISH, ITALIAN] {
         let words = locale(text);
         for (state, group) in [
+            ("state.needs_you", "group.needs_you"),
+            ("state.preparing", "group.preparing"),
             ("state.idle", "group.idle"),
+            ("state.not_started", "group.not_started"),
             ("state.working", "group.working"),
             ("state.to_review", "group.review"),
         ] {

@@ -34,6 +34,16 @@ project_run_mode() {
   echo "${RUN_MODE:-one}"
 }
 
+# Refresh only native preview settings from the current host-private project file.
+refresh_play_settings() {
+  local settings
+  settings="$(
+    load_project "$(task_project "$1")"
+    printf '%s\n' "${RUN:-}" "$(project_ports)" "$(project_run_mode)"
+  )" || return 1
+  { IFS= read -r RUN; IFS= read -r PORTS; IFS= read -r RUN_MODE; } <<<"$settings"
+}
+
 cmd_play() {
   local task="${1:-}" action="${2:-}" json="${3:-}"
   [ "$#" -ge 2 ] && [ "$#" -le 3 ] || die "$PLAY_USAGE"
@@ -75,17 +85,20 @@ play_ports() {
   [[ "$first" =~ ^[0-9]{4,5}$ ]] && [[ "$count" =~ ^[0-9]{1,3}$ ]] && echo "$first $count"
 }
 
-# Reserves a range for the task, once: the lowest one from PLAY_FIRST_PORT up that no other
-# lavoro holds. It stays the lavoro's until box rm, whether its Play runs or not.
+# Reserves the current port count, retaining an unchanged range between starts. A changed
+# count is allocated afresh without overlapping any other task reservation.
 reserve_play_ports() {
-  local task="$1" count first file other_first other_count moved=1
-  play_ports "$task" >/dev/null && return 0
+  local task="$1" count first file other_first other_count reservation moved=1
   count="$(project_ports)"
+  reservation="$(play_file "$task" ports)"
+  if read -r first other_count < <(play_ports "$task"); then
+    [ "$other_count" != "$count" ] || return 0
+  fi
   first="$PLAY_FIRST_PORT"
   while [ "$moved" -eq 1 ]; do
     moved=0
     for file in "$PLAY_DIR"/*.ports; do
-      [ -f "$file" ] || continue
+      [ "$file" != "$reservation" ] && [ -f "$file" ] || continue
       read -r other_first other_count <"$file" || continue
       if [ "$first" -lt $((other_first + other_count)) ] && [ "$other_first" -lt $((first + count)) ]; then
         first=$((other_first + other_count))
@@ -101,6 +114,7 @@ reserve_play_ports() {
 
 play_start() {
   local task="$1" first count folder other launcher launcher_start pid_file log done_file
+  refresh_play_settings "$task" || return 1
   [ -n "${RUN:-}" ] || die "the project of task '$task' has no run command (box project set $(task_project "$task") --run '<command>')"
   mkdir -p "$PLAY_DIR"
   ! play_group "$task" >/dev/null || return 0

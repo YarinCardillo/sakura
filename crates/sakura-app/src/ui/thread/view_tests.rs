@@ -45,6 +45,8 @@ fn host(seen: Rc<Seen>, runtime: tokio::runtime::Handle, program: &'static [&'st
         }),
         stored_session: Box::new(|_| None),
         store_session: Box::new(|_, _| {}),
+        refusals: Box::new(|_, _| Vec::new()),
+        keep_refusal: Box::new(|_, _, _| {}),
         login: Box::new(|_| Login::Box),
         accounts: Box::new(|_| Vec::new()),
         choose_account: Box::new(|_, _| {}),
@@ -114,7 +116,7 @@ fn apply(opened: &mut Opened, events: Vec<ThreadEvent>) {
 }
 
 fn chunks(count: usize) -> Vec<ThreadEvent> {
-    let chunk = || ThreadEvent::Update(Update::AgentText("parola dopo parola ".to_string()));
+    let chunk = || ThreadEvent::Update(Update::AgentText("word after word ".to_string()));
     (0..count).map(|_| chunk()).collect()
 }
 
@@ -452,7 +454,7 @@ fn permission_card_keeps_showing_what_was_asked_when_the_call_changes_under_it(
     use super::permission::{subject_lines, SubjectLine};
     let mut opened = open(cx);
     let asked_about = ToolCallFields {
-        title: Some("Esegui i test".to_string()),
+        title: Some("Run the tests".to_string()),
         kind: Some(sakura_acp::model::ToolKind::Execute),
         raw_input: Some(serde_json::json!({ "command": ["curl", "example.com"] })),
         ..ToolCallFields::new("run")
@@ -588,7 +590,7 @@ fn answer_that_defines_a_reference_becomes_one_row_again(cx: &mut TestAppContext
     );
     apply(
         &mut opened,
-        answer_in_chunks("[1]: https://example.com\n\nQuarto.\n"),
+        answer_in_chunks("[1]: https://example.com\n\nFourth.\n"),
     );
     opened.view.read_with(opened.cx, |view, cx| {
         assert_eq!(
@@ -769,10 +771,7 @@ fn link_in_an_answer_opens_only_a_web_address(cx: &mut TestAppContext) {
             ThreadEvent::TurnEnded(sakura_acp::model::StopReason::EndTurn),
         ]
     };
-    apply(
-        &mut opened,
-        said("[il file delle password](file:///etc/passwd)"),
-    );
+    apply(&mut opened, said("[the password file](file:///etc/passwd)"));
     click_start_of(opened.cx, "thread-answer-1-0");
     assert_eq!(
         opened.cx.opened_url(),

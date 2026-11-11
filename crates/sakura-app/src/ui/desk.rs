@@ -62,7 +62,7 @@ pub struct Desk {
     /// Nothing was chosen yet, by the person or by the window: it opens on a task as soon as one can be
     /// chosen rightly (see [`super::opening`]).
     is_opening: bool,
-    /// The view of the right pane each lavoro shows; "Modifiche" until another was chosen.
+    /// The view of the right pane each lavoro shows; "Changes" until another was chosen.
     pub(super) pane_views: HashMap<String, PaneView>,
     /// The views of the right pane as the preferences hold them.
     pub(super) pane_views_kept: HashMap<String, PaneView>,
@@ -73,7 +73,7 @@ pub struct Desk {
     /// The lavori whose terminal ended by itself, with its exit code, until the line that says so is
     /// put away or the terminal opened again.
     pub(super) ended_terminals: HashMap<String, Option<i32>>,
-    /// The Verifiche row whose log is open, as (task, verb).
+    /// The Checks row whose log is open, as (task, verb).
     open_log: Option<(String, String)>,
     log_scroll: ScrollHandle,
     /// One hold button per hold id ("Take" and "Archive" of each task), kept so a hold survives re-renders.
@@ -448,7 +448,7 @@ impl Desk {
             .map_or(0, |pane| pane.read(cx).row_count())
     }
 
-    /// The diffs of `task`, if its "Modifiche" was shown.
+    /// The diffs of `task`, if its "Changes" was shown.
     #[cfg(test)]
     pub fn changes_list(&self, task: &str) -> Option<Entity<ChangesList>> {
         self.panes.get(task).cloned()
@@ -616,6 +616,12 @@ impl Desk {
             .update(cx, |actions, cx| actions.verify(task, verb, cx));
     }
 
+    /// Runs the checks that wait again, after a run that left them waiting.
+    pub fn retry_queue(&mut self, cx: &mut Context<Self>) {
+        self.actions
+            .update(cx, |actions, cx| actions.retry_queue(cx));
+    }
+
     /// Cancels the queued or running check of `verb` for `task`.
     pub fn cancel_verify(&mut self, task: String, verb: String, cx: &mut Context<Self>) {
         self.actions
@@ -734,14 +740,12 @@ impl Desk {
         self.follow_into_view(&task.name, window, cx);
         let view = self.pane_view(&task.name);
         let body = match view {
-            PaneView::Files | PaneView::Verifiche | PaneView::Git | PaneView::Play
-                if is_pending =>
-            {
+            PaneView::Files | PaneView::Checks | PaneView::Git | PaneView::Play if is_pending => {
                 panes::empty(tr(page::READING_SENTENCE), cx)
             }
             PaneView::Files => self.files_view(task, window, cx),
-            PaneView::Modifiche => self.changes_view(&task.name, cx),
-            PaneView::Verifiche => self.checks_view(task, cx),
+            PaneView::Changes => self.changes_view(&task.name, cx),
+            PaneView::Checks => self.checks_view(task, cx),
             PaneView::Git => self.git_view(task, cx),
             PaneView::Play => self.play_view(task, window, cx),
         };
@@ -757,7 +761,7 @@ impl Desk {
         right_pane::view(&facts, body, &Theme::palette(cx), window, cx)
     }
 
-    /// "Modifiche": the commit picker over the diffs of `task`. With no commit ahead there is nothing to
+    /// "Changes": the commit picker over the diffs of `task`. With no commit ahead there is nothing to
     /// pick, so its band is not drawn and the files start under the row of views.
     fn changes_view(&mut self, task: &str, cx: &mut Context<Self>) -> AnyElement {
         let picker = self.picker_for(task, cx).cached(
@@ -780,7 +784,7 @@ impl Desk {
             .into_any_element()
     }
 
-    /// "Verifiche": the checks of `task` and their results.
+    /// "Checks": the checks of `task` and their results.
     fn checks_view(&mut self, task: &Task, cx: &mut Context<Self>) -> AnyElement {
         let open_verb = self.open_log.as_ref().filter(|(t, _)| *t == task.name);
         let inputs = VerifyInputs {

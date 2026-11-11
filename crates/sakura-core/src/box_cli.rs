@@ -81,7 +81,13 @@ pub enum Limit {
     Action,
     /// `take`, which copies the work out of the workspace. `new` has its own limit, see [`Timeouts::new`].
     Take,
+    /// The run of the checks that wait (`box runner --once`): it lasts as long as they do.
+    Queue,
 }
+
+/// The longest a run of the checks that wait may last: several checks, each with the deadline `box` gives
+/// a check (45 minutes).
+const QUEUE_LIMIT: Duration = Duration::from_secs(6 * 60 * 60);
 
 /// Timeout values per [`Limit`]. Production values by default; tests shorten them.
 #[derive(Debug, Clone, Copy)]
@@ -119,6 +125,7 @@ impl Timeouts {
             Limit::Diff => self.diff,
             Limit::Action => self.action,
             Limit::Take => self.take,
+            Limit::Queue => QUEUE_LIMIT,
         }
     }
 }
@@ -210,6 +217,24 @@ impl BoxCli {
         }
     }
 
+    /// Runs `box <args>` to its end, telling `on_start` the process it started, and returns the last line
+    /// it wrote on stderr when it succeeded: `box` warns there about what it left undone.
+    pub async fn run_warned(
+        &self,
+        args: &[&str],
+        limit: Limit,
+        on_start: impl FnOnce(Option<u32>) + Send,
+    ) -> BridgeResult<Option<String>> {
+        self.check()?;
+        let limit = self.timeouts.for_limit(limit);
+        let captured = self.capture_started(args, limit, on_start).await?;
+        if captured.status.success() {
+            Ok(last_line(&String::from_utf8_lossy(&captured.stderr)))
+        } else {
+            Err(failure(captured.status.code(), &captured.stderr))
+        }
+    }
+
     /// Runs `box <args>` and returns stdout as text (invalid UTF-8 is replaced).
     pub async fn run_text(&self, args: &[&str], limit: Limit) -> BridgeResult<String> {
         let bytes = self.run_bytes(args, limit).await?;
@@ -265,6 +290,16 @@ impl BoxCli {
     }
 
     async fn capture(&self, args: &[&str], limit: Duration) -> BridgeResult<Captured> {
+        self.capture_started(args, limit, |_| {}).await
+    }
+
+    /// Runs `box <args>` and collects what it writes; `on_start` is told the process once it runs.
+    async fn capture_started(
+        &self,
+        args: &[&str],
+        limit: Duration,
+        on_start: impl FnOnce(Option<u32>) + Send,
+    ) -> BridgeResult<Captured> {
         let mut child = self
             .command(args)
             .stdout(Stdio::piped())
@@ -273,6 +308,7 @@ impl BoxCli {
             .spawn()
             .map_err(spawn_error)?;
         let pid = child.id();
+        on_start(pid);
         let (stdout, stderr) = (child.stdout.take(), child.stderr.take());
         let work = collect(child, stdout, stderr, self.max_stdout, pid);
         tokio::time::timeout(limit, work).await.unwrap_or_else(|_| {
@@ -280,6 +316,21 @@ impl BoxCli {
             let said = Said::new("error.box.timeout").said("limit", limit_said(limit));
             Err(BridgeError::failed(said))
         })
+    }
+}
+
+/// Asks a process started by [`BoxCli::command`] to end (TERM): `box` then ends what it runs itself.
+pub fn ask_to_end(pid: Option<u32>) {
+    let Some(process) = pid
+        .and_then(|pid| i32::try_from(pid).ok())
+        .filter(|pid| *pid > 1)
+    else {
+        return;
+    };
+    // SAFETY: kill takes plain integers and has no memory effects. The id is a child we spawned, and ids
+    // 0 and 1 are excluded above.
+    unsafe {
+        libc::kill(process, libc::SIGTERM);
     }
 }
 

@@ -504,7 +504,7 @@ pub const STATUS_CONTROL_BLEED: Pixels = px((STATUS_CONTROL - ICON) / 2.);
 
 pub const SIDEBAR_WIDTH: Pixels = px(244.);
 /// The one row pitch: a sidebar row, a group label after the first, a changed file's row, the toolbar of
-/// "Modifiche". Rows start where the header ends, so they share their lines across the window.
+/// "Changes". Rows start where the header ends, so they share their lines across the window.
 pub const ROW_HEIGHT: Pixels = px(ROW);
 /// How far the fill of a row (selected, under the pointer) reaches past its content on each side.
 pub const ROW_PADDING_X: Pixels = px(8.);
@@ -535,7 +535,7 @@ pub const PANEL_RING_WIDTH: Pixels = px(RING);
 pub const PANEL_EDGE_OFFSET_Y: Pixels = px(1.);
 pub const PANEL_EDGE_BLUR: Pixels = px(2.);
 /// The panel's content inset, from the panel's outer edge: the header's first glyph, the terminal's text,
-/// the rows of "Modifiche" and "Verifiche" start on it; the header's last action, the figures of the
+/// the rows of "Changes" and "Checks" start on it; the header's last action, the figures of the
 /// changes pane and the toggle in the window strip end on it at the right.
 pub const CONTENT_INSET: Pixels = px(CONTENT_EDGE);
 /// The same inset as a padding inside the panel's ring.
@@ -615,7 +615,7 @@ pub const FALLBACK_ADVANCE: f32 = 0.6;
 pub const DIFF_HANG_COLUMNS: usize = 2;
 /// Spaces a tab takes in a diff.
 pub const DIFF_TAB_WIDTH: usize = 4;
-/// The toolbar of "Modifiche" (the commit picker), one row tall.
+/// The toolbar of "Changes" (the commit picker), one row tall.
 pub const TOOLBAR_HEIGHT: Pixels = px(ROW);
 /// The commit picker's menu.
 pub const PICKER_MENU_WIDTH: Pixels = px(420.);
@@ -650,7 +650,7 @@ pub const BREATH: Duration = Duration::from_millis(2400);
 pub const BREATH_LOW_OPACITY: f32 = 0.35;
 
 // Sizes, shapes and timings of single views, kept here with every other token.
-/// Width of the "Avvia agente" column.
+/// Width of the "Start agent" column.
 pub const START_COLUMN_WIDTH: f32 = 400.;
 /// "Prendi" while it is pressed.
 pub const TAKE_PRESSED_OPACITY: f32 = 0.85;
@@ -687,7 +687,7 @@ pub const GLYPH_BANG_DOT_RADIUS: f32 = 0.9;
 pub const HOLD: Duration = Duration::from_millis(1200);
 /// How long the fill takes to go back after an early release.
 pub const HOLD_RELEASE: Duration = Duration::from_millis(200);
-/// The first line of a row of "Verifiche": the check's name and its action.
+/// The first line of a row of "Checks": the check's name and its action.
 pub const VERIFY_ROW_HEIGHT: Pixels = px(36.);
 /// The line height of a state said in a sentence and of the notes under it.
 pub const VERIFY_NOTE_LINE_HEIGHT: f32 = 16.;

@@ -16,7 +16,6 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_TOOLCHAIN: "1.99.1"
-  NODE_VERSION: "24"
 
 defaults:
   run:
@@ -101,43 +100,6 @@ jobs:
         with:
           persist-credentials: false
 
-      # The engine is a part of the service that a tree may or may not carry: its steps run when
-      # service/engine is there, and the same job serves both.
-      - name: Is the engine in this tree
-        id: engine
-        run: |
-          if [ -f service/engine/package.json ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "No service/engine in this tree: the engine's steps are skipped."
-          fi
-
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: steps.engine.outputs.present == 'true'
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Restate server, pinned and checksum verified
-        if: steps.engine.outputs.present == 'true'
-        run: |
-          scripts/install-restate-server.sh "$RUNNER_TEMP/restate"
-          echo "$RUNNER_TEMP/restate" >> "$GITHUB_PATH"
-
-      - name: Engine dependencies from the lock file
-        if: steps.engine.outputs.present == 'true'
-        working-directory: service/engine
-        run: npm ci
-
-      - name: Engine types
-        if: steps.engine.outputs.present == 'true'
-        working-directory: service/engine
-        run: npm run typecheck
-
-      - name: Engine tests (each file starts its own Restate server)
-        if: steps.engine.outputs.present == 'true'
-        working-directory: service/engine
-        run: npm test
-
       - name: Release scripts
         run: python3 -m unittest discover -s scripts/tests -v
 
@@ -173,23 +135,19 @@ jobs:
           git -C "$source_repo" add -A
           git -C "$source_repo" -c user.name=ci -c user.email=ci@example.com commit -q -m "Self-test source"
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: hashFiles('service/engine/package.json') != ''
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Engine runtime for the confinement fixture
-        if: hashFiles('service/engine/package.json') != ''
-        run: |
-          scripts/install-restate-server.sh "$RUNNER_TEMP/restate"
-          echo "$RUNNER_TEMP/restate" >> "$GITHUB_PATH"
-          npm ci --prefix service/engine
-
       - name: Image, network and proxy
         run: service/bin/box up
 
       - name: A task in a box
         run: service/bin/box new ci selftest --where box
+
+      - name: Writable throwaway workspace for the container UID
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends acl
+          task_worktree="$AGENTBOX_HOME/work/ci"
+          setfacl -R -m u:1000:rwX "$task_worktree"
+          find "$task_worktree" -type d -exec setfacl -m d:u:1000:rwx {} +
 
       - name: Confinement checks
         run: service/tests/confinement.sh ci

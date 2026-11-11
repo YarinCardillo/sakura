@@ -31,7 +31,7 @@ lavoro_environment() {
   dir="$(task_dir "$task")"
   base="$(task_base_branch "$task")"
   LAVORO_ENVIRONMENT=(
-    "PATH=$PERSON_PATH" "SAKURA_LAVORO=$task" "SAKURA_WORKTREE=$dir" "SAKURA_REPO=$REPO" "SAKURA_BASE=$base"
+    "PATH=$PERSON_PATH" "SAKURA_TASK=$task" "SAKURA_WORKTREE=$dir" "SAKURA_REPO=$REPO" "SAKURA_BASE=$base"
     "CONDUCTOR_WORKSPACE_NAME=$task" "CONDUCTOR_WORKSPACE_PATH=$dir" "CONDUCTOR_ROOT_PATH=$REPO"
     "CONDUCTOR_DEFAULT_BRANCH=$base"
   )

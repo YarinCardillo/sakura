@@ -14,6 +14,8 @@ use tokio::runtime::Runtime;
 pub struct Sessions {
     store: Option<Arc<SessionStore>>,
     known: Arc<Mutex<HashMap<(String, String), String>>>,
+    /// The words of the refusals said in each session: a replay shows them as refusals again.
+    refused: Arc<Mutex<HashMap<String, Vec<String>>>>,
     runtime: Arc<Runtime>,
 }
 
@@ -23,6 +25,7 @@ impl Sessions {
         let sessions = Self {
             store: folder.map(|folder| Arc::new(SessionStore::new(folder))),
             known: Arc::default(),
+            refused: Arc::default(),
             runtime,
         };
         sessions.load();
@@ -35,8 +38,15 @@ impl Sessions {
         let Some(store) = self.store.clone() else {
             return;
         };
-        let known = self.known.clone();
+        let (known, refused) = (self.known.clone(), self.refused.clone());
         self.runtime.spawn_blocking(move || {
+            // The refusals first: a session that can be requested already has its own.
+            let kept = store.refusals();
+            let mut refused = refused.lock().unwrap_or_else(PoisonError::into_inner);
+            for (session, words) in kept {
+                refused.entry(session).or_insert(words);
+            }
+            drop(refused);
             let stored = store.all();
             let mut known = known.lock().unwrap_or_else(PoisonError::into_inner);
             for (task, account, session) in stored {
@@ -67,6 +77,35 @@ impl Sessions {
         self.runtime.spawn_blocking(move || {
             if let Err(error) = store.set(&task, &account, &session) {
                 eprintln!("sakura: the session of {task} was not kept: {error}");
+            }
+        });
+    }
+
+    /// The words of the refusals said in `session`. Reads memory only.
+    pub fn refusals(&self, session: &str) -> Vec<String> {
+        let refused = self.refused.lock().unwrap_or_else(PoisonError::into_inner);
+        refused.get(session).cloned().unwrap_or_default()
+    }
+
+    /// Keeps `words` as a refusal said in `session`: at once in memory, and in the file from the runtime.
+    pub fn keep_refusal(&self, session: &str, words: &str) {
+        if words.is_empty() {
+            return;
+        }
+        {
+            let mut refused = self.refused.lock().unwrap_or_else(PoisonError::into_inner);
+            let said = refused.entry(session.to_string()).or_default();
+            if !said.iter().any(|kept| kept == words) {
+                said.push(words.to_string());
+            }
+        }
+        let Some(store) = self.store.clone() else {
+            return;
+        };
+        let (session, words) = (session.to_string(), words.to_string());
+        self.runtime.spawn_blocking(move || {
+            if let Err(error) = store.add_refusal(&session, &words) {
+                eprintln!("sakura: a refusal of the conversation was not kept: {error}");
             }
         });
     }

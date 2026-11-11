@@ -440,8 +440,8 @@ mod tests {
             cut(tildes),
             ["Here.\n", "~~~~\n```\n\nmore code\n~~~~\n", "Done.\n"]
         );
-        let open = "Here.\n\n```\ncodice\n\nancora\n";
-        assert_eq!(cut(open), ["Here.\n", "```\ncodice\n\nancora\n"]);
+        let open = "Here.\n\n```\ncode\n\nancora\n";
+        assert_eq!(cut(open), ["Here.\n", "```\ncode\n\nancora\n"]);
     }
 
     #[test]
@@ -581,7 +581,7 @@ mod tests {
 
     #[test]
     fn feed_a_block_that_goes_on_past_the_limit_is_cut_at_a_line_and_no_part_passes_the_limit() {
-        let block: String = (0..200).map(|n| format!("line numero {n}\n")).collect();
+        let block: String = (0..200).map(|n| format!("line number {n}\n")).collect();
         let parts = limited_parts(&[&block], 256);
         assert!(parts.len() > 8, "{} parts", parts.len());
         assert!(parts.iter().all(|part| part.len() <= 256), "{parts:?}");

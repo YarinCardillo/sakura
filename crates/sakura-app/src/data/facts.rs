@@ -682,6 +682,7 @@ fn unread_task(summary: TaskSummary) -> Task {
         agent: None,
         other_containers: 0,
         results: BTreeMap::new(),
+        checks: None,
         preparing: None,
         disk: None,
     }

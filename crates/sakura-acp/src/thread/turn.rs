@@ -22,8 +22,11 @@ impl Thread {
     }
 
     pub(super) fn turn_ended(&mut self, reason: StopReason) {
+        let was_stopped = self.turn == Turn::Cancelling;
         self.close_turn();
         let kind = match reason {
+            // The person asked to stop and the agent stopped: the conversation says so where it ended.
+            StopReason::Cancelled if was_stopped => ProblemKind::Stopped,
             StopReason::EndTurn | StopReason::Cancelled => return,
             StopReason::Refusal => ProblemKind::Refusal,
             StopReason::MaxTokens => ProblemKind::MaxTokens,
@@ -50,6 +53,26 @@ impl Thread {
         };
         self.changes.is_reset = true;
         message.text
+    }
+
+    /// A stored session replays a refusal as the provider's words in a plain message, with no stop
+    /// reason. `words` are the refusals kept when they were said: a message that ends its turn with one
+    /// of them is the refusal again, the words its detail.
+    pub fn mark_refusals(&mut self, words: &[String]) {
+        for at in 0..self.entries.len() {
+            let next = self.entries.get(at + 1).map(|next| &next.kind);
+            let ends_turn = matches!(next, None | Some(EntryKind::User(_)));
+            let EntryKind::Assistant(message) = &self.entries[at].kind else {
+                continue;
+            };
+            if !ends_turn || !words.contains(&message.text) {
+                continue;
+            }
+            let detail = message.text.clone();
+            let kind = ProblemKind::Refusal;
+            self.entries[at].kind = EntryKind::Problem(Problem { kind, detail });
+            self.changes.is_reset = true;
+        }
     }
 
     pub(super) fn failed(&mut self, problem: Problem) {

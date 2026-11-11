@@ -40,10 +40,7 @@ mod tests {
 
     #[test]
     fn a_name_with_a_line_break_or_an_escape_stays_on_one_line() {
-        assert_eq!(
-            label("spec.ts\nNessun problema"),
-            "spec.ts\u{fffd}Nessun problema"
-        );
+        assert_eq!(label("spec.ts\nNo problem"), "spec.ts\u{fffd}No problem");
         assert_eq!(label("a\u{1b}[31mb\tc"), "a\u{fffd}[31mb\u{fffd}c");
     }
 

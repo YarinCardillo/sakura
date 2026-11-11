@@ -398,8 +398,8 @@ impl Desk {
         let scope = Scope::Commit(sha.to_string());
         self.changes
             .update(cx, |changes, cx| changes.set_scope(&task, scope, cx));
-        self.pane_taken(&task, PaneView::Modifiche, cx);
-        self.pane_views.insert(task, PaneView::Modifiche);
+        self.pane_taken(&task, PaneView::Changes, cx);
+        self.pane_views.insert(task, PaneView::Changes);
         cx.notify();
     }
 }
@@ -433,7 +433,7 @@ mod tests {
             None,
             "a conversation shown again moves nothing"
         );
-        thread.apply(ThreadEvent::Prompted("ancora".into()));
+        thread.apply(ThreadEvent::Prompted("again".into()));
         thread.apply(call_at("src/adesso.rs"));
         assert_eq!(
             agent_place(&thread),

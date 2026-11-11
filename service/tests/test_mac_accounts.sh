@@ -30,9 +30,9 @@ assert_eq "with the two logins of the person" "ACCOUNT_personal=$HOME/.claude AC
 rm "$CONFIG" && rmdir "$HOME/.claude-work"
 "$BOX" tasks --json >/dev/null
 assert_eq "a login whose directory does not exist is not written" "ACCOUNT_personal=$HOME/.claude" "$(grep -v '^#' "$CONFIG")"
-echo "ACCOUNT_altro=$TMP/elsewhere" >>"$CONFIG"
+echo "ACCOUNT_other=$TMP/elsewhere" >>"$CONFIG"
 "$BOX" tasks --json >/dev/null
-assert_contains "a config that exists is never rewritten" "ACCOUNT_altro=$TMP/elsewhere" "$(cat "$CONFIG")"
+assert_contains "a config that exists is never rewritten" "ACCOUNT_other=$TMP/elsewhere" "$(cat "$CONFIG")"
 
 echo " box accounts --json lists them with their place"
 export FAKE_ACCOUNTS="shared"
@@ -45,7 +45,7 @@ assert_eq "loggedIn is a boolean that repeats exists, authMethod is null: box di
 assert_eq "the fields of an account of the Mac: no path" '["authMethod","checkedAt","exists","loggedIn","name","where"]' "$(jq -c '[.[] | select(.where == "mac")][0] | keys' <<<"$OUT")"
 : >"$FAKE_DOCKER_LOG"
 OUT="$(FAKE_DOCKER_DOWN=1 "$BOX" accounts --json 2>"$TMP/accounts.err")"
-assert_eq "without Docker the accounts of the Mac are still listed" "personal altro" "$(jq -r '[.[].name] | join(" ")' <<<"$OUT")"
+assert_eq "without Docker the accounts of the Mac are still listed" "personal other" "$(jq -r '[.[].name] | join(" ")' <<<"$OUT")"
 assert_contains "and one line says what is missing" "box: Docker is not reachable" "$(cat "$TMP/accounts.err")"
 
 echo " the config is read as data"
@@ -56,11 +56,11 @@ ACCOUNT_dots=/tmp/../etc
 PATH=/tmp/evil
 ACCOUNT_cmd=\$(touch $TMP/pwned)
 touch $TMP/pwned-line
-ACCOUNT_spazi=$TMP/with space
+ACCOUNT_spaces=$TMP/with space
 LINES
-assert_eq "only the lines that name an account and an absolute path count" "personal altro spazi" "$("$BOX" accounts --json 2>/dev/null | jq -r '[.[] | select(.where == "mac") | .name] | join(" ")')"
+assert_eq "only the lines that name an account and an absolute path count" "personal other spaces" "$("$BOX" accounts --json 2>/dev/null | jq -r '[.[] | select(.where == "mac") | .name] | join(" ")')"
 mkdir -p "$TMP/with space"
-assert_eq "a path with a space is kept whole (its directory is found)" "true" "$("$BOX" accounts --json 2>/dev/null | jq -r '.[] | select(.name == "spazi") | .exists')"
+assert_eq "a path with a space is kept whole (its directory is found)" "true" "$("$BOX" accounts --json 2>/dev/null | jq -r '.[] | select(.name == "spaces") | .exists')"
 assert_eq "no config directory is printed, on stdout or stderr" "0" "$("$BOX" accounts --json 2>&1 | grep -c -e "$HOME" -e "$TMP")"
 assert_eq "nothing in the file was run" "0" "$(/bin/ls "$TMP" | grep -c '^pwned')"
 

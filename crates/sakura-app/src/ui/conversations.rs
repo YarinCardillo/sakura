@@ -252,8 +252,11 @@ impl Desk {
                 lavoro(facts.read(cx), &task).map_or_else(String::new, |lavoro| lavoro.workspace)
             }
         };
+        let (kept, keeping) = (self.sessions.clone(), self.sessions.clone());
         Host {
             launch: Box::new(launch),
+            refusals: Box::new(move |session, _| kept.refusals(session)),
+            keep_refusal: Box::new(move |session, words, _| keeping.keep_refusal(session, words)),
             stored_session: self.kept_session(name),
             store_session: self.keep_session(name),
             login: Box::new(login),

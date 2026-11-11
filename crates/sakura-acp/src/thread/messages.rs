@@ -1,14 +1,28 @@
 //! Text that arrives in chunks: what the person wrote (only when a session is replayed), what the agent
 //! answers and what it thinks. Chunks of the same kind that follow each other are one entry.
 
-use super::{EntryKind, Message, Thread};
+use super::{EntryKind, Message, Problem, ProblemKind, Thread};
 use crate::model::PlanEntry;
+
+/// What an agent writes, as a message of the person, in place of a turn the person stopped.
+const STOPPED_WORDS: [&str; 2] = [
+    "[Request interrupted by user]",
+    "[Request interrupted by user for tool use]",
+];
 
 impl Thread {
     /// A chunk of the person's message. Outside a replay it is the agent echoing the prompt the thread
     /// already shows, so it is dropped.
     pub(super) fn user_text(&mut self, text: String) {
         if !self.is_replaying {
+            return;
+        }
+        // An agent replays a turn the person stopped as a message of the person, in the adapter's own
+        // words for it: it is the line of a stop again, never something the person wrote.
+        if STOPPED_WORDS.contains(&text.trim()) {
+            let kind = ProblemKind::Stopped;
+            let detail = String::new();
+            self.push(EntryKind::Problem(Problem { kind, detail }));
             return;
         }
         let text = self.take_room(text);

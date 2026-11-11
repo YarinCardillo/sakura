@@ -1,4 +1,4 @@
-//! The toolbar of "Modifiche" in the right pane, as its own view: the commit picker ("All changes" or one commit ahead).
+//! The toolbar of "Changes" in the right pane, as its own view: the commit picker ("All changes" or one commit ahead).
 //! It is drawn again when the task's reads or the appearance change, never while the diffs below scroll.
 
 use super::header;
@@ -18,7 +18,7 @@ use sakura_core::model::SHORT_SHA;
 use sakura_core::models::Commit;
 use std::sync::Arc;
 
-/// The toolbar of one task's Modifiche view.
+/// The toolbar of one task's Changes view.
 pub struct ReviewToolbar {
     task: String,
     changes: Entity<Changes>,

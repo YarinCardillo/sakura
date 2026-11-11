@@ -1,7 +1,8 @@
 //! Which session belongs to which task: one small JSON file in Sakura's own state directory, so reopening a
 //! task continues its conversation. A session lives in the account's own folder inside the box, so the key
 //! is the task and the account together. Nothing here is secret: a session id names a transcript, it does
-//! not open one.
+//! not open one. The file also keeps, per session, the words of the refusals said in it: an agent replays
+//! a refusal as a plain message, and only what was kept when it was said tells it apart.
 
 use serde_json::{json, Map, Value};
 use std::io;
@@ -18,6 +19,11 @@ static WRITES: AtomicU64 = AtomicU64::new(0);
 
 const FILE_NAME: &str = "acp-sessions.json";
 const SESSIONS_KEY: &str = "sessions";
+const REFUSALS_KEY: &str = "refusals";
+/// A refusal's words longer than this are not kept: they come from the agent and are untrusted.
+const MAX_REFUSAL_BYTES: usize = 4096;
+/// The refusals kept for one session: the oldest leaves when one more is said.
+const MAX_REFUSALS: usize = 16;
 /// A session id longer than this is not stored: it comes from the agent and is untrusted.
 const MAX_SESSION_ID_BYTES: usize = 512;
 
@@ -71,39 +77,97 @@ impl SessionStore {
         self.write(sessions)
     }
 
-    /// Forgets every session of `task` (the task was removed).
+    /// Forgets every session of `task` (the task was removed), with the refusals kept for them.
     pub fn forget(&self, task: &str) -> io::Result<()> {
         let _changing = changing();
         let mut sessions = self.read();
-        match sessions.remove(task) {
-            Some(_) => self.write(sessions),
-            None => Ok(()),
+        let Some(accounts) = sessions.remove(task) else {
+            return Ok(());
+        };
+        self.write(sessions)?;
+        let mut refusals = self.part(REFUSALS_KEY);
+        let of_task = accounts.as_object().into_iter().flatten();
+        let forgotten = of_task
+            .filter_map(|(_, session)| refusals.remove(session.as_str()?))
+            .count();
+        match forgotten {
+            0 => Ok(()),
+            _ => self.write_part(REFUSALS_KEY, refusals),
         }
     }
 
-    /// The stored map; empty when the file is missing or unreadable.
+    /// Every refusal kept, as (session, the words of each of its refusals): read once when the app
+    /// starts, as the sessions are.
+    pub fn refusals(&self) -> Vec<(String, Vec<String>)> {
+        let words = |said: &Value| -> Vec<String> {
+            let said = said.as_array().into_iter().flatten();
+            said.filter_map(Value::as_str).map(str::to_string).collect()
+        };
+        let kept = self.part(REFUSALS_KEY);
+        let of_session = |(session, said): (&String, &Value)| (session.clone(), words(said));
+        kept.iter().map(of_session).collect()
+    }
+
+    /// Keeps `words` as a refusal said in `session_id`. The same words are kept once.
+    pub fn add_refusal(&self, session_id: &str, words: &str) -> io::Result<()> {
+        if words.is_empty() || words.len() > MAX_REFUSAL_BYTES {
+            let message = "the words of a refusal must have between 1 and 4096 bytes";
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, message));
+        }
+        let _changing = changing();
+        let mut kept = self.part(REFUSALS_KEY);
+        let said = kept.entry(session_id).or_insert_with(|| json!([]));
+        if let Some(said) = said.as_array_mut() {
+            if !said.iter().any(|kept| kept.as_str() == Some(words)) {
+                said.push(json!(words));
+            }
+            let extra = said.len().saturating_sub(MAX_REFUSALS);
+            said.drain(..extra);
+        }
+        self.write_part(REFUSALS_KEY, kept)
+    }
+
+    /// The stored sessions; empty when the file is missing or unreadable.
     fn read(&self) -> Map<String, Value> {
-        let stored = std::fs::read_to_string(&self.path)
-            .ok()
-            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-            .and_then(|mut value| value.get_mut(SESSIONS_KEY).map(Value::take));
-        match stored {
-            Some(Value::Object(sessions)) => sessions,
+        self.part(SESSIONS_KEY)
+    }
+
+    /// One part of the file (the sessions, the refusals); empty when it is missing or unreadable.
+    fn part(&self, key: &str) -> Map<String, Value> {
+        match self.whole().remove(key) {
+            Some(Value::Object(part)) => part,
             _ => Map::new(),
         }
     }
 
-    /// Writes the map to a temporary file of its own beside the store and renames it over, so a crash in
-    /// the middle leaves the old file whole and no other write, of this process or another, finds its
-    /// file renamed away.
+    /// The whole file; empty when it is missing or unreadable.
+    fn whole(&self) -> Map<String, Value> {
+        let stored = std::fs::read_to_string(&self.path)
+            .ok()
+            .and_then(|text| serde_json::from_str::<Value>(&text).ok());
+        match stored {
+            Some(Value::Object(whole)) => whole,
+            _ => Map::new(),
+        }
+    }
+
     fn write(&self, sessions: Map<String, Value>) -> io::Result<()> {
+        self.write_part(SESSIONS_KEY, sessions)
+    }
+
+    /// Writes the file with one part replaced, to a temporary file of its own beside the store, and
+    /// renames it over, so a crash in the middle leaves the old file whole and no other write, of this
+    /// process or another, finds its file renamed away.
+    fn write_part(&self, key: &str, part: Map<String, Value>) -> io::Result<()> {
+        let mut whole = self.whole();
+        whole.insert(key.to_string(), Value::Object(part));
         if let Some(folder) = self.path.parent() {
             std::fs::create_dir_all(folder)?;
         }
         let number = WRITES.fetch_add(1, Ordering::Relaxed);
         let name = format!("json.{}.{number}.tmp", std::process::id());
         let temporary = self.path.with_extension(name);
-        let text = json!({ SESSIONS_KEY: sessions }).to_string();
+        let text = Value::Object(whole).to_string();
         let written =
             write_new(&temporary, &text).and_then(|()| std::fs::rename(&temporary, &self.path));
         if written.is_err() {
@@ -178,6 +242,30 @@ mod tests {
                 listed("m2", "personal", "c"),
             ]
         );
+    }
+
+    #[test]
+    fn a_refusal_is_kept_with_its_session_beside_the_sessions_and_leaves_with_its_task() {
+        let (folder, store) = store();
+        store.set("folders", "personal", "s1").unwrap();
+        store.add_refusal("s1", "API Error: no").unwrap();
+        store.add_refusal("s1", "API Error: no").unwrap();
+        store.add_refusal("s2", "API Error: never").unwrap();
+        store.set("headings", "personal", "s2").unwrap();
+        let reopened = SessionStore::new(&folder.path().join("state"));
+        assert_eq!(reopened.get("folders", "personal").as_deref(), Some("s1"));
+        let mut kept = reopened.refusals();
+        kept.sort();
+        let expected = [
+            ("s1".to_string(), vec!["API Error: no".to_string()]),
+            ("s2".to_string(), vec!["API Error: never".to_string()]),
+        ];
+        assert_eq!(kept, expected, "the same words once, each session its own");
+        store.forget("folders").unwrap();
+        assert_eq!(store.refusals(), [expected[1].clone()]);
+        assert_eq!(store.get("headings", "personal").as_deref(), Some("s2"));
+        assert!(store.add_refusal("s2", "").is_err());
+        assert!(store.add_refusal("s2", &"x".repeat(4097)).is_err());
     }
 
     #[test]

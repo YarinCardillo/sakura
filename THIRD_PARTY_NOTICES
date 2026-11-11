@@ -5,7 +5,7 @@ Packaged builds carry their original copyright and licence texts in THIRD_PARTY_
 
 Geist Mono (font; SIL Open Font License 1.1) https://github.com/vercel/geist-font
 
-Zed terminal adaptations, GPL-3.0-or-later, Copyright Zed Industries:
+Zed terminal adaptations, modified for Sakura in November 2026, GPL-3.0-or-later, Copyright Zed Industries:
 crates/sakura-terminal/src/ime.rs: https://github.com/zed-industries/zed/blob/d2a4fb6/crates/terminal_view/src/terminal_element.rs
 crates/sakura-terminal/src/grid_view.rs: https://github.com/zed-industries/zed/blob/d2a4fb6/crates/terminal_view/src/terminal_element.rs
 crates/sakura-terminal/src/overlay.rs: https://github.com/zed-industries/zed/blob/d2a4fb6/crates/terminal_view/src/terminal_element.rs
@@ -821,6 +821,4 @@ zvariant 5.15.1 (MIT) https://crates.io/crates/zvariant/5.15.1
 zvariant_derive 5.15.1 (MIT) https://crates.io/crates/zvariant_derive/5.15.1
 zvariant_utils 4.2.0 (MIT) https://crates.io/crates/zvariant_utils/4.2.0
 
-Installed separately: Docker or OrbStack; the container image and its tools;
-Restate server 1.8.1, Business Source License 1.1 (not distributed with Sakura):
-https://github.com/restatedev/restate/blob/v1.8.1/LICENSE
+Installed separately: Docker or OrbStack; the container image and its tools.

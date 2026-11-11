@@ -311,9 +311,9 @@ fn figure_colour(is_attention: bool, palette: &Palette) -> gpui::Hsla {
 }
 
 /// The figure beside a group label and whether it is marked: the figure is always the number of rows in
-/// the group; only "Da guardare" with at least one attention item is marked.
+/// the group; only the group of what needs the person is marked, when it has a row.
 fn group_figure(group: Group, total: usize, attention: usize) -> (usize, bool) {
-    (total, group == Group::DaGuardare && attention > 0)
+    (total, group == Group::ServeTe && attention > 0)
 }
 
 fn task_row(
@@ -468,8 +468,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn da_guardare_marks_its_figure_when_one_row_is_an_attention_item() {
-        assert_eq!(group_figure(Group::DaGuardare, 3, 1), (3, true));
+    fn the_group_of_what_needs_the_person_marks_its_figure() {
+        assert_eq!(group_figure(Group::ServeTe, 3, 3), (3, true));
     }
 
     #[test]
@@ -482,8 +482,9 @@ mod tests {
     }
 
     #[test]
-    fn da_guardare_without_attention_items_shows_a_muted_total() {
+    fn what_is_to_review_shows_a_muted_total_whatever_its_rows() {
         assert_eq!(group_figure(Group::DaGuardare, 3, 0), (3, false));
+        assert_eq!(group_figure(Group::DaGuardare, 3, 1), (3, false));
     }
 
     #[test]

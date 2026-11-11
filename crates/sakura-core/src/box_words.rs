@@ -63,10 +63,12 @@ pub enum Known {
     NoAccount,
     NodeMissing,
     AdapterNotInstalled,
+    NoRunCommand,
+    DockerUnreachable,
 }
 
 /// What tells each known failure in the line `box` wrote, most specific first.
-const MARKS: [(&str, Known); 49] = [
+const MARKS: [(&str, Known); 51] = [
     ("is not a folder", Known::NotAFolder),
     ("is not inside a git repository", Known::NotARepository),
     ("is a bare repository", Known::BareRepository),
@@ -122,6 +124,8 @@ const MARKS: [(&str, Known); 49] = [
     ("invalid task name", Known::InvalidName),
     ("invalid account name", Known::InvalidName),
     ("invalid profile name", Known::InvalidName),
+    ("has no run command", Known::NoRunCommand),
+    ("docker is not reachable", Known::DockerUnreachable),
 ];
 
 impl Known {
@@ -168,6 +172,8 @@ impl Known {
             Known::NoAccount => "box.failure.no_account",
             Known::NodeMissing => "box.failure.node_missing",
             Known::AdapterNotInstalled => "box.failure.adapter_not_installed",
+            Known::NoRunCommand => "box.failure.no_run_command",
+            Known::DockerUnreachable => "box.failure.docker_unreachable",
         })
     }
 }
@@ -221,6 +227,69 @@ fn said_of_sakura(line: &str) -> Said {
     }
 }
 
+/// What is said of a reason `box` gives for a proposal when Sakura has no sentence for it.
+pub const PROPOSED: Key = Key("projects.why.other");
+
+/// The reasons `box project detect` gives that are one fixed line, and the sentence for each.
+const FIXED_REASONS: [(&str, &str); 7] = [
+    (
+        "names the scripts and the dependencies",
+        "projects.why.names_scripts",
+    ),
+    (
+        "names the package and its dependencies",
+        "projects.why.names_package",
+    ),
+    (
+        "fixes the versions of the dependencies",
+        "projects.why.fixes_versions",
+    ),
+    ("names the compiler", "projects.why.names_compiler"),
+    ("configures cargo", "projects.why.configures_cargo"),
+    (
+        "the folder has a tests directory",
+        "projects.why.tests_directory",
+    ),
+    (
+        "defines the targets of the checks",
+        "projects.why.defines_targets",
+    ),
+];
+
+/// What to say of the reason `box project detect` gives for something it proposes (an install, a check,
+/// a pattern): the sentence Sakura has for it, with the names `box` put in it. `None` for a reason Sakura
+/// does not know: the window then says `PROPOSED` and keeps the line for the details.
+pub fn proposal_reason(reason: &str) -> Option<Said> {
+    let reason = reason.trim();
+    let fixed = FIXED_REASONS.iter().find(|(line, _)| *line == reason);
+    if let Some((_, key)) = fixed {
+        return Some(Said::new(key));
+    }
+    if let Some(file) = reason.strip_suffix(" is in the folder") {
+        return Some(Said::new("projects.why.file_present").text("file", file));
+    }
+    if let Some((name, command)) = named(reason, "script ", " of package.json: ") {
+        let script = Said::new("projects.why.script").text("name", name);
+        return Some(script.text("command", command));
+    }
+    if let Some((name, "")) = named(reason, "target ", " of the Makefile") {
+        return Some(Said::new("projects.why.make_target").text("name", name));
+    }
+    let counted = |end: &str| reason.strip_suffix(end)?.parse::<u64>().ok();
+    if let Some(count) = counted(" file(s) in the folder that decide how the checks run") {
+        return Some(Said::new("projects.why.decide_checks").count(count));
+    }
+    let matching = counted(" tracked file(s) match")?;
+    Some(Said::new("projects.why.tracked_match").count(matching))
+}
+
+/// The quoted name between `before` and `after` in a reason, and what follows `after`.
+fn named<'a>(reason: &'a str, before: &str, after: &str) -> Option<(&'a str, &'a str)> {
+    let quoted = reason.strip_prefix(before)?.strip_prefix('"')?;
+    let (name, rest) = quoted.split_once('"')?;
+    Some((name, rest.strip_prefix(after)?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,6 +299,18 @@ mod tests {
         let line = "box: task 'm9' does not exist (box new m9)";
         let failure = said(line);
         assert_eq!(failure.said, Said::new("box.failure.no_such_task"));
+        assert_eq!(failure.details.as_deref(), Some(line));
+    }
+
+    #[test]
+    fn why_a_task_cannot_be_played_and_why_checks_wait_are_said_with_the_line_kept() {
+        let line = "box: the project of task 'm9' has no run command (box project set repo --run '<command>')";
+        let failure = said(line);
+        assert_eq!(failure.said, Said::new("box.failure.no_run_command"));
+        assert_eq!(failure.details.as_deref(), Some(line));
+        let line = "box: Docker is not reachable: the requests of tasks in a box stay queued";
+        let failure = said(line);
+        assert_eq!(failure.said, Said::new("box.failure.docker_unreachable"));
         assert_eq!(failure.details.as_deref(), Some(line));
     }
 
@@ -310,5 +391,42 @@ mod tests {
         );
         assert_eq!(reason("box: "), None);
         assert_eq!(reason("Error: something else"), None);
+    }
+
+    #[test]
+    fn the_reasons_of_a_detection_name_their_sentences_with_the_names_the_service_gave() {
+        let file = proposal_reason("package-lock.json is in the folder");
+        let expected = Said::new("projects.why.file_present").text("file", "package-lock.json");
+        assert_eq!(file, Some(expected));
+        let script = proposal_reason("script \"test\" of package.json: vitest run");
+        let expected = Said::new("projects.why.script")
+            .text("name", "test")
+            .text("command", "vitest run");
+        assert_eq!(script, Some(expected));
+        let target = proposal_reason("target \"check\" of the Makefile");
+        let expected = Said::new("projects.why.make_target").text("name", "check");
+        assert_eq!(target, Some(expected));
+        assert_eq!(
+            proposal_reason("the folder has a tests directory"),
+            Some(Said::new("projects.why.tests_directory"))
+        );
+        assert_eq!(
+            proposal_reason("12 tracked file(s) match"),
+            Some(Said::new("projects.why.tracked_match").count(12))
+        );
+        assert_eq!(
+            proposal_reason("1 file(s) in the folder that decide how the checks run"),
+            Some(Said::new("projects.why.decide_checks").count(1))
+        );
+    }
+
+    #[test]
+    fn a_reason_the_app_does_not_know_has_no_sentence_of_its_own() {
+        assert_eq!(
+            proposal_reason("pnpm-lock.yaml was found by a newer service"),
+            None
+        );
+        assert_eq!(proposal_reason("target check of the Makefile"), None);
+        assert_eq!(proposal_reason("many tracked file(s) match"), None);
     }
 }

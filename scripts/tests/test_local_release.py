@@ -71,5 +71,19 @@ class TestLocalRelease(unittest.TestCase):
             self.assertFalse((base / "published").exists())
 
 
+    def test_explicit_ad_hoc_signing_never_probes_the_keychain(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            _, tools, _ = self.fixture(base)
+            self.executable(tools / "security", '#!/bin/sh\ntouch "$PROBE_MARKER"\nexit 1\n')
+            source = (ROOT / "scripts/release.sh").read_text()
+            function = 'can_sign_for_distribution() {' + source.split('can_sign_for_distribution() {', 1)[1].split('\narchitecture_of()', 1)[0]
+            script = 'with_deadline() { shift; "$@"; }\n' + function + '\nif can_sign_for_distribution; then exit 4; fi'
+            environment = dict(os.environ, PATH=str(tools) + os.pathsep + os.environ["PATH"],
+                               IDENTITY='-', PROFILE='unused', CALL_DEADLINE_SECONDS='1', PROBE_MARKER=str(base / 'probe'))
+            subprocess.run(['bash', '-c', script], env=environment, check=True, timeout=5, stdin=subprocess.DEVNULL)
+            self.assertFalse((base / 'probe').exists())
+
+
 if __name__ == "__main__":
     unittest.main()

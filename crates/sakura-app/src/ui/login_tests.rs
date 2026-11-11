@@ -290,7 +290,7 @@ fn the_sign_in_is_of_the_account_the_boxes_already_have_when_it_is_not_signed_in
     cx: &mut TestAppContext,
 ) {
     let (dir, script) = login_box("sleep 20");
-    let accounts = r#"[{"name":"mio","where":"mac","exists":true,"loggedIn":null},{"name":"lavoro","loggedIn":false}]"#;
+    let accounts = r#"[{"name":"mine","where":"mac","exists":true,"loggedIn":null},{"name":"lavoro","loggedIn":false}]"#;
     std::fs::write(dir.path().join("accounts.json"), accounts).expect("the accounts");
     let (cx, desk) = open(cx, script);
     sign_in(cx, &desk);

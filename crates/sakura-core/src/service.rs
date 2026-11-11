@@ -2,7 +2,7 @@
 //! validated first. Commands in `commands.rs` are thin wrappers around these methods, so the logic is
 //! testable with a fake `box` and no window.
 
-use crate::box_cli::{BoxCli, Limit};
+use crate::box_cli::{ask_to_end, BoxCli, Limit};
 use crate::error::{BridgeError, BridgeResult, ErrorCode};
 use crate::jobs::{self, JobNotifier, Jobs, NewJob, PendingJob};
 use crate::models::{
@@ -26,6 +26,8 @@ pub struct Core {
     notify: FactsNotifier,
     status_flight: Arc<SingleFlight<BoxStatus>>,
     facts_flights: Arc<Mutex<HashMap<String, Arc<SingleFlight<Task>>>>>,
+    /// The process of the run of the checks that wait which this app started, while it runs.
+    queue_run: Arc<Mutex<Option<u32>>>,
 }
 
 impl Core {
@@ -37,6 +39,7 @@ impl Core {
             notify,
             status_flight: Arc::default(),
             facts_flights: Arc::default(),
+            queue_run: Arc::default(),
         }
     }
 
@@ -214,6 +217,33 @@ impl Core {
         }
     }
 
+    /// Runs the checks that wait, one at a time, and ends when none that can run is left
+    /// (`box runner --once`): the app keeps the queue moving with it and leaves nothing running at rest.
+    /// The call lasts as long as the checks do. Answers when the run ended and how: `box` warns on its
+    /// last line when it left requests waiting (Docker does not answer for a lavoro in a box).
+    pub async fn runner_once(&self) -> (std::time::Instant, BridgeResult<Option<String>>) {
+        let started = Arc::clone(&self.queue_run);
+        let on_start = move |pid| *started.lock().unwrap_or_else(PoisonError::into_inner) = pid;
+        let args = ["runner", "--once"];
+        let ended = self.cli.run_warned(&args, Limit::Queue, on_start).await;
+        let at = std::time::Instant::now();
+        *self.queue_run() = None;
+        (self.notify)(None);
+        (at, ended)
+    }
+
+    /// Ends the run of the checks this app started, if one runs: the app quits and leaves no runner.
+    /// `box` ends the check it runs and leaves its request in the queue for the next runner.
+    pub fn runner_end(&self) {
+        ask_to_end(self.queue_run().take());
+    }
+
+    fn queue_run(&self) -> std::sync::MutexGuard<'_, Option<u32>> {
+        self.queue_run
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
     /// Starts the runner loop in the background.
     pub async fn runner_start(&self) -> BridgeResult<()> {
         self.cli
@@ -336,6 +366,7 @@ fn synthetic_task(job: PendingJob) -> Task {
         agent: None,
         other_containers: 0,
         results: BTreeMap::new(),
+        checks: None,
         preparing: Some(job.preparing),
         disk: None,
     }
@@ -408,6 +439,50 @@ esac"#
     }
 
     #[cfg_attr(windows, ignore = "Unix shell fixture")]
+    #[tokio::test]
+    async fn a_run_of_the_queue_answers_with_the_warning_box_ended_with_or_its_failure() {
+        let left = "box: Docker is not reachable: the requests of tasks in a box stay queued";
+        let warned = rig(&format!("  runner) echo '{left}' >&2 ;;"));
+        let (_, ended) = warned.core.runner_once().await;
+        assert_eq!(ended.unwrap().as_deref(), Some(left));
+        assert_eq!(calls(warned.dir.path()), vec!["runner|--once"]);
+        assert_eq!(
+            *warned.events.lock().unwrap(),
+            vec![None],
+            "the facts changed"
+        );
+
+        let clean = rig("  runner) ;;");
+        assert_eq!(clean.core.runner_once().await.1.unwrap(), None);
+
+        let refused = rig("  runner) echo 'box: another runner is already running' >&2; exit 1 ;;");
+        let error = refused.core.runner_once().await.1.unwrap_err();
+        let details = error.details.expect("the line of the service");
+        assert!(details.contains("another runner is already running"));
+    }
+
+    #[tokio::test]
+    async fn ending_the_run_of_the_queue_leaves_no_runner() {
+        let rig = rig(r#"  runner) echo $$ > "$d/runner.pid"; exec sleep 30 ;;"#);
+        let core = rig.core.clone();
+        let run = tokio::spawn(async move { core.runner_once().await });
+        let pid_file = rig.dir.path().join("runner.pid");
+        let pid = loop {
+            let written = std::fs::read_to_string(&pid_file).ok();
+            if let Some(pid) = written.and_then(|text| text.trim().parse::<i32>().ok()) {
+                break pid;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        };
+        rig.core.runner_end();
+        let (_, ended) = run.await.unwrap();
+        assert!(ended.is_err(), "a run that was ended is not a clean end");
+        // SAFETY: signal 0 sends nothing: it only asks whether the process exists.
+        let is_alive = unsafe { libc::kill(pid, 0) } == 0;
+        assert!(!is_alive, "no runner is left");
+        rig.core.runner_end();
+    }
+
     #[tokio::test]
     async fn status_parses_the_fixture() {
         let rig = rig("");

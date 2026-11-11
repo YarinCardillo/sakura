@@ -25,39 +25,53 @@ pub use verify::{short_sha, verify_rows, VerifyRow, VerifyState, SHORT_SHA};
 use crate::models::{AgentPhase, Task};
 use crate::said::Key;
 
-/// The verbs whose results must be green on HEAD for a plain "Prendi" and for the "Verificato" state.
-pub const REQUIRED_VERBS: [&str; 2] = ["test", "rules"];
+/// The verbs whose results must be green on HEAD for a plain "Prendi" and for the "Verificato" state: the
+/// checks of the task's own project, as `box` lists them. No verb is known to the app by itself.
+pub fn required_verbs(task: &Task) -> &[String] {
+    task.checks.as_deref().unwrap_or_default()
+}
 
 /// The sidebar's groups, in the order the sidebar shows them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Group {
-    /// Needs the person: the agent exited, nothing is running, the work changed after a take, or the
-    /// workspace cannot be read.
-    DaGuardare,
-    /// An agent is running, or the workspace is being created.
+    /// The agent waits for the person: a question, a permission.
+    ServeTe,
+    /// An agent is running.
     AlLavoro,
-    /// Nothing runs and nothing is left to look at: the agent answered and stands by, or was never
-    /// started.
+    /// The workspace is being created, or the agent is starting.
+    InPreparazione,
+    /// To look at: the agent exited, nothing is running, the work changed after a take, or the workspace
+    /// cannot be read.
+    DaGuardare,
+    /// Nothing runs and nothing is left to look at: the agent answered and stands by.
     InAttesa,
+    /// Nothing was ever started on it.
+    DaAvviare,
     /// Taken, with nothing new since.
     Presi,
 }
 
 impl Group {
     /// All groups in sidebar order.
-    pub const ALL: [Group; 4] = [
-        Group::DaGuardare,
+    pub const ALL: [Group; 7] = [
+        Group::ServeTe,
         Group::AlLavoro,
+        Group::InPreparazione,
+        Group::DaGuardare,
         Group::InAttesa,
+        Group::DaAvviare,
         Group::Presi,
     ];
 
     /// The key of the group's label.
     pub fn label(self) -> Key {
         Key(match self {
-            Group::DaGuardare => "group.review",
+            Group::ServeTe => "group.needs_you",
             Group::AlLavoro => "group.working",
+            Group::InPreparazione => "group.preparing",
+            Group::DaGuardare => "group.review",
             Group::InAttesa => "group.idle",
+            Group::DaAvviare => "group.not_started",
             Group::Presi => "group.taken",
         })
     }
@@ -65,9 +79,12 @@ impl Group {
     /// What names the group in the window whatever the language: for its elements, never shown.
     pub fn id(self) -> &'static str {
         match self {
-            Group::DaGuardare => "review",
+            Group::ServeTe => "needs-you",
             Group::AlLavoro => "working",
+            Group::InPreparazione => "preparing",
+            Group::DaGuardare => "review",
             Group::InAttesa => "idle",
+            Group::DaAvviare => "not-started",
             Group::Presi => "taken",
         }
     }
@@ -225,7 +242,11 @@ pub fn task_state(task: &Task) -> TaskState {
         _ if !task.readable => StateId::Unreadable,
         Group::AlLavoro => StateId::Working,
         Group::Presi => StateId::Taken,
-        Group::DaGuardare | Group::InAttesa => review_state(task),
+        Group::DaGuardare
+        | Group::InAttesa
+        | Group::DaAvviare
+        | Group::ServeTe
+        | Group::InPreparazione => review_state(task),
     };
     state_for(id)
 }
@@ -235,14 +256,16 @@ pub fn task_state(task: &Task) -> TaskState {
 /// nothing to review is not among the ones to review.
 fn shown_group(task: &Task, waits_for_person: bool, live: Live) -> Group {
     match shown_state_live(task, waits_for_person, live).id {
-        StateId::NeedsYou
-        | StateId::ToReview
+        StateId::NeedsYou => Group::ServeTe,
+        StateId::Preparing => Group::InPreparazione,
+        StateId::ToReview
         | StateId::Verified
         | StateId::Failed
         | StateId::CreationFailed
         | StateId::Unreadable => Group::DaGuardare,
-        StateId::Preparing | StateId::Working => Group::AlLavoro,
-        StateId::Idle | StateId::NotStarted => Group::InAttesa,
+        StateId::Working => Group::AlLavoro,
+        StateId::Idle => Group::InAttesa,
+        StateId::NotStarted => Group::DaAvviare,
         StateId::Taken => Group::Presi,
     }
 }
@@ -252,8 +275,7 @@ pub fn state_for(id: StateId) -> TaskState {
     let (word, tone) = match id {
         StateId::NeedsYou => ("state.needs_you", Tone::Attention),
         StateId::Preparing => ("state.preparing", Tone::Neutral),
-        // A lavoro nothing was started on stands under "Idle" and reads as the group does.
-        StateId::NotStarted => ("state.idle", Tone::Neutral),
+        StateId::NotStarted => ("state.not_started", Tone::Neutral),
         StateId::CreationFailed => ("state.creation_failed", Tone::Failed),
         StateId::Unreadable => ("state.unreadable", Tone::Warning),
         StateId::Working => ("state.working", Tone::Running),
@@ -282,17 +304,18 @@ pub fn is_attention(task: &Task, waits_for_person: bool, live: Live) -> bool {
 
 /// Da avviare when there is no work at all; else Fallito when a required verb failed on HEAD; Verificato
 /// exactly when "Prendi" is a plain press (commits ahead, nothing uncommitted, every required verb passed on
-/// HEAD), so green never covers unverified or absent work.
+/// HEAD) and the project has a check at all, so green never covers unverified or absent work.
 fn review_state(task: &Task) -> StateId {
     if is_empty(task) {
         return StateId::NotStarted;
     }
-    let is_failed = REQUIRED_VERBS
+    let required = required_verbs(task);
+    let is_failed = required
         .iter()
         .any(|verb| result_view(task, verb) == ResultView::Fallito);
     if is_failed {
         StateId::Failed
-    } else if take_rule(task) == TakeRule::Plain {
+    } else if take_rule(task) == TakeRule::Plain && !required.is_empty() {
         StateId::Verified
     } else {
         StateId::ToReview
@@ -454,16 +477,35 @@ mod tests {
     }
 
     #[test]
-    fn empty_task_without_agent_reads_idle_as_its_group_in_a_neutral_tone() {
+    fn the_checks_listed_and_required_are_the_project_s_own_in_its_order() {
+        let mut task = readable("m1");
+        task.checks = Some(vec!["lint".into(), "slow".into(), "test".into()]);
+        let listed = |task: &Task| -> Vec<String> {
+            let rows = verify_rows(task, None);
+            rows.into_iter().map(|row| row.verb).collect()
+        };
+        assert_eq!(listed(&task), ["lint", "slow", "test"]);
+        assert_eq!(required_verbs(&task), ["lint", "slow", "test"]);
+        assert_ne!(take_rule(&task), TakeRule::Plain, "its checks never ran");
+        for none in [Some(Vec::new()), None] {
+            task.checks = none;
+            assert!(listed(&task).is_empty(), "the app knows no verb by itself");
+            assert_eq!(take_rule(&task), TakeRule::Plain, "nothing to wait for");
+            assert_eq!(
+                task_state(&task).id,
+                StateId::ToReview,
+                "nothing was checked: never verified"
+            );
+        }
+    }
+
+    #[test]
+    fn empty_task_without_agent_reads_not_started_in_a_neutral_tone() {
         let mut task = readable("m1");
         task.ahead = Some(0);
         let state = task_state(&task);
         assert_eq!(state.id, StateId::NotStarted);
-        assert_eq!(
-            state.word,
-            Key("state.idle"),
-            "the word of the group it is under"
-        );
+        assert_eq!(state.word, Key("state.not_started"));
         assert_eq!(state.tone, Tone::Neutral);
     }
 
@@ -574,9 +616,12 @@ mod tests {
         assert_eq!(
             names,
             vec![
-                (Group::DaGuardare, vec!["b", "a"]),
+                (Group::ServeTe, vec![]),
                 (Group::AlLavoro, vec!["c"]),
+                (Group::InPreparazione, vec![]),
+                (Group::DaGuardare, vec!["b", "a"]),
                 (Group::InAttesa, vec![]),
+                (Group::DaAvviare, vec![]),
                 (Group::Presi, vec![]),
             ]
         );
@@ -614,14 +659,20 @@ mod tests {
     }
 
     #[test]
-    fn a_task_whose_agent_waits_is_listed_first_among_the_ones_to_look_at() {
+    fn a_task_whose_agent_waits_is_listed_in_a_group_of_its_own_before_every_other() {
         let tasks = vec![exited("done"), running("asks"), running("works")];
         let groups = group_tasks(&tasks, &|task| (task.name == "asks", Live::Unknown));
         let names = |group: Group| -> Vec<&str> {
             let (_, members) = groups.iter().find(|(id, _)| *id == group).expect("group");
             members.iter().map(|task| task.name.as_str()).collect()
         };
-        assert_eq!(names(Group::DaGuardare), ["asks", "done"]);
+        assert_eq!(
+            groups[0].0,
+            Group::ServeTe,
+            "what needs the person comes first"
+        );
+        assert_eq!(names(Group::ServeTe), ["asks"]);
+        assert_eq!(names(Group::DaGuardare), ["done"]);
         assert_eq!(names(Group::AlLavoro), ["works"]);
     }
 
@@ -656,8 +707,12 @@ mod tests {
     fn a_lavoro_is_listed_under_what_its_shown_state_says_not_under_what_the_facts_alone_say() {
         let task = untouched("m1");
         assert_eq!(group_seen(&task, false, Live::Working), Group::AlLavoro);
-        assert_eq!(group_seen(&task, false, Live::Starting), Group::AlLavoro);
-        assert_eq!(group_seen(&task, true, Live::Working), Group::DaGuardare);
+        assert_eq!(
+            group_seen(&task, false, Live::Starting),
+            Group::InPreparazione,
+            "being prepared is not at work yet: the group says what the state says"
+        );
+        assert_eq!(group_seen(&task, true, Live::Working), Group::ServeTe);
         assert_eq!(group_seen(&task, false, Live::Stopped), Group::DaGuardare);
         assert_eq!(
             group_seen(&task, false, Live::Answered),
@@ -666,8 +721,8 @@ mod tests {
         );
         assert_eq!(
             group_seen(&task, false, Live::Unknown),
-            Group::InAttesa,
-            "nothing started and nothing to look at either"
+            Group::DaAvviare,
+            "nothing was started: apart from the ones whose agent answered"
         );
         let mut changed = untouched("m2");
         changed.dirty_files = Some(2);

@@ -20,9 +20,11 @@ use gpui::{
 use gpui_component::checkbox::Checkbox;
 use gpui_component::select::{SearchableVec, Select, SelectState};
 use gpui_component::Sizable as _;
+use sakura_core::box_words;
 use sakura_core::error::BridgeError;
 use sakura_core::models::Place;
 use sakura_core::projects::{Detected, NewProject};
+use sakura_core::said::Said;
 
 const ASK: Key = Key("projects.ask");
 const CHOOSE: Key = Key("projects.choose_folder");
@@ -437,7 +439,7 @@ impl ProjectSetup {
             .children(install)
             .children(self.checks(recognised, palette, cx))
             .children(no_checks)
-            .children(self.notes(&detected.notes, palette, cx))
+            .children(self.notes(&service_lines(detected), palette, cx))
             .children(self.refusal_lines(palette, cx))
             .child(self.review_buttons(recognised.is_adding, palette, cx))
             .into_any_element()
@@ -542,6 +544,17 @@ impl ProjectSetup {
 }
 
 /// One line of the review: its label in its room, and its value.
+/// The service's own lines about the folder, for "Details": its notes, and each reason it gave for a
+/// proposal that the interface has no sentence for.
+fn service_lines(detected: &Detected) -> Vec<String> {
+    let install = detected.install.iter().map(|install| &install.reason);
+    let checks = detected.checks.iter().map(|check| &check.reason);
+    let unknown = install
+        .chain(checks)
+        .filter(|reason| box_words::proposal_reason(reason).is_none());
+    detected.notes.iter().chain(unknown).cloned().collect()
+}
+
 fn line(label: Key, value: AnyElement, palette: &Palette) -> gpui::Div {
     div()
         .flex()
@@ -589,6 +602,7 @@ fn details_word(
 }
 
 fn proposal(command: &str, reason: &str, palette: &Palette) -> AnyElement {
+    let why = box_words::proposal_reason(reason).unwrap_or_else(|| Said::from(box_words::PROPOSED));
     div()
         .flex()
         .flex_col()
@@ -598,6 +612,10 @@ fn proposal(command: &str, reason: &str, palette: &Palette) -> AnyElement {
                 .text_size(theme::TEXT_SMALL)
                 .child(command.to_string()),
         )
-        .child(text(theme::TEXT_LABEL, palette.text_tertiary).child(reason.to_string()))
+        .child(
+            text(theme::TEXT_LABEL, palette.text_tertiary)
+                .debug_selector(|| "project-reason".into())
+                .child(say(&why)),
+        )
         .into_any_element()
 }

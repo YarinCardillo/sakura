@@ -66,7 +66,7 @@ fn reopened<'a>(
 }
 
 #[gpui::test]
-fn a_row_opens_in_the_tab_on_screen_and_with_cmd_in_a_tab_of_its_own_behind(
+fn a_row_opens_in_a_tab_of_its_own_shown_and_with_cmd_behind_the_one_on_screen(
     cx: &mut TestAppContext,
 ) {
     let (cx, desk) = open(cx);
@@ -75,20 +75,26 @@ fn a_row_opens_in_the_tab_on_screen_and_with_cmd_in_a_tab_of_its_own_behind(
     click(cx, "row-headings-26");
     assert_eq!(
         tabs(cx, &desk),
-        (names(&[TAKEN]), Some(TAKEN.into())),
-        "the tab on screen shows the other lavoro: no second tab"
+        (names(&[VERIFIED, TAKEN]), Some(TAKEN.into())),
+        "a tab of its own, shown: the lavoro that was on screen keeps its tab"
     );
     cmd_click(cx, "row-sample-folders");
     assert_eq!(
         tabs(cx, &desk),
-        (names(&[TAKEN, WORKING]), Some(TAKEN.into())),
+        (names(&[VERIFIED, TAKEN, WORKING]), Some(TAKEN.into())),
         "a tab of its own, behind the one on screen"
     );
     click(cx, "row-sample-folders");
     assert_eq!(
         tabs(cx, &desk),
-        (names(&[TAKEN, WORKING]), Some(WORKING.into())),
+        (names(&[VERIFIED, TAKEN, WORKING]), Some(WORKING.into())),
         "a lavoro that has a tab is shown in it"
+    );
+    click(cx, "row-sample-accent");
+    assert_eq!(
+        tabs(cx, &desk),
+        (names(&[VERIFIED, TAKEN, WORKING]), Some(VERIFIED.into())),
+        "and none is ever open twice"
     );
     assert!(
         cx.debug_bounds("page-header").is_some(),
@@ -103,18 +109,24 @@ fn the_keys_choose_a_tab_and_close_the_one_on_screen_while_another_remains(
     let (cx, desk) = open(cx);
     click(cx, "row-headings-26");
     cmd_click(cx, "row-sample-folders");
-    cx.simulate_keystrokes("cmd-2");
+    cx.simulate_keystrokes("cmd-3");
     draw(cx);
     assert_eq!(tabs(cx, &desk).1.as_deref(), Some(WORKING));
-    cx.simulate_keystrokes("cmd-1");
+    cx.simulate_keystrokes("cmd-2");
     draw(cx);
     assert_eq!(tabs(cx, &desk).1.as_deref(), Some(TAKEN));
     cx.simulate_keystrokes("cmd-w");
     draw(cx);
-    assert_eq!(tabs(cx, &desk), (names(&[WORKING]), Some(WORKING.into())));
+    assert_eq!(
+        tabs(cx, &desk),
+        (names(&[VERIFIED, WORKING]), Some(WORKING.into()))
+    );
     cx.simulate_keystrokes("cmd-w");
     draw(cx);
-    assert_eq!(tabs(cx, &desk).0, names(&[WORKING]), "the last tab stays");
+    assert_eq!(tabs(cx, &desk), (names(&[VERIFIED]), Some(VERIFIED.into())));
+    cx.simulate_keystrokes("cmd-w");
+    draw(cx);
+    assert_eq!(tabs(cx, &desk).0, names(&[VERIFIED]), "the last tab stays");
 }
 
 #[gpui::test]

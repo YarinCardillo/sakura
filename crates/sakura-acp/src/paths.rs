@@ -26,6 +26,12 @@ impl Place {
 
 /// Where `path` is relative to `workspace` (an absolute path; with any other workspace nothing is inside).
 pub fn place(path: &str, workspace: &Path) -> Place {
+    if let Some(root) = workspace
+        .to_str()
+        .filter(|root| root.starts_with('/') && !root.starts_with("//"))
+    {
+        return posix_place(path, root);
+    }
     let Some(resolved) = normalized(&workspace.join(path)) else {
         return Place::Outside(path.to_string());
     };
@@ -37,6 +43,44 @@ pub fn place(path: &str, workspace: &Path) -> Place {
         Some(rest) => Place::Inside(rest.to_string_lossy().into_owned()),
         None => Place::Outside(resolved.to_string_lossy().into_owned()),
     }
+}
+
+/// Read WSL and container paths with POSIX semantics on every client platform.
+fn posix_place(path: &str, workspace: &str) -> Place {
+    let outside = || Place::Outside(path.to_string());
+    if path.starts_with("\\\\") || path.as_bytes().get(1) == Some(&b':') {
+        return outside();
+    }
+    let absolute = match path.starts_with('/') {
+        true => path.to_string(),
+        false => format!("{workspace}/{path}"),
+    };
+    let (Some(root), Some(resolved)) = (normalized_posix(workspace), normalized_posix(&absolute))
+    else {
+        return outside();
+    };
+    if resolved == root {
+        return Place::Inside(String::new());
+    }
+    let prefix = format!("{}/", root.trim_end_matches('/'));
+    match resolved.strip_prefix(&prefix) {
+        Some(rest) => Place::Inside(rest.to_string()),
+        None => Place::Outside(resolved),
+    }
+}
+
+fn normalized_posix(path: &str) -> Option<String> {
+    let mut parts = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            name => parts.push(name),
+        }
+    }
+    Some(format!("/{}", parts.join("/")))
 }
 
 /// `path` without `.` and `..`; `None` when it climbs above the root.
@@ -108,6 +152,29 @@ mod tests {
     fn place_other_absolute_paths_are_outside() {
         assert_eq!(placed("/etc/passwd"), outside("/etc/passwd"));
         assert_eq!(placed("/"), outside("/"));
+    }
+
+    #[test]
+    fn posix_workspaces_refuse_foreign_drive_and_network_paths() {
+        for path in [
+            "C:/outside/file",
+            "C:\\outside\\file",
+            "\\\\server\\share\\file",
+        ] {
+            assert_eq!(placed(path), outside(path));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn native_windows_workspaces_keep_drive_and_component_boundaries() {
+        let root = Path::new(r"C:\work\m1");
+        assert_eq!(place(r"C:\work\m1\src\lib.rs", root), inside(r"src\lib.rs"));
+        assert_eq!(place(r"D:\work\m1\x", root), outside(r"D:\work\m1\x"));
+        assert_eq!(
+            place(r"C:\work\m1-evil\x", root),
+            outside(r"C:\work\m1-evil\x")
+        );
     }
 
     #[test]

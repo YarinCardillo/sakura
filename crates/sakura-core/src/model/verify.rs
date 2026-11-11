@@ -1,8 +1,8 @@
-//! The rows of the Verifiche view: one per verb, with what the runner is doing for it and its last result.
+//! The rows of the Checks view: one per verb, with what the runner is doing for it and its last result.
 
 use super::result::{is_for_head, result_view, ResultView};
 use super::trust::{tests_word, touched_sentence};
-use super::{Tone, REQUIRED_VERBS};
+use super::{required_verbs, Tone};
 use crate::models::{Place, RunnerState, Task};
 use crate::said::{Key, Said};
 
@@ -44,7 +44,7 @@ impl VerifyState {
     }
 }
 
-/// One row of the Verifiche view.
+/// One row of the Checks view.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VerifyRow {
     pub verb: String,
@@ -122,14 +122,11 @@ fn verbs(task: &Task, runner: Option<&RunnerState>) -> Vec<String> {
             .filter(|request| request.task == task.name);
         others.extend(queued.map(|request| request.verb.clone()));
     }
-    others.retain(|verb| !REQUIRED_VERBS.contains(&verb.as_str()));
+    let required = required_verbs(task);
+    others.retain(|verb| !required.contains(verb));
     others.sort();
     others.dedup();
-    REQUIRED_VERBS
-        .iter()
-        .map(|verb| verb.to_string())
-        .chain(others)
-        .collect()
+    required.iter().cloned().chain(others).collect()
 }
 
 /// What the runner has for `verb` of `task`, running first, with the sha it was requested.

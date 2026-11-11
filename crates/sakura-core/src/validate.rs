@@ -170,7 +170,7 @@ mod tests {
 
     #[test]
     fn a_branch_is_never_an_option_and_has_no_space() {
-        for good in ["main", "feature/cart", "sakura/sistema-login", "v1.2"] {
+        for good in ["main", "feature/cart", "sakura/fix-login", "v1.2"] {
             assert!(branch(good).is_ok(), "{good}");
         }
         for bad in ["", "-b", "--force", "a b", "a..b", "a\tb", "a\nb"] {

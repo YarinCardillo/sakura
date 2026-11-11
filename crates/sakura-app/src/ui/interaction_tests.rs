@@ -263,10 +263,10 @@ fn a_view_of_the_right_pane_is_shown_in_the_frame_of_the_click_and_kept_per_lavo
 ) {
     let (cx, desk, _) = open(cx);
     click(cx, "row-sample-accent");
-    assert_eq!(pane_view(cx, &desk, TASK), PaneView::Modifiche);
+    assert_eq!(pane_view(cx, &desk, TASK), PaneView::Changes);
     assert!(cx.debug_bounds("changes-body").is_some());
     click(cx, "pane-view-checks");
-    assert_eq!(pane_view(cx, &desk, TASK), PaneView::Verifiche);
+    assert_eq!(pane_view(cx, &desk, TASK), PaneView::Checks);
     assert!(
         cx.debug_bounds("verify-test").is_some(),
         "drawn in the first frame after the click"
@@ -275,13 +275,13 @@ fn a_view_of_the_right_pane_is_shown_in_the_frame_of_the_click_and_kept_per_lavo
     click(cx, "row-sample-folders");
     assert_eq!(
         pane_view(cx, &desk, HOLD_TASK),
-        PaneView::Modifiche,
+        PaneView::Changes,
         "another lavoro has its own view"
     );
     click(cx, "row-sample-accent");
     assert_eq!(
         pane_view(cx, &desk, TASK),
-        PaneView::Verifiche,
+        PaneView::Checks,
         "and this one kept its"
     );
 }

@@ -112,7 +112,7 @@ impl Distrust {
     }
 }
 
-/// What a green result is held back for, as the Verifiche row says it.
+/// What a green result is held back for, as the Checks row says it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Reserve {
     ChecksChanged,
@@ -238,7 +238,7 @@ fn touched_tests(modified: u32, deleted: u32) -> Said {
     }
 }
 
-/// The count of a test result as the Verifiche row shows it: so many tests, and so many skipped when
+/// The count of a test result as the Checks row shows it: so many tests, and so many skipped when
 /// some were.
 pub fn tests_word(result: &VerifyResult) -> Option<Said> {
     let tests = result.tests.as_ref()?;
