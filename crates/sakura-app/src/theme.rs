@@ -150,7 +150,7 @@ const SILVER_RELIEF_DARK: [ShadowLayer; 4] = [
     layer(0x00000099, 4., 12., -4., false),
 ];
 
-/// How the one primary action ("Prendi") is painted.
+/// How the one primary action ("Take") is painted.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ActionFace {
     /// Dark: brushed silver, a sheen from `top` to `bottom` with its relief.
@@ -214,7 +214,7 @@ pub struct Palette {
     pub fill_hover: Hsla,
     pub hold_fill: Hsla,
     pub hold_ink: Hsla,
-    /// The face of the one primary action ("Prendi") and the ink on it.
+    /// The face of the one primary action ("Take") and the ink on it.
     pub action_face: ActionFace,
     pub action_ink: Hsla,
 }
@@ -652,7 +652,7 @@ pub const BREATH_LOW_OPACITY: f32 = 0.35;
 // Sizes, shapes and timings of single views, kept here with every other token.
 /// Width of the "Start agent" column.
 pub const START_COLUMN_WIDTH: f32 = 400.;
-/// "Prendi" while it is pressed.
+/// "Take" while it is pressed.
 pub const TAKE_PRESSED_OPACITY: f32 = 0.85;
 /// The sheen runs top to bottom.
 pub const SHEEN_ANGLE: f32 = 180.;

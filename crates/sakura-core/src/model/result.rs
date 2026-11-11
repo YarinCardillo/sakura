@@ -100,7 +100,7 @@ mod tests {
     }
 
     #[test]
-    fn a_cancelled_result_on_head_reads_annullata_whatever_its_exit_code() {
+    fn a_cancelled_result_on_head_reads_cancelled_whatever_its_exit_code() {
         let mut task = readable("m1");
         cancelled_result(&mut task, "test");
         assert_eq!(result_view(&task, "test"), ResultView::Annullata);

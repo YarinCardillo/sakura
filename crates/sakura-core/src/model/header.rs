@@ -5,7 +5,7 @@ use super::result::{result_view, ResultView};
 use super::take::{take_rule, TakeRule};
 use crate::models::Task;
 
-/// Whether "Prendi" is offered at all: only when there is something to take. It is never shown disabled.
+/// Whether "Take" is offered at all: only when there is something to take. It is never shown disabled.
 pub fn has_something_to_take(task: &Task) -> bool {
     !matches!(take_rule(task), TakeRule::Disabled { .. })
 }
@@ -39,7 +39,7 @@ mod tests {
     use crate::models::TakenState;
 
     #[test]
-    fn prendi_is_offered_only_when_there_are_commits_to_take() {
+    fn take_is_offered_only_when_there_are_commits_to_take() {
         assert!(
             has_something_to_take(&readable("m1")),
             "three commits ahead"

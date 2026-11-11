@@ -279,7 +279,7 @@ fn the_left_edges_of_the_panel_are_its_content_inset() {
             assert_near(picker.left(), pane, "the toolbar's words");
             click(cx, "pane-view-checks");
             let row = bounds(cx, "verify-test");
-            assert_near(row.left() + theme::ROW_PADDING_X, pane, "Verifiche");
+            assert_near(row.left() + theme::ROW_PADDING_X, pane, "Checks");
             click(cx, "pane-view-changes");
         });
     });
@@ -307,7 +307,7 @@ fn the_right_edges_are_one_line_from_the_header_to_the_status_bar() {
                 return;
             }
             click(cx, "pane-view-checks");
-            assert_near(bounds(cx, "run-test").right(), line, "Verifiche");
+            assert_near(bounds(cx, "run-test").right(), line, "Checks");
             click(cx, "pane-view-changes");
         });
     });

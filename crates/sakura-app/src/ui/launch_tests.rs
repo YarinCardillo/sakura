@@ -399,7 +399,7 @@ fn a_verified_commit_that_changes_the_checks_is_a_hold_and_its_test_row_has_the_
     click(cx, "pane-view-checks");
     assert!(
         cx.debug_bounds("verify-summary-reason").is_some(),
-        "the reason is in Verifiche"
+        "the reason is in Checks"
     );
     assert!(cx.debug_bounds("verify-tests-test").is_some(), "the count");
     assert!(cx.debug_bounds("verify-tests-rules").is_none());
@@ -449,7 +449,7 @@ fn a_verified_commit_that_touches_existing_tests_is_a_hold_and_the_row_says_so_u
 }
 
 #[gpui::test]
-fn a_box_without_the_cancel_command_never_offers_annulla(cx: &mut TestAppContext) {
+fn a_box_without_the_cancel_command_never_offers_cancel(cx: &mut TestAppContext) {
     let (_dir, script) = slow_box(Names::Listed, "0");
     let (cx, desk, _) = open(cx, script, Some(FIRST));
     wait_for(cx, "the status", |cx| {

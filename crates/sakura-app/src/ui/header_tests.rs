@@ -21,7 +21,7 @@ fn open_on<'a>(
 }
 
 in_every_language! {
-fn prendi_is_absent_when_there_is_nothing_to_take_and_never_shown_disabled(cx: &mut TestAppContext) {
+fn take_is_absent_when_there_is_nothing_to_take_and_never_shown_disabled(cx: &mut TestAppContext) {
     let (cx, _) = open_on(cx, "row-headings-26");
     assert!(!is_on_screen(cx, "take"), "taken at HEAD: nothing to take");
     assert!(!is_on_screen(cx, "take-hold"));
@@ -152,7 +152,7 @@ fn ferma_in_the_header_stops_the_agent_once(cx: &mut TestAppContext) {
 }
 
 in_every_language! {
-fn the_header_says_no_sentence_and_the_reasons_are_in_verifiche(cx: &mut TestAppContext) {
+fn the_header_says_no_sentence_and_the_reasons_are_in_checks(cx: &mut TestAppContext) {
     let (cx, _desk) = open_on(cx, "row-sample-folders");
     assert!(!is_on_screen(cx, "take-note") && !is_on_screen(cx, "page-notice"));
     click(cx, "pane-view-checks");

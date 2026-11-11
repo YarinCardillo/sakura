@@ -3,8 +3,10 @@
 //! deleted, and for the test verb how many tests ran and how many were skipped against the base's. A commit that rewrites its own checks, or that makes tests go away, passed
 //! something other than what the base asks: it is never a plain take and never shows the green glyph.
 //! What `box` did not record is not known, and what is not known is not known to be safe: a result without
-//! one of these fields (an older `box`, a profile that names no test files, a base never tested) is not
-//! plain green either, and the reason says which fact is missing.
+//! one of these fields (an older `box`, a base never tested) is not plain green either, and the reason says
+//! which fact is missing. A project that names nothing to compare a commit with (no path that defines its
+//! checks, no pattern of its test files) is another matter: `box` says so, nothing was to look at, and a
+//! pass is a plain pass.
 
 use crate::models::{TestCounts, VerifyResult};
 use crate::said::{Key, Said};
@@ -156,10 +158,32 @@ fn changed_checks(files: &[String]) -> Said {
 }
 
 /// Why the result of `verb`, which passed, is not plain green: what `box` recorded against it, or else
-/// the first thing that must be known and was not recorded. `None` only when everything that must be
-/// known is recorded and says the checks and the tests are the base's.
+/// the first thing that must be known and was not recorded. `None` when everything that must be known is
+/// recorded and says the checks and the tests are the base's, and when the project names nothing to
+/// compare the commit with.
 pub fn distrust(verb: &str, result: &VerifyResult) -> Option<Distrust> {
+    if has_nothing_to_compare(result) {
+        return None;
+    }
     recorded(result).or_else(|| missing(verb, result).map(Distrust::NotRecorded))
+}
+
+/// What `box` writes as the reason of a result whose project names nothing to compare a commit with: no
+/// path that defines its checks, or no pattern of its test files.
+const NOTHING_NAMED: [&str; 2] = [
+    "the profile names no protected paths",
+    "the project names no test files",
+];
+
+/// Whether `box` says the project names nothing to compare, and the commit touched nothing of what it does
+/// name. A result that does not list what was touched (an older `box`) does not say so.
+fn has_nothing_to_compare(result: &VerifyResult) -> bool {
+    let reason = result.checks_reason.as_deref().map(str::trim);
+    let is_unnamed = reason.is_some_and(|reason| NOTHING_NAMED.contains(&reason));
+    let is_untouched = result.checks_touched.as_ref().is_some_and(Vec::is_empty);
+    let touched = result.tests_touched.as_ref();
+    let are_tests_kept = touched.map_or(true, |tests| tests.modified + tests.deleted == 0);
+    is_unnamed && is_untouched && are_tests_kept
 }
 
 /// What `box` recorded against `result`.
@@ -261,6 +285,55 @@ mod tests {
         let mut task = readable("m1");
         passed_result(&mut task, "test");
         task.results.remove("test").unwrap()
+    }
+
+    /// A pass as `box` records it for a project that names nothing to compare, with its `reason`.
+    fn unnamed(reason: &str) -> VerifyResult {
+        let mut result = passed();
+        (result.changes_checks, result.checks_touched) = (Some(true), Some(Vec::new()));
+        result.checks_reason = Some(reason.into());
+        (result.tests_touched, result.tests) = (None, None);
+        result
+    }
+
+    #[test]
+    fn a_project_that_names_nothing_to_compare_passes_as_plain_green() {
+        for reason in NOTHING_NAMED {
+            assert_eq!(distrust("test", &unnamed(reason)), None, "{reason}");
+            assert_eq!(distrust("lint", &unnamed(reason)), None, "{reason}");
+        }
+    }
+
+    #[test]
+    fn what_was_to_compare_and_could_not_be_or_was_changed_is_still_held_back() {
+        let uncomputed = unnamed("could not be computed");
+        assert_eq!(distrust("lint", &uncomputed), Some(Distrust::ChecksUnknown));
+        let mut changed = unnamed(NOTHING_NAMED[1]);
+        changed.checks_touched = Some(vec!["package.json".into()]);
+        let files = vec!["package.json".to_string()];
+        assert_eq!(
+            distrust("lint", &changed),
+            Some(Distrust::ChangesChecks { files })
+        );
+        let mut touching = unnamed(NOTHING_NAMED[0]);
+        touching.tests_touched = Some(TestsTouched {
+            modified: 1,
+            deleted: 0,
+            files: vec!["a.spec.ts".into()],
+        });
+        assert!(distrust("lint", &touching).is_some(), "it touched a test");
+        let mut older = unnamed(NOTHING_NAMED[0]);
+        older.checks_touched = None;
+        assert!(
+            distrust("lint", &older).is_some(),
+            "a service that does not list what was touched says nothing"
+        );
+        let mut silent = passed();
+        (silent.changes_checks, silent.checks_reason) = (None, None);
+        assert_eq!(
+            distrust("lint", &silent),
+            Some(Distrust::NotRecorded(Missing::Checks))
+        );
     }
 
     fn counts(ran: u64, base: Option<u64>) -> Option<TestCounts> {

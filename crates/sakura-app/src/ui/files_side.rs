@@ -426,7 +426,7 @@ mod tests {
     fn agent_place_is_where_the_agent_went_now_not_where_a_replayed_conversation_had_been() {
         let mut thread = Thread::default();
         thread.apply(ThreadEvent::ReplayStarted);
-        thread.apply(call_at("src/prima.rs"));
+        thread.apply(call_at("src/first.rs"));
         thread.apply(ThreadEvent::ReplayFinished);
         assert_eq!(
             agent_place(&thread),

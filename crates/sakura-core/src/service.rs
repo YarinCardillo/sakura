@@ -461,6 +461,8 @@ esac"#
         assert!(details.contains("another runner is already running"));
     }
 
+    // This fixture probes a Unix PID with signal 0; Windows uses the WSL process-tree boundary.
+    #[cfg(unix)]
     #[tokio::test]
     async fn ending_the_run_of_the_queue_leaves_no_runner() {
         let rig = rig(r#"  runner) echo $$ > "$d/runner.pid"; exec sleep 30 ;;"#);

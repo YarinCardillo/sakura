@@ -126,7 +126,7 @@ fn hiding_and_showing_the_panes_keeps_the_terminal_its_session_and_its_scrollbac
 }
 
 #[gpui::test]
-fn a_refused_attach_shows_the_reason_and_riprova_attaches_again(cx: &mut TestAppContext) {
+fn a_refused_attach_shows_the_reason_and_retry_attaches_again(cx: &mut TestAppContext) {
     let body = "echo \"box: no agent is running for task '$2'\" >&2\nexit 3";
     let (dir, script) = fake_box("sakura-refused", body);
     let (cx, desk, _) = open_with(cx, Some(script));

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1 - 2026-11-11
+
+- Show a passed project check as plain green when no comparison is configured.
+- Reload tasks after editing a project.
+- Correct Windows process cancellation compilation and hosted confinement workspace permissions.
+- Keep Linux file watchers from following symlinks outside the data folder.
+
 ## 0.1.0 - 2026-11-11
 
 - First release under the name Sakura.

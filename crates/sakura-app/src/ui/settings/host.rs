@@ -213,8 +213,14 @@ fn said(event: &SettingsEvent, cx: &mut App) {
         }
         SettingsEvent::TerminalTextChosen(text) => choose_terminal_text(text, cx),
         SettingsEvent::ProjectsChanged => {
-            let projects = cx.global::<Host>().projects.clone();
+            let host = cx.global::<Host>();
+            let (projects, desk) = (host.projects.clone(), host.desk.clone());
             projects.update(cx, |projects, cx| projects.load(cx));
+            // What a lavoro can check and play is its project's: the lavori are read again with it.
+            if let Some(desk) = desk.upgrade() {
+                let facts = desk.read(cx).facts.clone();
+                facts.update(cx, |facts, cx| facts.refresh_all(cx));
+            }
         }
     }
 }
@@ -266,6 +272,34 @@ mod tests {
     use crate::theme;
     use gpui::TestAppContext;
     use std::cell::Cell;
+
+    #[gpui::test]
+    fn a_project_changed_in_settings_has_the_lavori_read_again(cx: &mut TestAppContext) {
+        use crate::ui::interaction_tests::wait_for;
+        use crate::ui::launch_tests::{
+            calls, fake_agentbox, open_live, settled_calls, Names, TASK,
+        };
+        let (dir, script) = fake_agentbox(Names::Listed, "0", "");
+        let (cx, desk, _) = open_live(cx, script, Some(TASK), false);
+        wait_for(cx, "the page", |cx| {
+            cx.debug_bounds("page-header").is_some()
+        });
+        let statuses =
+            |calls: Vec<String>| calls.iter().filter(|call| *call == "status --json").count();
+        let before = statuses(settled_calls(cx, &dir));
+        cx.update(|window, cx| {
+            let (source, projects) = {
+                let desk = desk.read(cx);
+                (desk.source.clone(), desk.projects.clone())
+            };
+            let host = Host::new(source, projects, desk.downgrade(), window.window_handle());
+            cx.set_global(host);
+            said(&SettingsEvent::ProjectsChanged, cx);
+        });
+        wait_for(cx, "the lavori to be read again", |_| {
+            statuses(calls(&dir)) > before
+        });
+    }
 
     #[gpui::test]
     fn the_terminal_text_chosen_is_kept_and_styles_the_terminals_at_once(cx: &mut TestAppContext) {

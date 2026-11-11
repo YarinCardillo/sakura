@@ -285,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn a_cancelled_result_reads_annullata_with_its_commit_muted_never_green() {
+    fn a_cancelled_result_reads_cancelled_with_its_commit_muted_never_green() {
         let mut task = readable("m1");
         cancelled_result(&mut task, "test");
         let row = &verify_rows(&task, None)[0];

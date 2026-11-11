@@ -114,7 +114,7 @@ fn news_the_person_muted_is_not_told_and_the_badge_still_counts(cx: &mut TestApp
 /// The request the fake agent answers with a pull request, and the pull request it names.
 const FAST: &str = "--delay-ms 2";
 /// What the service lists when the person has one login on this Mac.
-const MAC_LOGIN: &str = r#"[{"name":"mio","where":"mac","exists":true,"loggedIn":null}]"#;
+const MAC_LOGIN: &str = r#"[{"name":"mine","where":"mac","exists":true,"loggedIn":null}]"#;
 const PULL_REQUEST: &str = "https://github.com/acme/desk/pull/12";
 /// The fixture's lavoro in a box whose head was taken.
 const TAKEN: &str = "headings-26";
@@ -180,7 +180,7 @@ fn publish_asks_the_lavoros_own_agent_and_the_pull_request_it_names_appears_in_t
         "the draft was never part of a message"
     );
     assert_eq!(
-        live::asked(&dir, &format!("acp {FIRST} mio")),
+        live::asked(&dir, &format!("acp {FIRST} mine")),
         1,
         "its own agent, on the person's login"
     );

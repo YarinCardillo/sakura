@@ -3,7 +3,7 @@
 //!
 //! On the layout grid (`theme.rs`, "Layout grid"): labels and glyphs start on the sidebar's
 //! inset, where the traffic lights start, and the trailing figures end on it at the right. The first line
-//! (the header: the first group's label, and "Nuovo lavoro" as a plus at its right) is as tall as the page
+//! (the header: the first group's label, and "New task" as a plus at its right) is as tall as the page
 //! header and centred on its line; the rows start where the header ends and keep one pitch, group labels
 //! included, so they share their lines with the rows of the changes pane.
 
@@ -127,7 +127,7 @@ fn view(
 }
 
 /// The sidebar's first line, as tall as the page header and centred on its line: the first group's label
-/// at the left, on the sidebar's inset, and "Nuovo lavoro" at the right, its plus ending on the inset where
+/// at the left, on the sidebar's inset, and "New task" at the right, its plus ending on the inset where
 /// the rows' figures end. The button is there whatever is listed: with no lavoro, and while they are read.
 /// With no lavoro at all (`is_empty`) the line says what the list is, since no group's label does.
 fn header(

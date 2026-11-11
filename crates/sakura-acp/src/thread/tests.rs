@@ -300,7 +300,7 @@ fn permission_refused_rejects_the_call_and_a_second_answer_changes_nothing() {
 fn permission_allowed_by_the_policy_starts_the_call_without_a_question() {
     let thread = thread_after(vec![ThreadEvent::PermissionAllowed {
         tool: ToolCallFields {
-            title: Some("Modifica".into()),
+            title: Some("Edit".into()),
             kind: Some(ToolKind::Edit),
             status: Some(ToolStatus::Pending),
             ..fields("edit")

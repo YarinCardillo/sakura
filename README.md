@@ -152,6 +152,13 @@ lavoro: a task, the Italian word the code uses for one piece of work.
 ## What is verified on each system
 
 The CI entries below describe configured checks. Hosted results are available in [Actions](https://github.com/YarinCardillo/sakura/actions).
+The published 0.1.0 tree passed the macOS app tests and Linux linting on hosted runners. Linux and
+macOS release archives were built successfully. Windows compilation, Linux watcher and terminal
+fixtures, and the real Docker fixture have pending CI fixes; their corrected runs must pass before
+those checks are considered verified.
+The Windows service requires WSL2 and has no hosted end-to-end runtime check. Linux and Windows
+archives are built by the release workflow; producing an archive does not verify desktop use.
+The macOS 0.1.0 archive was signed with Developer ID and notarised separately.
 
 | | macOS | Linux | Windows |
 |-|-|-|-|

@@ -1,4 +1,4 @@
-//! The take rule: when "Prendi" is a plain press, when it needs a hold, and when it is not offered.
+//! The take rule: when "Take" is a plain press, when it needs a hold, and when it is not offered.
 
 use super::required_verbs;
 use super::result::{result_view, ResultView};
@@ -6,7 +6,7 @@ use super::trust::{distrust, Distrust};
 use crate::models::Task;
 use crate::said::Said;
 
-/// How the "Prendi" action is offered for a task.
+/// How the "Take" action is offered for a task.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TakeRule {
     /// Everything is verified on HEAD: one press takes the work.
@@ -157,6 +157,21 @@ mod tests {
             },
             "what is not known is not known to be safe"
         );
+    }
+
+    #[test]
+    fn a_pass_on_a_project_that_names_nothing_to_compare_is_a_plain_take() {
+        let mut task = readable("m1");
+        task.checks = Some(vec!["test".into()]);
+        passed_result(&mut task, "test");
+        let result = task.results.get_mut("test").expect("the result");
+        (result.changes_checks, result.checks_touched) = (Some(true), Some(Vec::new()));
+        result.checks_reason = Some("the profile names no protected paths".into());
+        (result.tests_touched, result.tests) = (None, None);
+        assert_eq!(take_rule(&task), TakeRule::Plain);
+        let result = task.results.get_mut("test").expect("the result");
+        result.checks_reason = Some("could not be computed".into());
+        assert_ne!(take_rule(&task), TakeRule::Plain, "it was to compare");
     }
 
     #[test]

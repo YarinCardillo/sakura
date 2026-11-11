@@ -82,7 +82,7 @@ fn a_sign_in_that_ends_well_starts_the_agent_with_its_account(cx: &mut TestAppCo
 }
 
 #[gpui::test]
-fn a_login_that_fails_says_why_with_riprova_annulla_and_the_details(cx: &mut TestAppContext) {
+fn a_login_that_fails_says_why_with_retry_cancel_and_the_details(cx: &mut TestAppContext) {
     let refused = r#"echo 'opening the sign-in'; echo "box: no connection to the sign-in service; is the proxy running (box up)?" >&2; exit 1"#;
     let (dir, script) = login_box(refused);
     let (cx, desk) = open(cx, script);
@@ -131,7 +131,7 @@ fn a_login_that_ends_well_for_an_account_that_is_still_not_logged_in_says_so(
 }
 
 #[gpui::test]
-fn a_running_login_says_what_is_happening_and_annulla_hangs_it_up(cx: &mut TestAppContext) {
+fn a_running_login_says_what_is_happening_and_cancel_hangs_it_up(cx: &mut TestAppContext) {
     let (_dir, script) = login_box("sleep 20");
     let (cx, desk) = open(cx, script);
     sign_in(cx, &desk);
@@ -206,7 +206,7 @@ fn the_sign_in_address_a_login_prints_is_opened_once_in_the_browser(cx: &mut Tes
     assert_eq!(
         cx.opened_url().as_deref(),
         Some(SIGN_IN),
-        "Apri di nuovo opens the same"
+        "Open again opens the same"
     );
 }
 

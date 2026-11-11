@@ -94,7 +94,7 @@ fn bounds(cx: &mut VisualTestContext, selector: &'static str) -> Bounds<Pixels> 
 }
 
 /// Opens the window on a `box` with one commit ahead and shows "Changes" with its commit menu's trigger.
-fn open_modifiche(cx: &mut TestAppContext) -> (&mut VisualTestContext, tempfile::TempDir) {
+fn open_changes(cx: &mut TestAppContext) -> (&mut VisualTestContext, tempfile::TempDir) {
     let (dir, script) = fake_agentbox(Names::Listed, "0", LOG);
     let commit = serde_json::json!([{
         "sha": SHA, "subject": "attack", "time": "2026-11-10T06:43:31Z",
@@ -139,7 +139,7 @@ fn assert_commit_menu_is_on_its_lines(cx: &mut VisualTestContext, frame: Bounds<
 #[test]
 fn the_commit_menu_s_choices_start_on_one_line_checked_or_not_with_one_inset_all_round() {
     real_text::run(|cx| {
-        let (cx, _dir) = open_modifiche(cx);
+        let (cx, _dir) = open_changes(cx);
         // "Tutte le modifiche" is the choice in force: it has the check, the commit has none.
         let frame = open_menu(cx, "commit-picker");
         let line = assert_commit_menu_is_on_its_lines(cx, frame);
@@ -155,7 +155,7 @@ fn the_commit_menu_s_choices_start_on_one_line_checked_or_not_with_one_inset_all
 #[test]
 fn the_commit_menu_s_trigger_is_a_quiet_control_with_its_words_on_the_pane_s_inset() {
     real_text::run(|cx| {
-        let (cx, _dir) = open_modifiche(cx);
+        let (cx, _dir) = open_changes(cx);
         let trigger = bounds(cx, "commit-picker");
         assert_eq!(trigger.size.height, theme::CONTROL_HEIGHT);
         let words = bounds(cx, "commit-picker-label");
@@ -181,7 +181,7 @@ fn the_commit_menu_s_trigger_is_a_quiet_control_with_its_words_on_the_pane_s_ins
 #[test]
 fn the_lavoro_s_menu_has_one_inset_all_round_and_nothing_under_its_last_item() {
     real_text::run(|cx| {
-        let (cx, _dir) = open_modifiche(cx);
+        let (cx, _dir) = open_changes(cx);
         // A lavoro whose agent runs: every item of its menu can be pressed.
         click(cx, "row-sample-folders");
         wait_for(cx, "its header", |cx| {

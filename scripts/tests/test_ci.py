@@ -117,5 +117,7 @@ class TestHostedWorkspaceAccess(unittest.TestCase):
         block = text.split('      - name: Writable throwaway workspace for the container UID', 1)[1].split('\n      - ', 1)[0]
         self.assertIn('$AGENTBOX_HOME/work/ci', block)
         self.assertIn('u:1000:rwX', block)
+        self.assertIn('sudo setfacl -R -m', block)
+        self.assertIn('sudo find', block)
         self.assertNotIn('chmod 777', block)
         self.assertNotIn('setfacl -R -m u:1000:rwX "$AGENTBOX_HOME"', block)

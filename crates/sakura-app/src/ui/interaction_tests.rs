@@ -302,15 +302,15 @@ fn a_double_press_on_esegui_queues_once(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn annulla_takes_the_place_of_esegui_on_a_running_check_and_asks_box_once(cx: &mut TestAppContext) {
+fn cancel_takes_the_place_of_run_on_a_running_check_and_asks_box_once(cx: &mut TestAppContext) {
     let (cx, _, recorder) = open(cx);
     click(cx, "row-sample-folders");
     click(cx, "pane-view-checks");
     wait_for(cx, "Annulla", |cx| cx.debug_bounds("cancel-test").is_some());
-    assert!(cx.debug_bounds("run-test").is_none(), "not beside Esegui");
+    assert!(cx.debug_bounds("run-test").is_none(), "not beside Run");
     assert!(
         cx.debug_bounds("run-rules").is_some(),
-        "a verb at rest keeps Esegui"
+        "a verb at rest keeps Run"
     );
     let at = centre(cx, "cancel-test");
     cx.simulate_click(at, Modifiers::none());
@@ -459,7 +459,7 @@ fn removing_untaken_work_waits_for_the_hold(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn annulla_puts_the_removal_away(cx: &mut TestAppContext) {
+fn cancel_puts_the_removal_away(cx: &mut TestAppContext) {
     let (cx, desk, recorder) = open(cx);
     click(cx, "row-sample-accent");
     desk.update(cx, |desk, cx| desk.ask_remove(TASK, cx));

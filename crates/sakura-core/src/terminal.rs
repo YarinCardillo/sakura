@@ -419,11 +419,18 @@ mod tests {
         assert!(text.contains("hello"), "{text:?}");
         assert!(exit.is_none());
         let read_pid = |task: &str| -> i32 {
-            std::fs::read_to_string(rig.dir.path().join(format!("pid-{task}")))
-                .unwrap()
-                .trim()
-                .parse()
-                .unwrap()
+            let path = rig.dir.path().join(format!("pid-{task}"));
+            let deadline = Instant::now() + WAIT;
+            loop {
+                if let Some(pid) = std::fs::read_to_string(&path)
+                    .ok()
+                    .and_then(|text| text.trim().parse().ok())
+                {
+                    return pid;
+                }
+                assert!(Instant::now() < deadline, "child PID was not recorded");
+                std::thread::sleep(Duration::from_millis(10));
+            }
         };
         let pids = [read_pid("m1"), read_pid("m2")];
         rig.terminals.close(&first).unwrap();

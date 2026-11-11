@@ -1,5 +1,5 @@
 //! The task model the window shows, as pure functions over [`Task`] facts: which sidebar group a task belongs
-//! to, its state word and tone, whether "Prendi" is a plain press, a hold or disabled, how a verification
+//! to, its state word and tone, whether "Take" is a plain press, a hold or disabled, how a verification
 //! result reads, and the figures for durations and ages. No I/O, no clock: the caller passes
 //! the time when one is needed.
 
@@ -25,7 +25,7 @@ pub use verify::{short_sha, verify_rows, VerifyRow, VerifyState, SHORT_SHA};
 use crate::models::{AgentPhase, Task};
 use crate::said::Key;
 
-/// The verbs whose results must be green on HEAD for a plain "Prendi" and for the "Verificato" state: the
+/// The verbs whose results must be green on HEAD for a plain "Take" and for the "Verified" state: the
 /// checks of the task's own project, as `box` lists them. No verb is known to the app by itself.
 pub fn required_verbs(task: &Task) -> &[String] {
     task.checks.as_deref().unwrap_or_default()
@@ -96,7 +96,7 @@ impl Group {
 /// 1. Being prepared (`preparing` set and not failed): Al lavoro.
 /// 2. Preparation failed, or the workspace is unreadable: Da guardare.
 /// 3. An agent container is running: Al lavoro (even if the task was taken before).
-/// 4. Taken, HEAD is the taken commit and nothing is uncommitted: Presi.
+/// 4. Taken, HEAD is the taken commit and nothing is uncommitted: Taken.
 /// 5. Everything else (agent exited, no agent and never taken, taken with new commits or uncommitted files
 ///    since): Da guardare.
 pub fn group_of(task: &Task) -> Group {
@@ -233,8 +233,8 @@ pub struct TaskState {
     pub tone: Tone,
 }
 
-/// The state of a task. Verificato needs every required verb passed on HEAD with commits ahead and nothing
-/// uncommitted; Fallito means one of them failed on HEAD. A result for an older commit is never green.
+/// The state of a task. Verified needs every required verb passed on HEAD with commits ahead and nothing
+/// uncommitted; Failed means one of them failed on HEAD. A result for an older commit is never green.
 pub fn task_state(task: &Task) -> TaskState {
     let id = match group_of(task) {
         _ if is_preparing(task) => StateId::Preparing,
@@ -302,8 +302,8 @@ pub fn is_attention(task: &Task, waits_for_person: bool, live: Live) -> bool {
     )
 }
 
-/// Da avviare when there is no work at all; else Fallito when a required verb failed on HEAD; Verificato
-/// exactly when "Prendi" is a plain press (commits ahead, nothing uncommitted, every required verb passed on
+/// Ready to start when there is no work at all; else Failed when a required verb failed on HEAD; Verified
+/// exactly when "Take" is a plain press (commits ahead, nothing uncommitted, every required verb passed on
 /// HEAD) and the project has a check at all, so green never covers unverified or absent work.
 fn review_state(task: &Task) -> StateId {
     if is_empty(task) {
@@ -518,7 +518,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_task_with_a_result_on_head_is_still_da_avviare() {
+    fn empty_task_with_a_result_on_head_is_still_ready_to_start() {
         let mut task = readable("m1");
         task.ahead = Some(0);
         failed_result(&mut task, "test");

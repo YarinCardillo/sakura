@@ -286,7 +286,7 @@ impl Watcher {
     fn create(&self, root: &Path, debounce: Duration) -> notify::Result<Attached> {
         let state = Arc::new(Debounce::new(debounce));
         let (recorder, watched) = (Arc::clone(&state), root.to_path_buf());
-        let mut watcher = notify::recommended_watcher(
+        let mut watcher = RecommendedWatcher::new(
             move |result: notify::Result<notify::Event>| match result {
                 Ok(event) => recorder.record(&watched, &event),
                 Err(error) => {
@@ -294,6 +294,7 @@ impl Watcher {
                     recorder.note(Change::Anything);
                 }
             },
+            notify::Config::default().with_follow_symlinks(false),
         )?;
         watcher.watch(root, RecursiveMode::Recursive)?;
         let (reporter, sink) = (Arc::clone(&state), Arc::clone(&self.sink));
@@ -498,13 +499,15 @@ mod tests {
         let sinks = (sink, no_tick());
         let watcher = Watcher::start(home.clone(), sinks, SHORT, Duration::from_millis(300));
         assert!(!watcher.is_attached());
-        std::fs::create_dir_all(home.join("work/late")).unwrap();
+        let ready = parent.path().join("ready");
+        std::fs::create_dir_all(ready.join("work/late")).unwrap();
+        std::fs::create_dir_all(ready.join("results/late")).unwrap();
+        std::fs::rename(ready, &home).unwrap();
         let deadline = Instant::now() + HANG;
         while !watcher.is_attached() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(100));
         }
         assert!(watcher.is_attached());
-        std::fs::create_dir_all(home.join("results/late")).unwrap();
         std::fs::write(home.join("results/late/test.json"), "{}").unwrap();
         assert!(wait_for(&receiver, Some("late"), HANG));
     }
@@ -541,7 +544,10 @@ mod tests {
             SHORT,
             SLOW_TICK,
         );
-        std::thread::sleep(Duration::from_millis(1500));
+        // An in-tree event confirms startup events have passed before the negative assertion.
+        std::fs::create_dir_all(home.path().join("work/watcher-ready")).unwrap();
+        std::fs::write(home.path().join("work/watcher-ready/probe"), "ready").unwrap();
+        assert!(wait_for(&receiver, Some("watcher-ready"), HANG));
         while receiver.try_recv().is_ok() {}
         std::fs::write(outside.path().join("secret.txt"), "x").unwrap();
         assert!(!wait_for(&receiver, Some("linked"), Duration::from_secs(2)));

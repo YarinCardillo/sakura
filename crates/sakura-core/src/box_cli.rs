@@ -320,6 +320,7 @@ impl BoxCli {
 }
 
 /// Asks a process started by [`BoxCli::command`] to end (TERM): `box` then ends what it runs itself.
+#[cfg(unix)]
 pub fn ask_to_end(pid: Option<u32>) {
     let Some(process) = pid
         .and_then(|pid| i32::try_from(pid).ok())
@@ -332,6 +333,12 @@ pub fn ask_to_end(pid: Option<u32>) {
     unsafe {
         libc::kill(process, libc::SIGTERM);
     }
+}
+
+/// Ends the WSL launcher and its children on Windows, where POSIX signals are unavailable.
+#[cfg(not(unix))]
+pub fn ask_to_end(pid: Option<u32>) {
+    kill_group(pid);
 }
 
 /// Kills a process group started by [`BoxCli::command`].

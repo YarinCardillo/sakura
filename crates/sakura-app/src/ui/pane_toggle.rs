@@ -1,5 +1,5 @@
 //! The icon button of the window's chrome (the two of the status bar that hide a pane or bring it back,
-//! the sidebar's "Nuovo lavoro"): the kit's icon button, quiet at rest, with a tooltip that says what a
+//! the sidebar's "New task"): the kit's icon button, quiet at rest, with a tooltip that says what a
 //! press would do and its key. A press dispatches the same action as the key and the menu item.
 
 use super::chrome::keep_click;

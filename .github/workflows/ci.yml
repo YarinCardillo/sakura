@@ -146,8 +146,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends acl
           task_worktree="$AGENTBOX_HOME/work/ci"
-          setfacl -R -m u:1000:rwX "$task_worktree"
-          find "$task_worktree" -type d -exec setfacl -m d:u:1000:rwx {} +
+          sudo setfacl -R -m u:1000:rwX "$task_worktree"
+          sudo find "$task_worktree" -type d -exec setfacl -m d:u:1000:rwx {} +
 
       - name: Confinement checks
         run: service/tests/confinement.sh ci
