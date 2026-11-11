@@ -260,9 +260,7 @@ mod tests {
     fn forgets_and_sets_at_once_keep_every_other_task() {
         let (_folder, store) = store();
         for task in 0..40 {
-            store
-                .set(&format!("old-{task}"), "personal", "s")
-                .unwrap();
+            store.set(&format!("old-{task}"), "personal", "s").unwrap();
         }
         let forgetter = {
             let store = store.clone();
