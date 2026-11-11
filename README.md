@@ -152,18 +152,20 @@ lavoro: a task, the Italian word the code uses for one piece of work.
 ## What is verified on each system
 
 The CI entries below describe configured checks. Hosted results are available in [Actions](https://github.com/YarinCardillo/sakura/actions).
-The published 0.1.0 tree passed the macOS app tests and Linux linting on hosted runners. Linux and
-macOS release archives were built successfully. Windows compilation, Linux watcher and terminal
-fixtures, and the real Docker fixture have pending CI fixes; their corrected runs must pass before
+The 0.1.1 candidate passed the macOS and Linux app tests and the real Docker confinement checks on
+hosted runners. Linux and macOS release archives were built successfully. The Windows release binary
+compiled; final ACP fixture and ZIP licence-encoding fixes still need a passing hosted rerun before
 those checks are considered verified.
-The Windows service requires WSL2 and has no hosted end-to-end runtime check. Linux and Windows
+The Windows service requires WSL2 and has no hosted end-to-end runtime check. The ACP orphan-process
+probe needs `/bin/sh` and Unix process groups, so it runs on macOS and Linux and is skipped with a
+reason on Windows; the portable initialization-timeout probe still runs there. Linux and Windows
 archives are built by the release workflow; producing an archive does not verify desktop use.
 The macOS 0.1.0 archive was signed with Developer ID and notarised separately.
 
 | | macOS | Linux | Windows |
 |-|-|-|-|
 | Format, clippy with warnings denied | CI | CI | CI (tests are not linted) |
-| Tests of the core and of the conversation | CI | CI | CI, except the ones that stand a shell script in for `box` |
+| Tests of the core and of the conversation | CI | CI | CI, except Unix shell and process-group fixtures |
 | Tests of the window and the terminal | CI | CI, except layout tests that need the Mac's text shaping | not run |
 | The service's suite | CI | CI | not run (it needs WSL) |
 | A box's confinement against a real Docker | by hand, `service/tests/confinement.sh` | CI, reported but not yet required | not run |

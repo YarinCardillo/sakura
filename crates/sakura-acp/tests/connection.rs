@@ -666,6 +666,10 @@ fn is_alive(pid: &str) -> bool {
     probe.is_ok_and(|output| output.status.success())
 }
 
+#[cfg_attr(
+    windows,
+    ignore = "Unix shell and process-group fixture: requires /bin/sh and kill"
+)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn agent_that_dies_while_a_process_it_started_holds_its_output_ends_and_takes_it_along() {
     let folder = tempfile::tempdir().unwrap();
@@ -920,8 +924,7 @@ async fn program_that_speaks_no_protocol_and_never_exits_is_killed() {
         request: SHORT,
         ..Deadlines::default()
     };
-    let mut config = config(&[], deadlines);
-    config.command = ["/bin/sleep", "600"].map(String::from).to_vec();
+    let config = config(&["--read-lines", "0"], deadlines);
     let mut harness = Harness::with(config);
     let problem = harness.ended().await.expect("a problem");
     assert_eq!(

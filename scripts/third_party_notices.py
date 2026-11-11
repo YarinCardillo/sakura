@@ -9,6 +9,7 @@ usage: third_party_notices.py > THIRD_PARTY_NOTICES
 Environment: SAKURA_CARGO (the cargo command, default cargo), CARGO_HOME.
 """
 import hashlib
+import io
 import json
 import os
 import subprocess
@@ -51,14 +52,14 @@ def print_adaptations():
     print("crates/sakura-app/assets/icons/panel-left-filled.svg")
     print("crates/sakura-app/assets/icons/panel-right-filled.svg")
     print("https://github.com/lucide-icons/lucide (ISC, including Feather MIT)")
-    print((ROOT / "LICENSES/Lucide-ISC-Feather-MIT.txt").read_text())
+    print((ROOT / "LICENSES/Lucide-ISC-Feather-MIT.txt").read_text(encoding="utf-8"))
 
 
 def cargo_packages():
     """(name, version, licence expression, repository) of every crate in the app's build graph."""
     command = [os.environ.get("SAKURA_CARGO", "cargo"), "tree", "--locked", "--workspace", "--target", "all",
                "--edges", "normal,build", "--prefix", "none", "--format", "{p}|{l}|{r}"]
-    output = subprocess.run(command, cwd=ROOT, check=True, capture_output=True, text=True).stdout
+    output = subprocess.run(command, cwd=ROOT, check=True, capture_output=True, text=True, encoding="utf-8").stdout
     packages = set()
     for line in output.splitlines():
         if not line.strip():
@@ -83,7 +84,7 @@ def licence_texts(folder):
         return []
     files = [item for item in sorted(folder.iterdir())
              if item.is_file() and item.name.lower().startswith(LICENCE_FILE_PREFIXES)]
-    return [(item.name, item.read_text(errors="replace").strip()) for item in files]
+    return [(item.name, item.read_text(encoding="utf-8", errors="replace").strip()) for item in files]
 
 
 def crate_folder(name, version):
@@ -111,8 +112,15 @@ def collect():
     return by_text, titles, without_text
 
 
+def utf8_output():
+    """Preserve licence text when redirected through a legacy Windows console encoding."""
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(encoding="utf-8")
+
+
 def print_inventory():
     """Print dependency identities and licence identifiers for the source repository."""
+    utf8_output()
     print("Sakura: third party notices\n")
     print("Sakura is AGPL-3.0-only (see LICENSE). Dependencies have their own licences.")
     print("Packaged builds carry their original copyright and licence texts in THIRD_PARTY_LICENSES.\n")
@@ -126,13 +134,14 @@ def print_inventory():
 
 def print_licenses():
     """Print original upstream copyright and licence texts for distributed binaries."""
+    utf8_output()
     by_text, titles, without_text = collect()
     print(HEADER)
     print_adaptations()
-    print((ROOT / "LICENSES/GPL-3.0-or-later.txt").read_text())
+    print((ROOT / "LICENSES/GPL-3.0-or-later.txt").read_text(encoding="utf-8"))
     print(SEPARATOR)
     print("Geist Mono (font, SIL Open Font License 1.1) https://github.com/vercel/geist-font")
-    print((ROOT / "crates/sakura-app/assets/fonts/OFL.txt").read_text())
+    print((ROOT / "crates/sakura-app/assets/fonts/OFL.txt").read_text(encoding="utf-8"))
     if without_text:
         print(SEPARATOR)
         print("Packages whose published form carries no licence file; the licence each declares is named:\n")

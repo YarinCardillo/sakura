@@ -50,3 +50,16 @@ class TestNoticeInventory(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestUnicodeLicences(unittest.TestCase):
+    def test_legacy_redirected_stdout_preserves_unicode_licence_text_as_utf8(self):
+        import io
+        buffer = io.BytesIO()
+        output = io.TextIOWrapper(buffer, encoding="cp1252")
+        text = "Copyright example \u03bb \ufffd"
+        collected = ({"sample": ["sample-crate"]}, {"sample": ("LICENSE", text)}, [])
+        with patch.object(notices, "collect", return_value=collected):
+            with patch.object(notices.sys, "stdout", output):
+                notices.print_licenses()
+                output.flush()
+        self.assertIn(text.encode("utf-8"), buffer.getvalue())

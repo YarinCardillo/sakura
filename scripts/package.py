@@ -61,7 +61,7 @@ def carry_documents(destination):
     for name in DOCUMENTS:
         shutil.copy2(ROOT / name, destination / name)
     shutil.copytree(ROOT / "LICENSES", destination / "LICENSES", dirs_exist_ok=True)
-    with (destination / "THIRD_PARTY_LICENSES").open("w") as stream:
+    with (destination / "THIRD_PARTY_LICENSES").open("w", encoding="utf-8") as stream:
         subprocess.run([sys.executable, str(ROOT / "scripts/third_party_notices.py"), "--licenses"],
                        check=True, stdout=stream, stdin=subprocess.DEVNULL,
                        timeout=INSTALL_DEADLINE_SECONDS)
