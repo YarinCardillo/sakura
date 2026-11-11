@@ -59,6 +59,9 @@ run_sandbox_script() {
       while IFS= read -r store; do chmod -R a-w "$store" 2>/dev/null; done < <(stores_out_of_reach "$src" "$verified" "$writable")
       BOX_SRC="$src" BOX_OUT="$out" BOX_TRUSTED="$trusted" BOX_VERIFIED="$verified" BOX_DROPS="$drops" PYTHONDONTWRITEBYTECODE=1 "$script" "${args[@]:i+1}"
       status=$?
+      if [[ "$script" == */bundle.sh ]] && [ "$status" -eq 0 ] && [ -n "${FAKE_BUNDLE_MOUNTS:-}" ]; then
+        printf '%s\0' "$out" >>"$FAKE_BUNDLE_MOUNTS"
+      fi
       while IFS= read -r store; do chmod -R u+w "$store" 2>/dev/null; done < <(stores_out_of_reach "$src" "$verified" "$writable")
       return "$status"
     fi

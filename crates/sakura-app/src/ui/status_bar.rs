@@ -22,7 +22,9 @@ use super::pane_toggle;
 use crate::data::facts::Facts;
 use crate::icons::PaneIcon;
 use crate::l10n::{say, tr, Key, Said};
-use crate::menus::{self, PanesShown, SwitchTerminal, ToggleChanges, ToggleFollow, ToggleSidebar};
+use crate::menus::{
+    self, PanesShown, ShowSettings, SwitchTerminal, ToggleChanges, ToggleFollow, ToggleSidebar,
+};
 use crate::theme::{self, Palette};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -169,7 +171,8 @@ fn left_items(bar: Bar, cx: &App) -> Vec<AnyElement> {
     )]
 }
 
-/// The items at the bar's right end, in order; the right pane's toggle is the last. A new item of the
+/// The items at the bar's right end, in order: Settings, then what belongs to the task on screen; the
+/// right pane's toggle is the last. A new item of the
 /// right end ("Follow the agent", a Play that runs) is added here, when its function exists.
 fn right_items(bar: Bar, palette: &Palette, cx: &App) -> Vec<AnyElement> {
     let playing = bar.is_playing.then(|| playing_item(palette));
@@ -182,8 +185,15 @@ fn right_items(bar: Bar, palette: &Palette, cx: &App) -> Vec<AnyElement> {
         &ToggleChanges,
         cx,
     );
-    let items = playing.into_iter().chain(follow).chain(terminal);
-    items.chain([pane]).collect()
+    let settings = pane_toggle::button(
+        ("status-settings", "status-settings-icon"),
+        (crate::icons::SETTINGS, theme::STATUS_CONTROL_HEIGHT),
+        tr(Key("status.settings")),
+        &ShowSettings,
+        cx,
+    );
+    let items = playing.into_iter().chain([settings]).chain(follow);
+    items.chain(terminal).chain([pane]).collect()
 }
 
 /// The Play of the lavoro on screen runs: said in words, beside the bar's sentence.

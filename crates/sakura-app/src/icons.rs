@@ -108,6 +108,8 @@ pub const TERMINAL: IconName = IconName::SquareTerminal;
 /// The right pane follows the agent, or was taken by the person.
 pub const FOLLOWING: IconName = IconName::LocateFixed;
 pub const NOT_FOLLOWING: IconName = IconName::LocateOff;
+/// Settings, in the status bar.
+pub const SETTINGS: IconName = IconName::Settings;
 
 #[cfg(test)]
 mod tests {
@@ -128,6 +130,7 @@ mod tests {
             CHEVRON_OPEN,
             OVERFLOW,
             TERMINAL,
+            SETTINGS,
         ];
         for mark in marks {
             let path = mark.path();

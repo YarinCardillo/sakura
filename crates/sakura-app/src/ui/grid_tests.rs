@@ -129,6 +129,8 @@ fn the_status_bar_is_one_row_at_the_window_s_foot_with_its_toggles_on_the_insets
             for selector in [
                 "toggle-sidebar",
                 "toggle-sidebar-icon",
+                "status-settings",
+                "status-settings-icon",
                 "status-terminal",
                 "status-terminal-icon",
                 "toggle-changes",
@@ -138,7 +140,12 @@ fn the_status_bar_is_one_row_at_the_window_s_foot_with_its_toggles_on_the_insets
                 assert_near(centre_y(bounds(cx, selector)), line, selector);
             }
             let control = size(theme::STATUS_CONTROL_HEIGHT, theme::STATUS_CONTROL_HEIGHT);
-            for selector in ["toggle-sidebar", "status-terminal", "toggle-changes"] {
+            for selector in [
+                "toggle-sidebar",
+                "status-settings",
+                "status-terminal",
+                "toggle-changes",
+            ] {
                 assert_eq!(bounds(cx, selector).size, control, "{selector}");
             }
             // The right end is a group, as in Zed's bar: its items one tight gap apart, the pane's
@@ -154,6 +161,13 @@ fn the_status_bar_is_one_row_at_the_window_s_foot_with_its_toggles_on_the_insets
             let sidebar = bounds(cx, "toggle-sidebar-icon");
             assert_near(sidebar.left(), theme::SIDEBAR_INSET, "the sidebar's inset");
             assert_eq!(sidebar.size, size(theme::ICON_SIZE, theme::ICON_SIZE));
+            // Settings opens the group at the right end, before the items of the task on screen.
+            let settings = bounds(cx, "status-settings");
+            assert!(settings.right() <= terminal.left(), "Settings comes first");
+            assert!(
+                bounds(cx, "status-line").right() <= settings.left(),
+                "the sentence ends before Settings"
+            );
             let pane = bounds(cx, "toggle-changes-icon");
             let right_line = window.width - theme::CONTENT_INSET;
             assert_near(pane.right(), right_line, "the window's right content inset");

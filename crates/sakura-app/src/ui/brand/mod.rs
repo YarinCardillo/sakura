@@ -32,9 +32,17 @@ pub use cells::Phase;
 pub use mark::{mark, Ink, MarkSize};
 pub use motion::{BrandMark, Rest};
 
-/// The About page of the Settings window: the same column as the About window.
+/// The About page of the Settings window: the same column as the About window, in the middle of the
+/// page as it is in the middle of that window.
 pub fn about_page(palette: &crate::theme::Palette) -> gpui::Div {
-    about::content(palette)
+    use gpui::{ParentElement as _, Styled as _};
+    gpui::div()
+        .flex_1()
+        .w_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(about::content(palette))
 }
 
 /// Installs what the brand adds to the app: the action that opens the About window.

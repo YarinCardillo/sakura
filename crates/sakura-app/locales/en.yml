@@ -273,6 +273,7 @@ _version: 1
 "state.verified": "Verified"
 "state.working": "Working"
 "status.playing": "Play is running"
+"status.settings": "Settings"
 "status.terminal.back": "Back to the agent"
 "status.terminal.show": "Show the terminal"
 "status.follow.stop": "Stop following the agent"

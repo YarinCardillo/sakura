@@ -140,8 +140,9 @@ echo " what is not a folder of a repository of the person"
 assert_status "a path that does not exist" "$EXIT_NOT_A_FOLDER" "$BOX" project detect "$TMP/nowhere" --json
 assert_contains "one box: line" "box: " "$OUTPUT"
 assert_status "a file" "$EXIT_NOT_A_FOLDER" "$BOX" project detect "$PLAIN/notes.txt" --json
-mkdir -p "$TMP/no-repo"
-assert_status "a folder outside any repository" "$EXIT_NOT_A_REPOSITORY" "$BOX" project detect "$TMP/no-repo" --json
+# Use an existing non-repository directory without writing outside the test sandbox.
+NO_REPO="$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || printf '%s\n' "$HOME")"
+assert_status "a folder outside any repository" "$EXIT_NOT_A_REPOSITORY" "$BOX" project detect "$NO_REPO" --json
 assert_contains "it says so" "not inside a git repository" "$OUTPUT"
 git init -q --bare "$TMP/bare.git"
 assert_status "a bare repository" "$EXIT_BARE_REPOSITORY" "$BOX" project detect "$TMP/bare.git" --json

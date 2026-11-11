@@ -1,6 +1,6 @@
 [package]
 name = "sakura-core"
-version = "0.1.1"
+version = "0.1.2"
 description = "Sakura desk core: box runner, validation, machine facts, watcher and terminals, with no UI dependency"
 edition = "2021"
 rust-version = "1.77"

@@ -134,8 +134,9 @@ assert_eq "and leaves nothing either" "0" "$(still_alive "$(cat "$TMP/slow.child
 echo " one check at a time, across all lavori"
 "$BOX" new m2 app >/dev/null
 rm -f "$TMP/order"
-"$BOX" verify m1 mark --no-wait >/dev/null
-"$BOX" verify m2 mark --no-wait >/dev/null
+# Each request in its own second: within one second the queue runs in the order of the ids.
+BOX_REQUEST_TIMESTAMP=20261110T080000 "$BOX" verify m1 mark --no-wait >/dev/null
+BOX_REQUEST_TIMESTAMP=20261110T080001 "$BOX" verify m2 mark --no-wait >/dev/null
 "$BOX" runner --once >/dev/null 2>&1
 assert_eq "the second starts after the first ended" "start m1,end m1,start m2,end m2" "$(tr '\n' ',' <"$TMP/order" | sed 's/,$//')"
 

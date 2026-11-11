@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2 - 2026-11-11
+
+- A Settings button in the status bar: Settings no longer opens only from the menu.
+- The About page of Settings stands in the middle of its panel.
+- The flower fills more of the app icon.
+- Looking up an account no longer leaves a write error on the conversation's error stream.
+
 ## 0.1.1 - 2026-11-11
 
 - Show a passed project check as plain green when no comparison is configured.

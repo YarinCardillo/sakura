@@ -273,6 +273,7 @@ _version: 1
 "state.verified": "Verificato"
 "state.working": "Al lavoro"
 "status.playing": "Play in esecuzione"
+"status.settings": "Impostazioni"
 "status.terminal.back": "Torna all'agente"
 "status.terminal.show": "Mostra il terminale"
 "status.follow.stop": "Smetti di seguire l'agente"
