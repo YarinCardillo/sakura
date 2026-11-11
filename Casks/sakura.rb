@@ -1,6 +1,6 @@
 cask "sakura" do
-  version "0.1.1"
-  sha256 "e5c950e729504b997b28af06f90fde0390d1218a6067dfc480c744d586205520"
+  version "0.1.2"
+  sha256 "8dd96e4c18e04289b6d92a1147355d91a4fca84c7025ed089817380e6a3dfd9c"
 
   url "https://github.com/YarinCardillo/sakura/releases/download/v#{version}/Sakura-#{version}.zip"
   name "Sakura"
