@@ -1,11 +1,11 @@
-A desktop app for running several coding agents at once and deciding only what needs you.
-
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/lockup-app-on-dark.svg">
     <img src="docs/images/lockup-app-on-light.svg" width="492" alt="Sakura">
   </picture>
 </p>
+
+A desktop app for running several coding agents at once and deciding only what needs you.
 
 You tell the Master what you want, or start a lane yourself. A lane is one piece of work in one project: the
 engine plans it, builds it in a git worktree, has a reviewer read it, runs your project's checks and delivers a
