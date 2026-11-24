@@ -1,9 +1,12 @@
-<h1><img src="assets/icons/sakura-1024.png" width="48" align="absmiddle" alt=""> Sakura</h1>
+# Sakura
 
 A desktop app for running several coding agents at once and deciding only what needs you.
 
 <p align="center">
-  <img src="docs/images/sakura-engine.gif" width="960" alt="How the Sakura engine runs a task: work comes in from GitHub, Notion, Linear or a feed, becomes a lane on its own branch, passes the spec, tests, review and checks gates with agents taking turns inside its sandbox, and merges back as a draft pull request while you set the builders and the pace.">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/lockup-app-on-dark.svg">
+    <img src="docs/images/lockup-app-on-light.svg" width="492" alt="Sakura">
+  </picture>
 </p>
 
 You tell the Master what you want, or start a lane yourself. A lane is one piece of work in one project: the
@@ -12,6 +15,10 @@ draft pull request. Whatever needs a decision from you, such as an approval, a q
 in the Inbox with the context next to it.
 
 Sakura runs on your machine. It has no account, no remote server and no telemetry.
+
+<p align="center">
+  <img src="docs/images/sakura-engine.gif" width="960" alt="How the Sakura engine runs a task: work comes in from GitHub, Notion, Linear or a feed, becomes a lane on its own branch, passes the spec, tests, review and checks gates with agents taking turns inside its sandbox, and merges back as a draft pull request while you set the builders and the pace.">
+</p>
 
 ## What you need
 
