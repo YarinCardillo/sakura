@@ -195,12 +195,15 @@ mod tests {
     #[test]
     fn every_phase_has_its_sentence() {
         crate::l10n::set_for_test(crate::l10n::Language::Italian);
-        assert_eq!(LoginPhase::Opening.sentence(), "Apro la box per l'accesso.");
+        assert_eq!(
+            LoginPhase::Opening.sentence(),
+            "Avvio di un box per l'accesso."
+        );
         assert_eq!(
             LoginPhase::SigningIn.sentence(),
             "Completa l'accesso nel terminale qui sotto."
         );
-        assert_eq!(LoginPhase::Checking.sentence(), "Verifico l'accesso.");
+        assert_eq!(LoginPhase::Checking.sentence(), "Controllo dell'accesso.");
         assert_eq!(
             LoginPhase::InBrowser.sentence(),
             "Continua nel browser, poi incolla qui il codice"

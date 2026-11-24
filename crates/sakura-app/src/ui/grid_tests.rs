@@ -239,7 +239,7 @@ fn the_left_edges_of_the_sidebar_are_the_traffic_lights_edge() {
             }
             let line = theme::TRAFFIC_LIGHTS_X;
             for selector in [
-                "group-review",
+                "group-needs-you",
                 "glyph-sample-accent",
                 "glyph-sample-folders",
                 "glyph-headings-26",
@@ -363,7 +363,7 @@ fn the_new_lavoro_button_sits_in_the_sidebar_s_header_on_its_right_inset() {
                 line,
                 "and so does a row's content",
             );
-            let label = bounds(cx, "group-review");
+            let label = bounds(cx, "group-needs-you");
             assert!(
                 label.right() < button.left(),
                 "the first label ends before it"
@@ -390,8 +390,8 @@ fn the_header_and_the_sidebars_first_line_share_one_centre_line() {
                 assert_near(centre_y(bounds(cx, selector)), line, selector);
             }
             if panes != Panes::NoSidebar {
-                // What is at work is listed before what is to review: its label is the first line.
-                let label = bounds(cx, "group-working");
+                // Needs you is the first group, aligned with the header.
+                let label = bounds(cx, "group-needs-you");
                 assert_near(centre_y(label), line, "the sidebar's first line");
             }
         });
@@ -402,6 +402,8 @@ fn the_header_and_the_sidebars_first_line_share_one_centre_line() {
 fn rows_start_where_the_header_ends_and_keep_one_pitch_across_the_window() {
     real_text::run(|cx| {
         let cx = open(cx);
+        // A short diff starts open: the first file is closed so two headers stand one row apart.
+        click(cx, "changes-header-0");
         at_each_size_and_pane(cx, |cx, panes| {
             let start = theme::WINDOW_STRIP_HEIGHT + theme::HEADER_HEIGHT;
             let header = bounds(cx, "page-header");

@@ -310,7 +310,6 @@ impl Render for AddProject {
         div()
             .debug_selector(|| "settings-add".into())
             .w_full()
-            .max_w(sizes::PAGE_MAX_WIDTH)
             .child(controls::page(
                 tr(Key("settings.add.title")),
                 groups,

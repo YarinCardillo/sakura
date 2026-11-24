@@ -1,4 +1,4 @@
-//! What a console's end means, as plain rules: whether `box` refused to start it, whether it simply closes,
+//! What a console's end means, as plain rules: whether `box` refused to start it, whether it closes normally,
 //! and when an agent's console has outlived its agent.
 
 use super::login::{login_failure, LoginFailure};
@@ -22,9 +22,12 @@ pub enum ConsoleKind {
     Shell,
     /// `box login <account>`: the account's login, shown in the pane where it was requested.
     Login(String),
+    /// `box up`: the boxes made ready on this machine, shown where a sign-in would be, before what
+    /// needs a box goes on.
+    BoxUp,
 }
 
-/// Which of a lavoro's two places a console takes: each lavoro has one console of the agent (its
+/// Which of a task's two places a console takes: each task has one console of the agent (its
 /// terminal, or the login requested there) and, beside it, one terminal of its own. Opening one never
 /// touches the other.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -34,10 +37,10 @@ pub enum Place {
 }
 
 impl ConsoleKind {
-    /// The place it takes among the lavoro's consoles.
+    /// The place it takes among the task's consoles.
     pub fn place(&self) -> Place {
         match self {
-            ConsoleKind::Agent | ConsoleKind::Login(_) => Place::Agent,
+            ConsoleKind::Agent | ConsoleKind::Login(_) | ConsoleKind::BoxUp => Place::Agent,
             ConsoleKind::Shell => Place::Terminal,
         }
     }
@@ -48,6 +51,7 @@ impl ConsoleKind {
             ConsoleKind::Agent => TerminalKind::Agent,
             ConsoleKind::Shell => TerminalKind::Shell,
             ConsoleKind::Login(_) => TerminalKind::Login,
+            ConsoleKind::BoxUp => TerminalKind::Up,
         }
     }
 
@@ -55,7 +59,7 @@ impl ConsoleKind {
     pub fn account(&self) -> Option<&str> {
         match self {
             ConsoleKind::Login(account) => Some(account),
-            ConsoleKind::Agent | ConsoleKind::Shell => None,
+            ConsoleKind::Agent | ConsoleKind::Shell | ConsoleKind::BoxUp => None,
         }
     }
 }
@@ -63,7 +67,7 @@ impl ConsoleKind {
 /// What happens to a console once its process exited.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
-    /// It is put away and the lavoro says its terminal ended: a shell that ended, with whatever code.
+    /// It is put away and the task says its terminal ended: a shell that ended, with whatever code.
     Close(Option<i32>),
     /// A login that ended well: the account is read again before anything is said.
     LoginCheck,
@@ -74,6 +78,10 @@ pub enum Outcome {
     /// `box` refused: the line it wrote replaces the terminal, said in Sakura's words with the line itself
     /// as the details.
     Failed(String),
+    /// `box up` ended well: the boxes can be used, and what waited for them goes on.
+    BoxesReady,
+    /// `box up` found no Docker to talk to: one line says what to do.
+    DockerDown,
 }
 
 /// The outcome of a console of `kind` whose process exited with `code` after printing `last_line` last.
@@ -84,6 +92,9 @@ pub fn outcome(kind: &ConsoleKind, code: Option<i32>, last_line: Option<&str>) -
             _ => Outcome::LoginFailed(login_failure(code, last_line)),
         };
     }
+    if *kind == ConsoleKind::BoxUp {
+        return boxes_made(code, last_line);
+    }
     let refusal = last_line
         .filter(|_| code != Some(0))
         .filter(|line| box_words::reason(line).is_some());
@@ -92,7 +103,18 @@ pub fn outcome(kind: &ConsoleKind, code: Option<i32>, last_line: Option<&str>) -
     }
     match kind {
         ConsoleKind::Shell => Outcome::Close(code),
-        ConsoleKind::Agent | ConsoleKind::Login(_) => Outcome::Ended(code),
+        ConsoleKind::Agent | ConsoleKind::Login(_) | ConsoleKind::BoxUp => Outcome::Ended(code),
+    }
+}
+
+/// The end of `box up`: ready, Docker not there, or a failure whose last lines stay on screen.
+fn boxes_made(code: Option<i32>, last_line: Option<&str>) -> Outcome {
+    let reason = last_line.and_then(box_words::reason);
+    let known = reason.and_then(box_words::known);
+    match (code, known) {
+        (Some(0), _) => Outcome::BoxesReady,
+        (_, Some(box_words::Known::DockerUnreachable)) => Outcome::DockerDown,
+        _ => Outcome::Ended(code),
     }
 }
 
@@ -134,6 +156,25 @@ mod tests {
             outcome(&login, Some(130), None),
             Outcome::LoginFailed(LoginFailure::Cancelled)
         );
+    }
+
+    #[test]
+    fn boxes_made_ready_go_on_and_a_failure_keeps_its_last_lines() {
+        let up = ConsoleKind::BoxUp;
+        assert_eq!(outcome(&up, Some(0), None), Outcome::BoxesReady);
+        assert_eq!(
+            outcome(
+                &up,
+                Some(1),
+                Some("ERROR: failed to solve: network unreachable")
+            ),
+            Outcome::Ended(Some(1)),
+            "what it printed stays on screen"
+        );
+        let docker = "box: Docker is not reachable. Start Docker Desktop and retry.";
+        assert_eq!(outcome(&up, Some(1), Some(docker)), Outcome::DockerDown);
+        assert_eq!(up.place(), Place::Agent, "where the sign-in shows");
+        assert_eq!(up.terminal_kind(), TerminalKind::Up);
     }
 
     #[test]

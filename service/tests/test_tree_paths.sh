@@ -57,6 +57,7 @@ echo " a check"
 RESULT="$(/bin/ls -t "$AGENTBOX_HOME/results/t1"/*-build.json | head -1)"
 assert_eq "ends as refused (exit code 2)" "2" "$(jq -r .exit_code "$RESULT")"
 assert_contains "its log says why" "the commit was not checked: the paths" "$(cat "${RESULT%.json}.log")"
+assert_contains "and the result says it was set aside, and why" "the commit was not checked: the paths" "$(jq -r .discarded "$RESULT")"
 assert_eq "no job was started for it" "0" "$(grep -c -e '--name agentbox-job-' "$FAKE_DOCKER_LOG")"
 
 echo " a tree without such paths is checked and taken as before"

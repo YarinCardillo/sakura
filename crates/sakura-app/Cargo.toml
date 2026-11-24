@@ -1,6 +1,7 @@
 [package]
 name = "sakura-app"
 description = "Sakura desk: watch and steer coding agents in their agentbox workspaces"
+repository = "https://github.com/YarinCardillo/sakura"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
@@ -15,11 +16,17 @@ path = "src/main.rs"
 # using offscreen rendering on macOS. Off in normal builds.
 snapshot = ["gpui/test-support", "gpui_platform/test-support", "dep:image", "measure"]
 # The scroll probe (SAKURA_MEASURE_SCROLL), without GPUI's test support, so it measures what a normal build does.
-measure = ["dep:libc"]
+measure = ["sakura-terminal?/measure", "dep:rustix"]
+# The Settings switch that runs checks with the Restate engine. Off: the row is not built and the app never
+# writes `RUNNER=engine`.
+restate-engine = ["boxes", "sakura-core/restate-engine"]
+# The agentbox side: the `box` runner and its tasks, their sidebar, desk, terminals and conversations. Off by
+# default: the app is the engine's cockpit (Waiting and lanes). A build with this feature still shows `box` tasks.
+boxes = ["sakura-core/boxes", "dep:sakura-terminal"]
 
 [dependencies]
 sakura-core = { path = "../sakura-core" }
-sakura-terminal = { path = "../sakura-terminal" }
+sakura-terminal = { path = "../sakura-terminal", optional = true }
 sakura-acp = { path = "../sakura-acp" }
 gpui = { package = "gpui-pre", version = "=0.3.12" }
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", default-features = false, features = ["font-kit", "runtime_shaders", "x11", "wayland"] }
@@ -38,14 +45,46 @@ unicode-width = "0.2"
 rust-i18n = "4.2.4"
 tokio = { version = "1.53.3", features = ["rt-multi-thread", "time", "sync"] }
 serde_json = "1.0.154"
+# Reads the engine's own `cockpit.toml` for the Phone section (already in the lock file). MIT or Apache-2.0.
+toml = { version = "0.8.23", default-features = false, features = ["parse"] }
+semver = "1.0.28"
+url = "2.5"
+# Reads the Markdown of an agent's words to make it inert (`ui/inert_markdown.rs`). The reader the kit draws
+# Markdown with (already in the lock file). MIT.
+markdown = "=1.0.0"
+base64 = "0.22.1"
 image = { version = "0.25", default-features = false, features = ["png"], optional = true }
-libc = { version = "0.2.191", optional = true }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+iana-time-zone = "0.1"
+jiff = "0.2"
+nix = { version = "0.28", default-features = false, features = ["user"] }
+rustix = { version = "1.1.6", features = ["time"], optional = true }
+tempfile = "3.27.0"
+uuid = { version = "1.29.2", features = ["v4"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+objc2 = "0.6.5"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSAccessibility", "NSApplication", "NSDockTile", "NSResponder", "NSHapticFeedback", "NSWorkspace"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSBundle", "NSLocale", "NSNotification", "NSObject", "NSOperation", "NSString", "NSError", "block2"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+ureq = { version = "3.5", default-features = false, features = ["rustls"] }
+percent-encoding = "2.3"
 
 [dev-dependencies]
 sakura-core = { path = "../sakura-core", features = ["test-support"] }
-tempfile = "3.27.0"
+# The engine's own input patterns, which the contract tests hold what the app sends to.
+regex = "1"
+# Compile the public API transport on macOS too, without making network requests in tests.
+ureq = { version = "3.5", default-features = false, features = ["rustls"] }
+percent-encoding = "2.3"
 # GPUI's test platform: simulated pointer and keys on a test window.
 gpui = { package = "gpui-pre", version = "=0.3.12", features = ["test-support"] }
+
+[build-dependencies]
+# Already used by GPUI; locates the Windows SDK resource compiler on MSVC runners.
+embed-resource = "=3.0.12"
 
 # The Mac's own text system, for the layout tests: the test platform's gives every glyph one width.
 # On the other systems those tests are skipped and say so (`ui/real_text.rs`).

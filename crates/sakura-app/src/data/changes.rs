@@ -31,6 +31,8 @@ pub enum Scope {
 #[derive(Default)]
 pub struct TaskChanges {
     patch: Option<Arc<Patch>>,
+    /// When the read the patch came from started.
+    patch_started: Option<Instant>,
     fetched_at: Option<Instant>,
     error: Option<Said>,
     is_loading: bool,
@@ -51,6 +53,12 @@ impl TaskChanges {
     /// The last patch read, kept while a new read runs or after one failed.
     pub fn patch(&self) -> Option<&Arc<Patch>> {
         self.patch.as_ref()
+    }
+
+    /// When the read the patch came from started: the patch shows the workspace as it was then, or a
+    /// moment after.
+    pub fn patch_started(&self) -> Option<Instant> {
+        self.patch_started
     }
 
     /// The commits ahead of the base, newest first, once read.
@@ -157,12 +165,13 @@ impl Changes {
         }
     }
 
-    /// When the facts of `name` last said its workspace may have changed; nothing while only its name is
-    /// known (a `box diff` starts a container: none is spent before the facts are read) or its workspace
-    /// cannot be read.
+    /// When the facts of `name` last said its workspace may have changed; nothing while its workspace
+    /// cannot be read. While only its name is known the patch is read at once when Sakura reads it
+    /// itself; through `box diff`, which starts a container, it waits for the facts.
     fn facts_read_at(&self, name: &str, cx: &Context<Self>) -> Option<Instant> {
         let row = self.facts.read(cx).row(name)?;
-        (row.task.readable && !row.is_pending).then_some(row.work_read_at)
+        let can_wait_for_nothing = !row.is_pending || self.source.readers().is_some();
+        (row.task.readable && can_wait_for_nothing).then_some(row.work_read_at)
     }
 }
 
@@ -235,7 +244,10 @@ impl Changes {
         entry.is_loading = false;
         entry.last_took = read.started.elapsed();
         match read.patch {
-            Ok(patch) => entry.keep_patch(patch),
+            Ok(patch) => {
+                entry.patch_started = Some(read.started);
+                entry.keep_patch(patch);
+            }
             Err(error) => entry.error = Some(error.said),
         }
         if let Ok(commits) = read.commits {

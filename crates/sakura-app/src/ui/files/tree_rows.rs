@@ -83,6 +83,8 @@ pub struct Look {
     pub is_selected: bool,
     /// The row of the file open under the tree.
     pub is_open_file: bool,
+    /// A folder has been read for long enough for its reading row to say so.
+    pub shows_reading: bool,
 }
 
 /// One row of the tree.
@@ -98,7 +100,10 @@ pub fn row(kind: &RowKind, look: Look, palette: &Palette) -> Div {
         .text_size(theme::TEXT_BODY);
     match kind {
         RowKind::Entry(entry) => entry_row(base, entry, look, palette),
-        RowKind::Reading => note(base, tr(Key("files.tree.reading")), palette),
+        RowKind::Reading if look.shows_reading => {
+            note(base, tr(Key("files.tree.reading")), palette)
+        }
+        RowKind::Reading => base,
         RowKind::Unreadable => note(base, tr(Key("files.tree.folder_unreadable")), palette),
         RowKind::Truncated => note(base, tr(Key("files.tree.truncated")), palette),
     }

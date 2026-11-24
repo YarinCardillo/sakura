@@ -1,7 +1,7 @@
 //! The whole gesture in a test window, on a fake `box` whose `acp` runs the fake agent: Cmd+N, a sentence,
-//! Enter. One `box new`, the lavoro's tab with the person's message at once, then one `box acp` and the
+//! Enter. One `box new`, the task's tab with the person's message at once, then one `box acp` and the
 //! answer streamed; a `box new` that fails is said in place with "Try again" and the message is kept; a
-//! lavoro that takes long to prepare shows its tab and its message at once all the same.
+//! task that takes long to prepare shows its tab and its message at once all the same.
 
 use super::desk::Desk;
 use super::interaction_tests::{click, draw, take_place};
@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 const STATUS: &str = include_str!("../../../sakura-core/tests/fixtures/status.json");
 /// What the person writes: its first word picks the fake agent's plain answer.
 const SENTENCE: &str = "plain sort the folders";
-/// The lavoro's name, made from the sentence.
+/// The task's name, made from the sentence.
 const NAME: &str = "plain-sort-folders";
 const PROJECT: &str = "demo-site";
 const PROJECTS: &str = r#"[{"name":"demo-site","base":"main","where":"mac","account":"personal"}]"#;
@@ -61,7 +61,7 @@ fn fake_agent() -> PathBuf {
     agent
 }
 
-/// What `box` answers once the lavoro is made: it is listed, on the Mac, with its folder.
+/// What `box` answers once the task is made: it is listed, on the Mac, with its folder.
 fn write_the_lavoro(dir: &Path) {
     let mut status: serde_json::Value = serde_json::from_str(STATUS).expect("the fixture");
     let tasks = status["tasks"].as_array_mut().expect("the tasks");
@@ -137,7 +137,7 @@ fn conversation(cx: &mut VisualTestContext, desk: &Entity<Desk>) -> Option<Entit
     desk.read_with(cx, |desk, _| desk.conversation_of(NAME))
 }
 
-/// The person's messages in the conversation of the lavoro.
+/// The person's messages in the conversation of the task.
 fn messages(cx: &mut VisualTestContext, desk: &Entity<Desk>) -> Vec<String> {
     let Some(conversation) = conversation(cx, desk) else {
         return Vec::new();
@@ -325,7 +325,7 @@ fn a_login_of_the_mac_that_the_agent_refuses_is_named_by_the_projects_account(
     cx: &mut TestAppContext,
 ) {
     let (dir, script) = gesture_box_with(&made_after("true"), "--auth-required");
-    // Two logins on this Mac: only the project says which one the lavoro uses.
+    // Two logins on this Mac: only the project says which one the task uses.
     let two = r#"[{"name":"personal","where":"mac","exists":true,"loggedIn":true},{"name":"other","where":"mac","exists":true,"loggedIn":true}]"#;
     std::fs::write(dir.path().join("accounts.json"), two).expect("the accounts");
     let (cx, desk, _) = open_live(cx, script, Some(TASK), true);

@@ -9,9 +9,9 @@ readonly MAX_STATUS_BYTES=100000
 readonly COMMIT_PATTERN='^[0-9a-f]{40}$'
 readonly STATUS_PARALLEL_READS=4
 
-# ---- Docker facts, collected once per call ----------------------------------------------
+# Docker facts, collected once per call.
 
-# Docker is asked only when a task lives in a box: lavori on the Mac are read with git alone.
+# Docker is asked only when a task lives in a box: tasks on the Mac are read with git alone.
 collect_container_facts_if_needed() {
   STATUS_CONTAINERS="" STATUS_STATS="" STATUS_HAS_BOX_TASK=0
   any_box_task || return 0
@@ -70,7 +70,7 @@ other_containers() {
   echo "$STATUS_CONTAINERS" | awk -v t="$1" -v a="$(agent_container_name "$1")" '$1 == t && $2 != a' | wc -l | tr -d ' '
 }
 
-# ---- results and taken ------------------------------------------------------------------
+# Results and taken.
 
 # Path of the newest result file for a verb of a task, nothing when there is none.
 # The newest result file of a task for a verb. Names hold the whole sha (40 characters); a
@@ -98,7 +98,7 @@ result_json() {
     --argjson seconds "$(number_or_zero "$(result_field "$file" seconds)")" \
     --arg finishedAt "$(timestamp_to_zulu "$(result_field "$file" finished)")" \
     --argjson cancelled "$([ "$(result_field "$file" cancelled)" = true ] && echo true || echo false)" \
-    --argjson recorded "$(jq -c '{changesChecks, checksTouched, checksReason, testsTouched, tests}' "$file" 2>/dev/null || echo '{}')" \
+    --argjson recorded "$(jq -c '{changesChecks, checksTouched, checksReason, testsTouched, tests} + (if .discarded then {discarded} else {} end)' "$file" 2>/dev/null || echo '{}')" \
     --arg where "$([ "$(result_field "$file" where)" = "mac" ] && echo mac || echo box)" \
     '{sha: $sha, where: $where, exitCode: $exitCode, seconds: $seconds, finishedAt: $finishedAt, cancelled: $cancelled} + $recorded'
 }
@@ -128,7 +128,21 @@ taken_json() {
   jq -nc --arg sha "$sha" --arg at "$at" '{sha: $sha, at: $at}'
 }
 
-# ---- one task ---------------------------------------------------------------------------
+# One task.
+
+# Last completed agent turn, or creation when no turn ended. Reads never move this clock.
+task_age_at() {
+  local task="$1" agent="$2" at finished=""
+  at="$(cat "$TASKS_DIR/$task.age" 2>/dev/null || true)"
+  [ -n "$at" ] || at="$(task_record_field "$task" CREATED_AT)"
+  [ -n "$at" ] || at="$(journal_last_time new "$task")"
+  if [ "$(jq -r '.state // empty' <<<"$agent")" = exited ]; then
+    finished="$(dk inspect -f '{{.State.FinishedAt}}' "$(agent_container_name "$task")" 2>/dev/null || true)"
+    finished="$(timestamp_to_zulu "$finished")"
+    if [[ "$finished" > "$at" ]]; then at="$finished"; fi
+  fi
+  timestamp_to_zulu "$at"
+}
 
 # One element of "tasks". An unreadable workspace gives readable false and null git fields.
 task_report_json() {
@@ -149,8 +163,10 @@ task_report_json() {
     --arg baseSha "$(task_base_sha "$task")" --argjson facts "$facts" --arg where "$where" --arg folder "$folder" \
     --argjson taken "$taken" --argjson agent "$agent" --argjson disk "$disk" \
     --argjson others "$others" --argjson results "$(results_json "$task")" \
+    --arg ageAt "$(task_age_at "$task" "$agent")" \
     --argjson checks "$(project_verbs | jq -cR . | jq -cs .)" '
     { name: $name, project: $profile, profile: $profile, where: $where,
+      ageAt: (if $ageAt == "" then null else $ageAt end),
       folder: (if $folder == "" then null else $folder end), checks: $checks, base: $base, baseSha: $baseSha, readable: ($facts != null),
       branch: $facts.branch, head: $facts.head, headSubject: $facts.headSubject, headTime: $facts.headTime,
       ahead: $facts.ahead, dirtyFiles: $facts.dirtyFiles, filesChanged: $facts.filesChanged,
@@ -159,7 +175,7 @@ task_report_json() {
       results: ($results | with_entries(.value.isHead = (.value.sha == $facts.head))) }'
 }
 
-# ---- runner -----------------------------------------------------------------------------
+# Runner.
 
 runner_json() {
   local id file state current="null" queue="[]" entry
@@ -179,7 +195,7 @@ runner_json() {
     '{state: $state, current: $current, queue: $queue}'
 }
 
-# ---- commands ---------------------------------------------------------------------------
+# Commands.
 
 cmd_status_json() {
   local task tasks="[]" report_dir report
@@ -193,7 +209,8 @@ cmd_status_json() {
     tasks="$(jq -c --argjson r "$report" '. + [$r]' <<<"$tasks")"
   done
   rm -rf "$report_dir"
-  jq -nc --argjson runner "$(runner_json)" --argjson tasks "$tasks" '{runner: $runner, tasks: $tasks}'
+  jq -nc --argjson runner "$(runner_json)" --argjson tasks "$tasks" --argjson choice "$(check_runner_json "$BASH_RUNNER")" \
+    '{runner: $runner, tasks: $tasks, checkRunner: $choice}'
 }
 
 # Writes <dir>/<task>.json for every task, reading at most STATUS_PARALLEL_READS workspaces at a

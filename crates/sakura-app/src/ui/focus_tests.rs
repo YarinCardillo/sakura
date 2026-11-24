@@ -47,7 +47,7 @@ fn borders_in(cx: &mut VisualTestContext, area: Bounds<Pixels>) -> Vec<Hsla> {
     })
 }
 
-/// The desk on the page of a lavoro whose conversation is drawn.
+/// The desk on the page of a task whose conversation is drawn.
 fn open_on_the_page(cx: &mut TestAppContext) -> (&mut VisualTestContext, Entity<Desk>) {
     let (cx, desk, _) = open_with(cx, None);
     wait_for(cx, "the rows", |cx| {

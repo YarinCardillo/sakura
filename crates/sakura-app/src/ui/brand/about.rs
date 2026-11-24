@@ -9,8 +9,8 @@ use crate::theme_brand::{
     ABOUT_GAP, ABOUT_HEIGHT, ABOUT_LINE_GAP, ABOUT_LOCKUP_CELL, ABOUT_WIDTH, REPOSITORY,
 };
 use gpui::{
-    actions, div, size, AnyWindowHandle, App, AppContext as _, Bounds, Context, Div, FocusHandle,
-    Global, InteractiveElement as _, IntoElement, KeyDownEvent, ParentElement as _, Render,
+    actions, div, size, AnyWindowHandle, App, AppContext as _, Bounds, Context, Div, Global,
+    InteractiveElement as _, IntoElement, ParentElement as _, Render,
     StatefulInteractiveElement as _, Styled as _, TitlebarOptions, Window, WindowBounds,
     WindowOptions,
 };
@@ -28,23 +28,32 @@ impl Global for Shown {}
 /// Makes [`About`] open the window.
 pub fn install(cx: &mut App) {
     cx.on_action(|_: &About, cx| open(cx));
+    cx.intercept_keystrokes(|event, window, cx| {
+        let is_about = cx
+            .try_global::<Shown>()
+            .is_some_and(|shown| shown.0 == window.window_handle());
+        let key = &event.keystroke;
+        let is_close = key.key == "escape" || (key.key == "w" && key.modifiers.secondary(cx));
+        if is_about && is_close {
+            cx.stop_propagation();
+            window.remove_window();
+        }
+    })
+    .detach();
 }
 
 /// Opens the About window, or brings it forward when it is open already.
 pub fn open(cx: &mut App) {
     let shown = cx.try_global::<Shown>().map(|shown| shown.0);
     let is_forward = shown.is_some_and(|window| {
-        let brought = window.update(cx, |_, window, _| window.activate_window());
+        let brought = window.update(cx, |_, window, _| crate::window::activate(window));
         brought.is_ok()
     });
     if is_forward {
         return;
     }
     let opened = cx.open_window(options(cx), |window, cx| {
-        let view = cx.new(AboutView::new);
-        // Keys reach the window through its content; nothing in it shows a ring or a caret.
-        let focus = view.read(cx).focus.clone();
-        focus.focus(window, cx);
+        let view = cx.new(|_| AboutView);
         cx.new(|cx| gpui_component::Root::new(view, window, cx))
     });
     match opened {
@@ -61,6 +70,8 @@ fn options(cx: &App) -> WindowOptions {
             title: Some(tr(TITLE).into()),
             ..TitlebarOptions::default()
         }),
+        focus: crate::window::can_activate(),
+        show: crate::window::can_activate(),
         is_resizable: false,
         is_minimizable: false,
         ..WindowOptions::default()
@@ -68,40 +79,18 @@ fn options(cx: &App) -> WindowOptions {
 }
 
 /// The content of the About window.
-pub struct AboutView {
-    focus: FocusHandle,
-}
-
-impl AboutView {
-    /// The view of a new About window.
-    pub fn new(cx: &mut Context<Self>) -> Self {
-        Self {
-            focus: cx.focus_handle(),
-        }
-    }
-}
+pub struct AboutView;
 
 impl Render for AboutView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = Theme::palette(cx);
         div()
-            .track_focus(&self.focus)
-            .on_key_down(close_on_its_keys)
             .size_full()
             .bg(palette.panel)
             .flex()
             .items_center()
             .justify_center()
             .child(content(&palette))
-    }
-}
-
-/// The system's own close key (Cmd+W on the Mac, Ctrl+W elsewhere) and Escape close the window.
-fn close_on_its_keys(event: &KeyDownEvent, window: &mut Window, cx: &mut App) {
-    let key = &event.keystroke;
-    let is_close = key.key == "w" && key.modifiers.secondary(cx);
-    if is_close || key.key == "escape" {
-        window.remove_window();
     }
 }
 

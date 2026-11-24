@@ -1,0 +1,10 @@
+{
+  "after": 1,
+  "entries": [
+    {
+      "kind": "prompt",
+      "sequence": 1,
+      "text": "Summarize new entries."
+    }
+  ]
+}

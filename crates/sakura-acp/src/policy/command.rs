@@ -7,16 +7,11 @@
 //!    relative path).
 //! 3. Its first word, whole, is a program on [`KNOWN_PROGRAMS`] (a path whose last part is a known name is
 //!    not that name), and where the list names subcommands, its second word is one of them.
-//! 4. No argument is a flag that makes a program run or evaluate something ([`EVALUATING_FLAGS`]).
-//! 5. A short option stands alone (`-n`, its value in the next word). One written together with anything
-//!    (`-C..`, `-n5`, `-rf`) passes only when every letter after the dash is a switch that program is
-//!    known to take with no value ([`SWITCHES`]): an attached value hides an evaluating flag from rule 4
-//!    and a path from rule 6, and only the program's own grammar says where a run of letters ends.
-//! 6. No argument has a `..` part, and every absolute path in an argument is inside the workspace.
+//! 4. Its options and operands match the program's supported grammar.
+//! 5. No argument has a `..` part, and every absolute path is inside the workspace.
 //!
-//! What this cannot see: a symbolic link inside the workspace that points outside it, and what the known
-//! programs go on to run (a test suite, a Makefile, an npm script, a git hook). The container is the
-//! boundary for those; this is the second layer, and it only decides when to interrupt the person.
+//! Container isolation applies at execution, including symlink resolution and child processes. The Mac
+//! policy always asks before running a command.
 
 use super::{is_inside, lexer, Reason};
 use std::path::Path;
@@ -76,28 +71,8 @@ const KNOWN_PROGRAMS: [(&str, &[&str]); 24] = [
     ("uniq", &[]),
 ];
 
-/// Flags that make a program evaluate text or run another program, with or without `=value`. They are
-/// refused on every known program, so a harmless use (`rg -e pattern`) also goes to the person.
-const EVALUATING_FLAGS: [&str; 15] = [
-    "-c",
-    "-e",
-    "-E",
-    "--eval",
-    "--exec",
-    "--command",
-    "--config",
-    "--pre",
-    "--ext-diff",
-    "--textconv",
-    "--open-files-in-pager",
-    "--compress-program",
-    "--script-shell",
-    "--upload-pack",
-    "--receive-pack",
-];
-
 /// The short options each program takes with no value: the only letters that may be written together
-/// after one dash. A program that is not here takes its short options one per word.
+/// after one dash.
 const SWITCHES: [(&str, &str); 12] = [
     ("ls", "lahRtr1dFSAGp"),
     ("rm", "rfRdv"),
@@ -164,22 +139,13 @@ pub(super) fn reason_to_ask(text: &str, workspace: &Path) -> Option<Reason> {
     if !is_known(program, arguments) {
         return Some(unknown_reason(program, arguments));
     }
-    if arguments
-        .iter()
-        .any(|argument| is_evaluating_flag(argument))
-    {
-        return Some(Reason::UnknownCommand);
-    }
     let leaves = arguments
         .iter()
         .any(|argument| leaves_workspace(argument, workspace));
     if leaves {
         return Some(Reason::OutsideWorkspace);
     }
-    let is_unread = arguments
-        .iter()
-        .any(|argument| is_unread_cluster(program, argument));
-    is_unread.then_some(Reason::UnknownCommand)
+    (!has_known_arguments(program, arguments)).then_some(Reason::UnknownCommand)
 }
 
 /// Whether `program` is on the list and, where the list names subcommands, is followed by one.
@@ -207,23 +173,99 @@ fn unknown_reason(program: &str, arguments: &[String]) -> Reason {
     }
 }
 
-fn is_evaluating_flag(argument: &str) -> bool {
-    let flag = argument.split('=').next().unwrap_or(argument);
-    EVALUATING_FLAGS.contains(&flag)
+fn has_known_arguments(program: &str, arguments: &[String]) -> bool {
+    let (verb, arguments) = match program {
+        "cargo" | "git" | "npm" | "pnpm" | "yarn" | "bun" => {
+            (arguments[0].as_str(), &arguments[1..])
+        }
+        _ => ("", arguments),
+    };
+    let switches = SWITCHES.iter().find(|(name, _)| *name == program);
+    let mut words = arguments.iter().map(String::as_str);
+    let mut operands = 0;
+    while let Some(word) = words.next() {
+        match word {
+            "--" if matches!(program, "npm" | "pnpm" | "yarn" | "bun") && verb == "run" => {
+                return operands == 1 && words.eq(["--fix"]);
+            }
+            "-m" if (program, verb) == ("git", "commit") => {
+                if words.next().is_none() {
+                    return false;
+                }
+            }
+            "-n" if matches!(program, "head" | "tail") => {
+                if !words
+                    .next()
+                    .is_some_and(|value| value.parse::<u64>().is_ok())
+                {
+                    return false;
+                }
+            }
+            flag if flag.starts_with("--") && accepts_long_option(program, verb, flag) => {}
+            flag if is_short_option(flag, switches.map(|(_, letters)| *letters)) => {}
+            value if is_operand(program, value) => operands += 1,
+            _ => return false,
+        }
+    }
+    accepts_operands(program, verb, operands)
 }
 
-/// Whether `argument` is a short option written together with something (more letters, or a value) that
-/// `program`'s known switches do not account for letter by letter.
-fn is_unread_cluster(program: &str, argument: &str) -> bool {
-    let Some(cluster) = argument.strip_prefix('-') else {
+fn accepts_long_option(program: &str, verb: &str, flag: &str) -> bool {
+    match (program, verb) {
+        ("cargo", "build" | "check" | "test" | "clippy" | "doc" | "run" | "bench") => {
+            matches!(
+                flag,
+                "--release" | "--workspace" | "--all-targets" | "--locked" | "--offline"
+            )
+        }
+        ("cargo", "fmt") => matches!(flag, "--all" | "--check"),
+        ("git", "status") => matches!(flag, "--short" | "--porcelain" | "--branch"),
+        ("git", "diff" | "show") => matches!(
+            flag,
+            "--stat" | "--name-only" | "--name-status" | "--no-index"
+        ),
+        ("git", "log") => matches!(flag, "--oneline" | "--graph" | "--decorate"),
+        ("rg" | "grep", "") => {
+            matches!(flag, "--line-number" | "--ignore-case" | "--fixed-strings")
+        }
+        _ => false,
+    }
+}
+
+fn is_short_option(argument: &str, switches: Option<&str>) -> bool {
+    let Some(cluster) = argument.strip_prefix('-').filter(|value| !value.is_empty()) else {
         return false;
     };
-    if cluster.starts_with('-') || cluster.chars().count() < 2 {
+    switches.is_some_and(|known| cluster.chars().all(|c| known.contains(c)))
+}
+
+fn is_operand(program: &str, word: &str) -> bool {
+    if word.starts_with('-') {
         return false;
     }
-    let switches = SWITCHES.iter().find(|(name, _)| *name == program);
-    let is_read = switches.is_some_and(|(_, known)| cluster.chars().all(|c| known.contains(c)));
-    !is_read
+    match program {
+        "make" | "npm" | "pnpm" | "yarn" | "bun" => {
+            !word.is_empty()
+                && word
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"_.:-".contains(&byte))
+        }
+        "git" => !word.is_empty() && !word.starts_with(":("),
+        _ => true,
+    }
+}
+
+fn accepts_operands(program: &str, verb: &str, count: usize) -> bool {
+    match (program, verb) {
+        ("pwd", _) | ("cargo", "build" | "check" | "clippy" | "fmt" | "doc" | "tree") => count == 0,
+        ("npm" | "pnpm" | "yarn" | "bun", "run") => count == 1,
+        ("npm" | "pnpm" | "yarn" | "bun", "test") => count == 0,
+        ("cp" | "mv", _) | ("git", "mv") => count >= 2,
+        ("diff", _) => count == 2,
+        ("uniq", _) => count <= 2,
+        ("rg" | "grep" | "mkdir" | "rm" | "touch", _) | ("git", "add" | "rm") => count >= 1,
+        _ => true,
+    }
 }
 
 /// Whether an argument names a place outside the workspace: any `..` part, or an absolute path that is

@@ -4,8 +4,9 @@
 
 use crate::diff;
 use crate::model::{
-    DiffContent, Location, OptionKind, PermissionOption, PlanEntry, PlanStatus, StopReason,
-    ToolCallFields, ToolContent, ToolKind, ToolStatus, Update,
+    Choice, DiffContent, Location, OptionKind, PermissionOption, PlanEntry, PlanStatus,
+    PromptSupport, Selector, SessionChoices, SlashCommand, StopReason, ToolCallFields, ToolContent,
+    ToolKind, ToolStatus, Update,
 };
 use agent_client_protocol::v1::schema;
 
@@ -29,12 +30,145 @@ pub fn update(update: schema::SessionUpdate) -> Update {
     }
 }
 
+/// What the agent's prompts take, from its `initialize` answer.
+pub fn prompt_support(capabilities: &schema::PromptCapabilities) -> PromptSupport {
+    PromptSupport {
+        has_images: capabilities.image,
+        has_embedded_context: capabilities.embedded_context,
+    }
+}
+
+/// The slash commands of an `available_commands_update`.
+pub fn commands(update: schema::AvailableCommandsUpdate) -> Vec<SlashCommand> {
+    let command = |command: schema::AvailableCommand| SlashCommand {
+        name: command.name,
+        description: command.description,
+        hint: command.input.and_then(command_hint),
+    };
+    update.available_commands.into_iter().map(command).collect()
+}
+
+fn command_hint(input: schema::AvailableCommandInput) -> Option<String> {
+    match input {
+        schema::AvailableCommandInput::Unstructured(input) => Some(input.hint),
+        _ => None,
+    }
+}
+
+/// What a session lets the person pick: its modes (its own list, or a config option of the mode
+/// category) and its models (the config option of the model category).
+pub fn choices(
+    modes: Option<schema::SessionModeState>,
+    options: Option<Vec<schema::SessionConfigOption>>,
+) -> SessionChoices {
+    let options = options.unwrap_or_default();
+    let selector_of = |category: schema::SessionConfigOptionCategory| {
+        options
+            .iter()
+            .find(|option| option.category.as_ref() == Some(&category))
+            .and_then(config_selector)
+    };
+    let kept = SessionChoices {
+        modes: modes
+            .map(mode_selector)
+            .or_else(|| selector_of(schema::SessionConfigOptionCategory::Mode)),
+        models: selector_of(schema::SessionConfigOptionCategory::Model),
+        efforts: selector_of(schema::SessionConfigOptionCategory::ThoughtLevel),
+        ..SessionChoices::default()
+    };
+    // Everything else the agent sends is kept, so nothing it offers is dropped without a word.
+    let taken: Vec<Option<&str>> = [&kept.modes, &kept.models, &kept.efforts]
+        .into_iter()
+        .map(|selector| {
+            selector
+                .as_ref()
+                .and_then(|selector| selector.config_id.as_deref())
+        })
+        .collect();
+    let others = options
+        .iter()
+        .filter(|option| !taken.contains(&Some(option.id.0.as_ref())))
+        // The adapter's own modes (bypass permissions among them) are never an option of the menu, whether
+        // they came as the mode state or as an option of the mode category.
+        .filter(|option| {
+            option.category.as_ref() != Some(&schema::SessionConfigOptionCategory::Mode)
+        })
+        .filter_map(config_selector)
+        .collect();
+    SessionChoices { others, ..kept }
+}
+
+fn mode_selector(state: schema::SessionModeState) -> Selector {
+    let choice = |mode: schema::SessionMode| Choice {
+        id: mode.id.0.to_string(),
+        name: mode.name,
+        description: mode.description,
+        ..Choice::default()
+    };
+    Selector {
+        current: state.current_mode_id.0.to_string(),
+        choices: state.available_modes.into_iter().map(choice).collect(),
+        ..Selector::default()
+    }
+}
+
+/// An option as a selector: a select is its choices, and a switch is a choice between off and on.
+fn config_selector(option: &schema::SessionConfigOption) -> Option<Selector> {
+    let select = match &option.kind {
+        schema::SessionConfigKind::Select(select) => select,
+        schema::SessionConfigKind::Boolean(switch) => return Some(switch_selector(option, switch)),
+        _ => return None,
+    };
+    let choice = |option: &schema::SessionConfigSelectOption| Choice {
+        id: option.value.0.to_string(),
+        name: option.name.clone(),
+        description: option.description.clone(),
+        ..Choice::default()
+    };
+    let choices = match &select.options {
+        schema::SessionConfigSelectOptions::Ungrouped(options) => {
+            options.iter().map(choice).collect()
+        }
+        schema::SessionConfigSelectOptions::Grouped(groups) => groups
+            .iter()
+            .flat_map(|group| group.options.iter().map(choice))
+            .collect(),
+        _ => Vec::new(),
+    };
+    Some(Selector {
+        name: option.name.clone(),
+        config_id: Some(option.id.0.to_string()),
+        current: select.current_value.0.to_string(),
+        choices,
+        is_toggle: false,
+    })
+}
+
+fn switch_selector(
+    option: &schema::SessionConfigOption,
+    switch: &schema::SessionConfigBoolean,
+) -> Selector {
+    let choice = |id: &str, name: &str| Choice {
+        id: id.to_string(),
+        name: name.to_string(),
+        ..Choice::default()
+    };
+    Selector {
+        name: option.name.clone(),
+        config_id: Some(option.id.0.to_string()),
+        current: switch.current_value.to_string(),
+        choices: vec![choice("false", "Off"), choice("true", "On")],
+        is_toggle: true,
+    }
+}
+
 /// The fields of a `tool_call`: all of them are stated, even when empty.
 pub fn tool_call(call: schema::ToolCall) -> ToolCallFields {
     ToolCallFields {
         id: call.tool_call_id.0.to_string(),
         title: Some(call.title),
         kind: Some(tool_kind(call.kind)),
+        name: call.name.or_else(|| adapter_tool_name(call.meta.as_ref())),
         status: Some(tool_status(call.status)),
         content: Some(contents(call.content)),
         locations: Some(locations(call.locations)),
@@ -49,11 +183,22 @@ pub fn tool_call_update(update: schema::ToolCallUpdate) -> ToolCallFields {
         id: update.tool_call_id.0.to_string(),
         title: fields.title,
         kind: fields.kind.map(tool_kind),
+        name: fields
+            .name
+            .or_else(|| adapter_tool_name(update.meta.as_ref())),
         status: fields.status.map(tool_status),
         content: fields.content.map(contents),
         locations: fields.locations.map(locations),
         raw_input: fields.raw_input,
     }
+}
+
+fn adapter_tool_name(meta: Option<&schema::Meta>) -> Option<String> {
+    meta?
+        .get("claudeCode")?
+        .get("toolName")?
+        .as_str()
+        .map(str::to_owned)
 }
 
 /// The options of a permission request; one of a kind this client does not know is left out, so it can
@@ -281,6 +426,68 @@ mod tests {
             panic!("a tool call")
         };
         assert_eq!(fields.kind, Some(ToolKind::Other));
+    }
+
+    /// The options a session sends, as the adapter's wire writes them.
+    fn wire_options(value: serde_json::Value) -> Vec<schema::SessionConfigOption> {
+        serde_json::from_value(value).expect("options")
+    }
+
+    #[test]
+    fn every_option_the_agent_sends_is_kept_the_mode_the_model_the_effort_and_the_rest() {
+        let options = wire_options(json!([
+            { "id": "mode", "name": "Mode", "category": "mode", "type": "select", "currentValue": "default",
+              "options": [{ "value": "default", "name": "Default" }, { "value": "plan", "name": "Plan" }] },
+            { "id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": "opus",
+              "options": [{ "value": "opus", "name": "Opus 5.5" }, { "value": "fable", "name": "Fable 5.2" }] },
+            { "id": "effort", "name": "Effort", "category": "thought_level", "type": "select", "currentValue": "high",
+              "options": [{ "value": "low", "name": "Low" }, { "value": "high", "name": "High" }] },
+            { "id": "speed", "name": "Fast mode", "category": "model_config", "type": "boolean", "currentValue": false },
+            { "id": "style", "name": "Output style", "type": "select", "currentValue": "plain",
+              "options": [{ "value": "plain", "name": "Plain" }, { "value": "terse", "name": "Terse" }] },
+        ]));
+        let kept = choices(None, Some(options));
+        assert_eq!(kept.modes.expect("modes").current, "default");
+        assert_eq!(kept.models.expect("models").current, "opus");
+        let efforts = kept.efforts.expect("the thought level");
+        assert_eq!(
+            (efforts.config_id.as_deref(), efforts.current.as_str()),
+            (Some("effort"), "high")
+        );
+        let others: Vec<(&str, bool, &str)> = kept
+            .others
+            .iter()
+            .map(|other| (other.name.as_str(), other.is_toggle, other.current.as_str()))
+            .collect();
+        assert_eq!(
+            others,
+            [
+                ("Fast mode", true, "false"),
+                ("Output style", false, "plain")
+            ]
+        );
+    }
+
+    #[test]
+    fn the_modes_option_is_never_left_among_the_others_when_the_agent_also_sends_its_mode_state() {
+        let state: schema::SessionModeState = serde_json::from_value(json!({
+            "currentModeId": "default",
+            "availableModes": [{ "id": "default", "name": "Manual" }, { "id": "bypassPermissions", "name": "Bypass permissions" }],
+        }))
+        .expect("mode state");
+        let options = wire_options(json!([
+            { "id": "mode", "name": "Mode", "category": "mode", "type": "select", "currentValue": "default",
+              "options": [{ "value": "default", "name": "Manual" }, { "value": "bypassPermissions", "name": "Bypass permissions" }] },
+            { "id": "style", "name": "Output style", "type": "select", "currentValue": "plain",
+              "options": [{ "value": "plain", "name": "Plain" }] },
+        ]));
+        let kept = choices(Some(state), Some(options));
+        let others: Vec<&str> = kept
+            .others
+            .iter()
+            .map(|other| other.name.as_str())
+            .collect();
+        assert_eq!(others, ["Output style"]);
     }
 
     #[test]

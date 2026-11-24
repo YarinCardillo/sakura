@@ -167,6 +167,17 @@ pub fn tr_with(key: Key, values: &[(&str, &str)]) -> SharedString {
     text.into()
 }
 
+/// The words of the plural family `key` (`key.one`, `key.other`) for `count`, with `%{count}` written as
+/// the count and each of `values` filled in: "1 hour", "24 hours".
+pub fn tr_count(key: Key, count: u64, values: &[(&str, &str)]) -> SharedString {
+    let mut text = words(&plural_key(key.0, count)).into_owned();
+    text = text.replace("%{count}", &grouped(count));
+    for (name, value) in values {
+        text = text.replace(&format!("%{{{name}}}"), value);
+    }
+    text.into()
+}
+
 /// The words of what the core has to say: its sentence in the language in force, numbers written this
 /// language's way, the singular or the plural by its count, and every text value shown as a label.
 pub fn say(said: &Said) -> SharedString {
@@ -179,6 +190,25 @@ pub fn say(said: &Said) -> SharedString {
         text = text.replace(&format!("%{{{name}}}"), &shown(value));
     }
     text.into()
+}
+
+/// The sentence of an error with the line behind it, when there is one, as one text.
+#[cfg_attr(feature = "boxes", allow(dead_code))]
+pub fn told(error: &sakura_core::error::BridgeError) -> String {
+    with_details(&say(&error.said), error.details.as_deref())
+}
+
+/// A sentence and the line behind it as one text. The sentence loses its closing full stop (or colon, comma
+/// or semicolon), so that the join never reads `Sakura.: the line`; without a line it is returned as it is.
+#[cfg_attr(feature = "boxes", allow(dead_code))]
+pub fn with_details(sentence: &str, details: Option<&str>) -> String {
+    match details {
+        Some(details) => {
+            let open = sentence.trim_end_matches(['.', ':', ';', ',', ' ']);
+            format!("{open}: {details}")
+        }
+        None => sentence.to_string(),
+    }
 }
 
 /// A whole number with its groups of three digits marked this language's way: `1,234` or `1.234`.
@@ -410,6 +440,24 @@ mod tests {
     }
 
     #[test]
+    fn a_sentence_and_the_line_behind_it_join_without_doubled_punctuation() {
+        set_for_test(Language::English);
+        let error = sakura_core::error::BridgeError::internal(Said::new("error.internal"))
+            .with_details(Some("the engine could not be started".into()));
+        let shown = told(&error);
+        assert_eq!(
+            shown,
+            "Internal error in Sakura: the engine could not be started"
+        );
+        assert!(!shown.contains(".:") && !shown.contains("::"), "{shown}");
+        let bare = sakura_core::error::BridgeError::internal(Said::new("error.internal"));
+        assert_eq!(super::told(&bare), "Internal error in Sakura.");
+        assert_eq!(with_details("Stopped.", Some("code 2")), "Stopped: code 2");
+        assert_eq!(with_details("Stopped?", Some("code 2")), "Stopped?: code 2");
+        assert_eq!(with_details("Stopped", None), "Stopped");
+    }
+
+    #[test]
     fn a_sentence_inside_another_and_a_name_that_hides_are_said_whole() {
         set_for_test(Language::Italian);
         let limit = Said::new("limit.minutes").count(45);
@@ -421,7 +469,7 @@ mod tests {
         let hostile = Said::new("trust.changes_checks.only").text("file", "a\u{202e}b\nc.ts");
         assert_eq!(
             say(&hostile).as_ref(),
-            "Questo commit cambia i controlli: a\u{fffd}b\u{fffd}c.ts"
+            "Questo commit cambia le verifiche: a\u{fffd}b\u{fffd}c.ts"
         );
     }
 }

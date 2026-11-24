@@ -1,0 +1,834 @@
+{
+ "api": 1,
+ "mode": "night",
+ "deferred": [],
+ "load": {
+  "slots_total": 3,
+  "slots_in_use": 0,
+  "queue": [],
+  "loadavg": [
+   1.0,
+   1.0,
+   1.0
+  ]
+ },
+ "usage": {
+  "now": "2026-11-16T01:00:00Z",
+  "providers": [
+   {
+    "provider": "claude",
+    "period_start": null,
+    "resets_at": null,
+    "utilization": null,
+    "utilization_at": null,
+    "projection": null,
+    "totals": null,
+    "agents": []
+   },
+   {
+    "provider": "codex",
+    "period_start": null,
+    "resets_at": null,
+    "utilization": null,
+    "utilization_at": null,
+    "projection": null,
+    "totals": null,
+    "agents": []
+   }
+  ]
+ },
+ "accounts": [],
+ "problems": [],
+ "waits": [
+  {
+   "id": "[\"wait\",\"/work/repo\",\"gated\",\"approval\",\"spec\"]",
+   "key": [
+    "wait",
+    "/work/repo",
+    "gated",
+    "approval",
+    "spec"
+   ],
+   "kind": "approval",
+   "repo": "/work/repo",
+   "project": "repo",
+   "task": "gated",
+   "title": "Approve the spec gate",
+   "detail": "spec ready: run flow approve gated spec --continue",
+   "since": "2026-11-16T00:10:00Z",
+   "actions": [
+    {
+     "key": "a",
+     "label": "Approve",
+     "needs": [],
+     "optional": [
+      "remember"
+     ],
+     "confirm": true
+    }
+   ]
+  },
+  {
+   "id": "[\"wait\",\"/work/other\",\"stuck\",\"blocked\",\"blocked\"]",
+   "key": [
+    "wait",
+    "/work/other",
+    "stuck",
+    "blocked",
+    "blocked"
+   ],
+   "kind": "blocked",
+   "repo": "/work/other",
+   "project": "other",
+   "task": "stuck",
+   "title": "Blocked",
+   "detail": "the builder ran out of budget",
+   "since": "2026-11-16T00:20:00Z",
+   "actions": []
+  },
+  {
+   "id": "[\"wait\",\"/work/repo\",\"demo\",\"owner_row\",\"R1\"]",
+   "key": [
+    "wait",
+    "/work/repo",
+    "demo",
+    "owner_row",
+    "R1"
+   ],
+   "kind": "owner_row",
+   "repo": "/work/repo",
+   "project": "repo",
+   "task": "demo",
+   "title": "Check row R1",
+   "detail": "Open the page and check the title reads Demo",
+   "since": null,
+   "actions": [
+    {
+     "key": "k",
+     "label": "Mark",
+     "needs": [
+      "verdict"
+     ],
+     "optional": [
+      "note"
+     ],
+     "confirm": false
+    }
+   ]
+  },
+  {
+   "id": "[\"wait\",\"outside\",\"measure-help\",\"owner_row\",\"help-prints@786781a00abb\"]",
+   "key": [
+    "wait",
+    "outside",
+    "measure-help",
+    "owner_row",
+    "help-prints@786781a00abb"
+   ],
+   "kind": "owner_row",
+   "repo": "/work/repo",
+   "project": "repo",
+   "task": "measure-help",
+   "title": "Check that --help prints usage",
+   "detail": "1. Run measure.py --help\n2. Read the first line\nExpected: A usage line is printed",
+   "since": "2026-11-16T01:37:48Z",
+   "source": "outside",
+   "author": "outside:fixture",
+   "choices": [],
+   "actions": [
+    {
+     "key": "k",
+     "label": "Mark",
+     "needs": [
+      "verdict"
+     ],
+     "optional": [
+      "note"
+     ],
+     "confirm": false
+    }
+   ]
+  },
+  {
+   "id": "[\"wait\",\"outside\",\"measure-help\",\"question\",\"flag-short@4692185e775f\"]",
+   "key": [
+    "wait",
+    "outside",
+    "measure-help",
+    "question",
+    "flag-short@4692185e775f"
+   ],
+   "kind": "question",
+   "repo": "/work/repo",
+   "project": "repo",
+   "task": "measure-help",
+   "title": "Also accept -h?",
+   "detail": "Also accept -h?",
+   "since": "2026-11-16T01:37:48Z",
+   "source": "outside",
+   "author": "outside:fixture",
+   "choices": [
+    "yes",
+    "no"
+   ],
+   "actions": [
+    {
+     "key": "r",
+     "label": "Reply",
+     "needs": [],
+     "optional": [
+      "choice",
+      "text"
+     ],
+     "confirm": false
+    }
+   ]
+  }
+ ],
+ "groups": [],
+ "items": [
+  {
+   "id": "[\"flow\",\"/work/repo\",\"demo\"]",
+   "key": [
+    "flow",
+    "/work/repo",
+    "demo"
+   ],
+   "kind": "flow",
+   "repo": "/work/repo",
+   "worktree": "/work/repo-demo",
+   "branch": "lane/demo",
+   "last_commit": "",
+   "stack": "down",
+   "agent_state": "waiting",
+   "pr": "",
+   "models": {
+    "planner": "claude:opus",
+    "plan_reviewer": "claude:sonnet",
+    "builder": "claude:sonnet",
+    "code_reviewer": "claude:sonnet",
+    "evaluator": "claude:opus",
+    "reporter": "claude:sonnet"
+   },
+   "pending": [],
+   "usage": null,
+   "next_command": "sakura flow resume demo",
+   "since": null,
+   "last_activity_at": "2026-11-16T00:55:00Z",
+   "progress": {
+    "done": 1,
+    "total": 4,
+    "phase": "build"
+   },
+   "actions": [
+    {
+     "key": "m",
+     "label": "Change model",
+     "needs": [
+      "role",
+      "model"
+     ],
+     "optional": [],
+     "confirm": false
+    },
+    {
+     "key": "D",
+     "label": "Change dial",
+     "needs": [
+      "step"
+     ],
+     "optional": [],
+     "confirm": false
+    },
+    {
+     "key": "a",
+     "label": "Approve",
+     "needs": [],
+     "optional": [
+      "remember"
+     ],
+     "confirm": true
+    },
+    {
+     "key": "R",
+     "label": "Resume",
+     "needs": [],
+     "optional": [],
+     "confirm": true
+    },
+    {
+     "key": "s",
+     "label": "Stop",
+     "needs": [],
+     "optional": [],
+     "confirm": true
+    },
+    {
+     "key": "w",
+     "label": "Write to agent",
+     "needs": [
+      "text"
+     ],
+     "optional": [],
+     "confirm": false
+    },
+    {
+     "key": "t",
+     "label": "Turn lane step on or off",
+     "needs": [
+      "step",
+      "state"
+     ],
+     "optional": [],
+     "confirm": false
+    }
+   ],
+   "goal": "Make uploads retry with exponential backoff on network errors and 5xx, at most five tries.",
+   "opened_by": "master",
+   "preset": "careful",
+   "pace": "normal",
+   "in_review": true,
+   "steps": [
+    {
+     "id": "plan",
+     "name": "Plan",
+     "state": "done",
+     "model": "claude-opus",
+     "account": null
+    },
+    {
+     "id": "build",
+     "name": "Build",
+     "state": "now",
+     "model": "claude-sonnet",
+     "account": null
+    },
+    {
+     "id": "checks",
+     "name": "Checks",
+     "state": "next",
+     "model": null,
+     "account": null
+    },
+    {
+     "id": "deliver",
+     "name": "Deliver",
+     "state": "next",
+     "model": null,
+     "account": null
+    }
+   ],
+   "reviews": [
+    {
+     "id": "plan_review",
+     "on": true,
+     "model": "codex",
+     "account": null,
+     "state": "done"
+    },
+    {
+     "id": "task_review",
+     "on": true,
+     "model": "codex",
+     "account": null,
+     "state": "now"
+    },
+    {
+     "id": "final_review",
+     "on": false,
+     "model": null,
+     "account": null,
+     "state": "skipped"
+    }
+   ],
+   "pipeline": [
+    {
+     "id": "plan",
+     "name": "Plan",
+     "state": "done",
+     "on": true,
+     "can_toggle": false,
+     "reason": "Plan is already done on this lane"
+    },
+    {
+     "id": "plan_review",
+     "name": "Plan review",
+     "state": "done",
+     "on": true,
+     "can_toggle": false,
+     "reason": "Plan review is already done on this lane"
+    },
+    {
+     "id": "build",
+     "name": "Build",
+     "state": "running",
+     "on": true,
+     "can_toggle": false,
+     "reason": "build is always on: the least a lane does is build"
+    },
+    {
+     "id": "task_review",
+     "name": "Task review",
+     "state": "running",
+     "on": true,
+     "can_toggle": false,
+     "reason": "Task review is running on this lane"
+    },
+    {
+     "id": "final_review",
+     "name": "Final review",
+     "state": "off",
+     "on": false,
+     "can_toggle": true,
+     "reason": ""
+    },
+    {
+     "id": "checks",
+     "name": "Checks",
+     "state": "next",
+     "on": true,
+     "can_toggle": true,
+     "reason": ""
+    },
+    {
+     "id": "evaluator",
+     "name": "Evaluator",
+     "state": "next",
+     "on": true,
+     "can_toggle": true,
+     "reason": ""
+    },
+    {
+     "id": "deliver",
+     "name": "Deliver",
+     "state": "next",
+     "on": true,
+     "can_toggle": false,
+     "reason": "deliver is always on: the least a lane does is deliver"
+    },
+    {
+     "id": "reporter",
+     "name": "Reporter",
+     "state": "off",
+     "on": false,
+     "can_toggle": true,
+     "reason": ""
+    }
+   ],
+   "current_step": {
+    "id": "build",
+    "name": "Build",
+    "waiting": false,
+    "note": ""
+   }
+  },
+  {
+   "id": "[\"flow\",\"/work/repo\",\"gated\"]",
+   "key": [
+    "flow",
+    "/work/repo",
+    "gated"
+   ],
+   "kind": "flow",
+   "repo": "/work/repo",
+   "worktree": null,
+   "branch": "",
+   "last_commit": "",
+   "stack": "down",
+   "agent_state": "gate",
+   "pr": "",
+   "models": {
+    "planner": "claude:opus",
+    "plan_reviewer": "claude:sonnet",
+    "builder": "claude:sonnet",
+    "code_reviewer": "claude:sonnet",
+    "evaluator": "claude:opus",
+    "reporter": "claude:sonnet"
+   },
+   "pending": [],
+   "usage": null,
+   "next_command": "sakura flow approve gated spec --continue",
+   "since": "2026-11-16T00:10:00Z",
+   "last_activity_at": "2026-11-16T00:55:00Z",
+   "progress": {
+    "done": 0,
+    "total": 0,
+    "phase": "spec"
+   },
+   "actions": [
+    {
+     "key": "m",
+     "label": "Change model",
+     "needs": [
+      "role",
+      "model"
+     ],
+     "optional": [],
+     "confirm": false
+    },
+    {
+     "key": "D",
+     "label": "Change dial",
+     "needs": [
+      "step"
+     ],
+     "optional": [],
+     "confirm": false
+    },
+    {
+     "key": "a",
+     "label": "Approve",
+     "needs": [],
+     "optional": [
+      "remember"
+     ],
+     "confirm": true
+    },
+    {
+     "key": "R",
+     "label": "Resume",
+     "needs": [],
+     "optional": [],
+     "confirm": true
+    },
+    {
+     "key": "s",
+     "label": "Stop",
+     "needs": [],
+     "optional": [],
+     "confirm": true
+    },
+    {
+     "key": "w",
+     "label": "Write to agent",
+     "needs": [
+      "text"
+     ],
+     "optional": [],
+     "confirm": false
+    }
+   ]
+  },
+  {
+   "id": "[\"flow\",\"/work/other\",\"fresh\"]",
+   "key": [
+    "flow",
+    "/work/other",
+    "fresh"
+   ],
+   "kind": "flow",
+   "repo": "/work/other",
+   "worktree": null,
+   "branch": "",
+   "last_commit": "",
+   "stack": "down",
+   "agent_state": "waiting",
+   "pr": "",
+   "models": {
+    "planner": "claude:opus",
+    "plan_reviewer": "claude:sonnet",
+    "builder": "claude:sonnet",
+    "code_reviewer": "claude:sonnet",
+    "evaluator": "claude:opus",
+    "reporter": "claude:sonnet"
+   },
+   "pending": [],
+   "usage": null,
+   "next_command": "sakura flow resume fresh",
+   "since": null,
+   "last_activity_at": "2026-11-16T00:55:00Z",
+   "progress": {
+    "done": 0,
+    "total": 0,
+    "phase": "intake"
+   },
+   "actions": [
+    {
+     "key": "m",
+     "label": "Change model",
+     "needs": [
+      "role",
+      "model"
+     ],
+     "optional": [],
+     "confirm": false
+    },
+    {
+     "key": "D",
+     "label": "Change dial",
+     "needs": [
+      "step"
+     ],
+     "optional": [],
+     "confirm": false
+    },
+    {
+     "key": "a",
+     "label": "Approve",
+     "needs": [],
+     "optional": [
+      "remember"
+     ],
+     "confirm": true
+    },
+    {
+     "key": "R",
+     "label": "Resume",
+     "needs": [],
+     "optional": [],
+     "confirm": true
+    },
+    {
+     "key": "s",
+     "label": "Stop",
+     "needs": [],
+     "optional": [],
+     "confirm": true
+    },
+    {
+     "key": "w",
+     "label": "Write to agent",
+     "needs": [
+      "text"
+     ],
+     "optional": [],
+     "confirm": false
+    }
+   ]
+  },
+  {
+   "id": "[\"flow\",\"/work/other\",\"stuck\"]",
+   "key": [
+    "flow",
+    "/work/other",
+    "stuck"
+   ],
+   "kind": "flow",
+   "repo": "/work/other",
+   "worktree": null,
+   "branch": "",
+   "last_commit": "",
+   "stack": "down",
+   "agent_state": "blocked",
+   "pr": "",
+   "models": {
+    "planner": "claude:opus",
+    "plan_reviewer": "claude:sonnet",
+    "builder": "claude:sonnet",
+    "code_reviewer": "claude:sonnet",
+    "evaluator": "claude:opus",
+    "reporter": "claude:sonnet"
+   },
+   "pending": [],
+   "usage": null,
+   "next_command": "sakura flow resume stuck",
+   "since": "2026-11-16T00:20:00Z",
+   "last_activity_at": "2026-11-16T00:55:00Z",
+   "progress": {
+    "done": 0,
+    "total": 0,
+    "phase": "build"
+   },
+   "actions": [
+    {
+     "key": "m",
+     "label": "Change model",
+     "needs": [
+      "role",
+      "model"
+     ],
+     "optional": [],
+     "confirm": false
+    },
+    {
+     "key": "D",
+     "label": "Change dial",
+     "needs": [
+      "step"
+     ],
+     "optional": [],
+     "confirm": false
+    },
+    {
+     "key": "a",
+     "label": "Approve",
+     "needs": [],
+     "optional": [
+      "remember"
+     ],
+     "confirm": true
+    },
+    {
+     "key": "R",
+     "label": "Resume",
+     "needs": [],
+     "optional": [],
+     "confirm": true
+    },
+    {
+     "key": "s",
+     "label": "Stop",
+     "needs": [],
+     "optional": [],
+     "confirm": true
+    },
+    {
+     "key": "w",
+     "label": "Write to agent",
+     "needs": [
+      "text"
+     ],
+     "optional": [],
+     "confirm": false
+    }
+   ]
+  },
+  {
+   "id": "[\"outside\",\"measure-help\"]",
+   "key": [
+    "outside",
+    "measure-help"
+   ],
+   "kind": "outside",
+   "repo": "/work/repo",
+   "worktree": null,
+   "branch": "",
+   "last_commit": "",
+   "stack": "",
+   "agent_state": "waiting",
+   "pr": "",
+   "models": {},
+   "pending": [],
+   "usage": null,
+   "next_command": "",
+   "since": "2026-11-16T01:37:48Z",
+   "last_activity_at": "2026-11-16T01:37:48Z",
+   "progress": {
+    "done": 0,
+    "total": 1,
+    "phase": "draft"
+   },
+   "title": "Add --help to measure.py",
+   "author": "outside:fixture",
+   "links": [
+    {
+     "label": "Notes",
+     "url": "https://example.com/notes"
+    }
+   ],
+   "unread": 0,
+   "actions": [
+    {
+     "key": "d",
+     "label": "Close lane",
+     "needs": [],
+     "optional": [],
+     "confirm": true
+    },
+    {
+     "key": "w",
+     "label": "Write to agent",
+     "needs": [
+      "text"
+     ],
+     "optional": [],
+     "confirm": false
+    }
+   ]
+  }
+ ],
+ "events": [
+  {
+   "source": "flow",
+   "scope": "repo/demo",
+   "at": null,
+   "text": "spec approved"
+  },
+  {
+   "source": "flow",
+   "scope": "repo/demo",
+   "at": null,
+   "text": "plan written: 2 tasks"
+  },
+  {
+   "source": "flow",
+   "scope": "repo/demo",
+   "at": null,
+   "text": "T1 merged"
+  },
+  {
+   "source": "flow",
+   "scope": "repo/gated",
+   "at": null,
+   "text": "spec ready for approval"
+  },
+  {
+   "source": "flow",
+   "scope": "other/stuck",
+   "at": null,
+   "text": "builder ran out of budget"
+  },
+  {
+   "source": "outside",
+   "scope": "outside/measure-help",
+   "at": "2026-11-16T01:37:48Z",
+   "text": "opened Add --help to measure.py by outside:fixture"
+  },
+  {
+   "source": "outside",
+   "scope": "outside/measure-help",
+   "at": "2026-11-16T01:37:48Z",
+   "text": "row Check that --help prints usage by outside:fixture"
+  },
+  {
+   "source": "outside",
+   "scope": "outside/measure-help",
+   "at": "2026-11-16T01:37:48Z",
+   "text": "asked flag-short by outside:fixture"
+  }
+ ],
+ "projects": [
+  {
+   "id": "[\"project\",\"/work/repo\"]",
+   "key": [
+    "project",
+    "/work/repo"
+   ],
+   "name": "repo",
+   "folder": "/work/repo",
+   "open_lanes": 2,
+   "actions": [
+    {
+     "key": "L",
+     "label": "Start lane",
+     "needs": [
+      "text"
+     ],
+     "optional": [],
+     "confirm": false
+    }
+   ]
+  },
+  {
+   "id": "[\"project\",\"/work/other\"]",
+   "key": [
+    "project",
+    "/work/other"
+   ],
+   "name": "other",
+   "folder": "/work/other",
+   "open_lanes": 2,
+   "actions": [
+    {
+     "key": "L",
+     "label": "Start lane",
+     "needs": [
+      "text"
+     ],
+     "optional": [],
+     "confirm": false
+    }
+   ]
+  }
+ ]
+}

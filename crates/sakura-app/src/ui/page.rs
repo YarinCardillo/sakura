@@ -1,9 +1,9 @@
-//! The page of a lavoro inside the panel: one header row over the centre and the right pane. The page never
+//! The page of a task inside the panel: one header row over the centre and the right pane. The page never
 //! scrolls; what is in it does.
 //!
-//! The header does not say the lavoro's name: the tab over it does (Zed's toolbar under its tabs and
+//! The header does not say the task's name: the tab over it does (Zed's toolbar under its tabs and
 //! Linear's issue header keep the row for where one is and what one can do, not for the title again). At
-//! the left it says the lavoro's state (the mark in its tone, the word) and carries the switch between
+//! the left it says the task's state (the mark in its tone, the word) and carries the switch between
 //! the centre's views; at the right the changed lines, the branch (a press copies it) and the actions,
 //! the overflow last. No sentence in it: the reasons are in "Checks" and under it, and the right pane's
 //! views belong to the right pane (`right_pane`). When the window is narrow it gives parts up in a fixed
@@ -53,7 +53,7 @@ pub struct HeaderFacts<'a> {
     pub is_pending: bool,
     /// Its agent asked the person something and waits: the state shown before any other.
     pub is_waiting: bool,
-    /// What the lavoro's conversation says of its agent.
+    /// What the task's conversation says of its agent.
     pub live: model::Live,
     /// What the header's width has room for.
     pub fit: Fit,
@@ -89,7 +89,7 @@ pub fn header(
         .children(actions)
 }
 
-/// The lavoro's state: its mark, and its word while the header has room for it.
+/// The task's state: its mark, and its word while the header has room for it.
 fn state(facts: &HeaderFacts, palette: &Palette, breath: Breath) -> impl IntoElement {
     let mark = if facts.is_pending {
         glyph(Shape::Ring, Tone::Neutral, palette, breath)

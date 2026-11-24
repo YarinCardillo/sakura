@@ -1,26 +1,22 @@
-//! The desk's side of notifications and of the Dock badge: what each lavoro is to the person now, read
+//! The desk's side of notifications and of the Dock badge: what each task is to the person now, read
 //! from what the window already knows (its facts, and what its conversation says of its agent), and told
-//! to the layer that posts ([`super::notify`]). Nothing here runs on its own: the lavori are told again
+//! to the layer that posts ([`super::notify`]). Nothing here runs on its own: the tasks are told again
 //! when the facts change and when the window comes to the front or leaves it, and the model tells the
 //! same fact once.
 
-use super::console::rules::is_agent_running;
 use super::desk::Desk;
 use super::notify::{self, Notifications, Wanted};
 use crate::prefs::Preferences;
 use gpui::{App, Context, WeakEntity, Window};
-use sakura_core::model::Live;
-use sakura_core::models::{AgentPhase, Task};
+use sakura_core::model::{self, Live, StateId};
+use sakura_core::models::Task;
 use sakura_core::notify::{Lavoro, Stage};
 use std::collections::HashMap;
-
-/// Env var of a launch that must stay out of the person's way: it posts nothing to the system.
-const NO_ACTIVATE_VAR: &str = "SAKURA_NO_ACTIVATE";
 
 /// The notifications of one window.
 pub(super) struct Notifying {
     layer: Notifications,
-    /// Each lavoro's stage as last told and the number of that episode: needing the person again, or
+    /// Each task's stage as last told and the number of that episode: needing the person again, or
     /// ending again, is a new fact.
     episodes: HashMap<String, (Stage, u64)>,
     /// A launch that takes pictures or must not take the person's attention tells the system nothing.
@@ -30,7 +26,7 @@ pub(super) struct Notifying {
 impl Notifying {
     /// Over the Dock's badge; silent for a snapshot and for a launch that must not activate.
     pub(super) fn new() -> Self {
-        let is_silent = crate::snapshot::is_asked() || std::env::var_os(NO_ACTIVATE_VAR).is_some();
+        let is_silent = !crate::window::can_activate();
         Self {
             layer: Notifications::new(notify::dock_badge()),
             episodes: HashMap::new(),
@@ -44,7 +40,7 @@ impl Notifying {
         self.layer.badge()
     }
 
-    /// The lavori as the model takes them: a stage that differs from the one told last opens a new
+    /// The tasks as the model takes them: a stage that differs from the one told last opens a new
     /// episode, so the same need is told once and the next one again.
     fn lavori(&mut self, stages: Vec<(String, Stage)>) -> Vec<Lavoro> {
         let listed = |name: &String| stages.iter().any(|(listed, _)| listed == name);
@@ -68,25 +64,22 @@ impl Notifying {
 }
 
 /// Where `task` stands for the person: it waits for them, its agent works, its agent ended, or nothing
-/// to say. A conversation's own word comes first; a lavoro whose agent runs in a terminal is read from
+/// to say. A conversation's own word comes first; a task whose agent runs in a terminal is read from
 /// the facts.
 pub(super) fn stage_of(task: &Task, is_waiting: bool, live: Live) -> Stage {
     if is_waiting {
         return Stage::NeedsPerson;
     }
-    match live {
-        Live::Starting | Live::Working => Stage::Working,
-        Live::Answered | Live::Stopped => Stage::Done,
-        Live::Unknown if is_agent_running(task) => Stage::Working,
-        Live::Unknown => match task.agent.as_ref().map(|agent| &agent.state) {
-            Some(AgentPhase::Exited) => Stage::Done,
-            _ => Stage::Quiet,
-        },
+    match model::shown_state_live(task, is_waiting, live).id {
+        StateId::Working | StateId::Preparing => Stage::Working,
+        _ if model::is_attention(task, is_waiting, live) => Stage::Review,
+        _ if matches!(live, Live::Answered) => Stage::Done,
+        _ => Stage::Quiet,
     }
 }
 
 impl Desk {
-    /// Tells the notifications what the lavori are now and whether Sakura is in front.
+    /// Tells the notifications what the tasks are now and whether Sakura is in front.
     pub(super) fn tell_notifications(&mut self, cx: &mut Context<Self>) {
         let facts = self.facts.read(cx);
         let stage = |row: &crate::data::facts::Row| {
@@ -107,7 +100,7 @@ impl Desk {
         self.notifying.layer.observe(&lavori, is_in_front, cx);
     }
 
-    /// A press on a notification brings the window forward on its lavoro.
+    /// A press on a notification brings the window forward on its task.
     pub(super) fn answer_notifications(window: &Window, cx: &mut Context<Self>) {
         let (desk, handle) = (cx.weak_entity(), window.window_handle());
         cx.on_system_notification_response(move |response, cx| {
@@ -115,15 +108,15 @@ impl Desk {
                 return;
             };
             show_lavoro(&desk, task, cx);
-            cx.activate(true);
-            if let Err(error) = handle.update(cx, |_, window, _| window.activate_window()) {
+            crate::window::activate_app(cx);
+            if let Err(error) = handle.update(cx, |_, window, _| crate::window::activate(window)) {
                 eprintln!("sakura: the window of the notification is gone: {error}");
             }
         });
     }
 }
 
-/// Shows `task` in the desk, when the lavoro is still listed.
+/// Shows `task` in the desk, when the task is still listed.
 fn show_lavoro(desk: &WeakEntity<Desk>, task: String, cx: &mut App) {
     let shown = desk.update(cx, |desk, cx| {
         if desk.facts.read(cx).has_task(&task) {
@@ -138,9 +131,9 @@ fn show_lavoro(desk: &WeakEntity<Desk>, task: String, cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sakura_core::models::BoxStatus;
+    use sakura_core::models::{AgentPhase, BoxStatus};
 
-    /// The fixture's lavoro `name`.
+    /// The fixture's task `name`.
     fn task(name: &str) -> Task {
         let status: BoxStatus = serde_json::from_str(include_str!(
             "../../../sakura-core/tests/fixtures/status.json"
@@ -150,9 +143,40 @@ mod tests {
         found.expect("the fixture's lavoro")
     }
 
-    /// The fixture's lavoro whose agent runs in a terminal, and one whose agent is taken away.
+    /// The fixture's task whose agent runs in a terminal, and one whose agent is taken away.
     const RUNNING: &str = "sample-folders";
     const NO_AGENT: &str = "sample-accent";
+
+    #[test]
+    fn merged_needs_you_badge_counts_results_and_workspace_failures() {
+        let mut review = task(NO_AGENT);
+        review.results.clear();
+        let mut failed = task(NO_AGENT);
+        failed.preparing = Some(sakura_core::models::Preparing {
+            line: String::new(),
+            failed: true,
+            has_workspace: false,
+        });
+        let mut unreadable = task(NO_AGENT);
+        unreadable.readable = false;
+        let tasks = [task(NO_AGENT), review, failed, unreadable];
+        let lavori: Vec<Lavoro> = tasks
+            .iter()
+            .enumerate()
+            .map(|(index, task)| Lavoro {
+                name: index.to_string(),
+                stage: stage_of(task, false, Live::Unknown),
+                fact: String::new(),
+            })
+            .collect();
+        assert!(lavori.iter().all(|task| task.stage == Stage::Review));
+        let mut notifier = sakura_core::notify::Notifier::default();
+        assert_eq!(notifier.observe(&lavori, false).badge, 4);
+        let mut empty = task(NO_AGENT);
+        (empty.ahead, empty.dirty_files) = (Some(0), Some(0));
+        assert_eq!(stage_of(&empty, false, Live::Unknown), Stage::Quiet);
+        assert_eq!(stage_of(&empty, false, Live::Answered), Stage::Done);
+    }
 
     #[test]
     fn a_lavoro_that_waits_for_the_person_needs_them_whatever_else_is_true() {
@@ -167,9 +191,9 @@ mod tests {
         task.agent = None;
         assert_eq!(stage_of(&task, false, Live::Starting), Stage::Working);
         assert_eq!(stage_of(&task, false, Live::Working), Stage::Working);
-        assert_eq!(stage_of(&task, false, Live::Answered), Stage::Done);
-        assert_eq!(stage_of(&task, false, Live::Stopped), Stage::Done);
-        assert_eq!(stage_of(&task, false, Live::Unknown), Stage::Quiet);
+        assert_eq!(stage_of(&task, false, Live::Answered), Stage::Review);
+        assert_eq!(stage_of(&task, false, Live::Stopped), Stage::Review);
+        assert_eq!(stage_of(&task, false, Live::Unknown), Stage::Review);
     }
 
     #[test]
@@ -179,7 +203,7 @@ mod tests {
         if let Some(agent) = task.agent.as_mut() {
             agent.state = AgentPhase::Exited;
         }
-        assert_eq!(stage_of(&task, false, Live::Unknown), Stage::Done);
+        assert_eq!(stage_of(&task, false, Live::Unknown), Stage::Review);
     }
 
     #[test]

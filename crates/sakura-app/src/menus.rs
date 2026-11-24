@@ -1,5 +1,5 @@
 //! The standard macOS menus: the app menu with Settings, the language choice and Quit, View with what
-//! the lavoro on screen shows and runs, Edit with the clipboard
+//! the task on screen shows and runs, Edit with the clipboard
 //! commands (the kit's own actions, so its text selection and inputs answer them), File with the new task
 //! and the tab commands, and the window commands with the two panes that hide. `Minimize`, `Zoom`, `NewTask`
 //! the pane toggles and the status bar's terminal are handled by the app for the window (see
@@ -7,9 +7,15 @@
 //! built again when a pane hides or comes back and when the language changes.
 
 use crate::l10n::{tr, Key, Language, LanguageChoice};
+#[cfg(not(feature = "boxes"))]
+use crate::ui::page_bar::keys as tab_keys;
+#[cfg(feature = "boxes")]
 use crate::ui::settings::Shortcut;
-use crate::ui::tabs;
-use gpui::{actions, App, Global, KeyBinding, Keystroke, Menu, MenuItem, OsAction, SystemMenuType};
+#[cfg(feature = "boxes")]
+use crate::ui::tabs::keys as tab_keys;
+#[cfg(feature = "boxes")]
+use gpui::Keystroke;
+use gpui::{actions, App, Global, KeyBinding, Menu, MenuItem, OsAction, SystemMenuType};
 use gpui_component::input::{Copy, Cut, Paste, Redo, SelectAll, Undo};
 
 actions!(
@@ -27,14 +33,23 @@ actions!(
         ToggleFollow,
         NewTask,
         ShowSettings,
+        CheckForUpdates,
+        InstallUpdate,
         StartPlay,
         StopPlay,
         LanguageAutomatic,
         LanguageEnglish,
-        LanguageItalian
+        LanguageItalian,
+        NewLane,
+        QuickOpenFile,
+        ShowTour
     ]
 );
 
+/// The menu item that closes the tab on screen.
+const CLOSE_TAB: Key = Key("tabs.close");
+
+#[cfg_attr(not(feature = "boxes"), allow(dead_code))]
 /// What starts a new task, on the menu item, the sidebar's button and the dialog's title.
 pub const NEW_TASK: Key = Key("menu.file.new_task");
 
@@ -45,13 +60,28 @@ pub struct PanesShown {
     pub changes: bool,
 }
 
+/// Quits, once the answers held for Undo have been sent and have an outcome.
+#[cfg(not(feature = "boxes"))]
+fn quit(cx: &mut App) {
+    crate::ui::inbox::quit_after_answers(cx);
+}
+
+#[cfg(feature = "boxes")]
+fn quit(cx: &mut App) {
+    cx.quit();
+}
+
 /// Installs the menu bar, its key bindings and the app-level handlers.
 pub fn install(cx: &mut App) {
-    cx.on_action(|_: &Quit, cx| cx.quit());
+    cx.on_action(|_: &Quit, cx| quit(cx));
     cx.on_action(|_: &Hide, cx| cx.hide());
     cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
     cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
+    #[cfg(feature = "boxes")]
     cx.on_action(|_: &ShowSettings, cx| drop(crate::ui::settings::host::show(cx)));
+    #[cfg(feature = "boxes")]
+    cx.on_action(|_: &CheckForUpdates, cx| crate::updates::check_now(cx));
+    cx.on_action(|_: &InstallUpdate, cx| crate::updates::install_update(cx));
     let choose = crate::language::set_choice;
     cx.on_action(move |_: &LanguageAutomatic, cx| choose(LanguageChoice::Automatic, cx));
     cx.on_action(move |_: &LanguageEnglish, cx| choose(LanguageChoice::Is(Language::English), cx));
@@ -62,10 +92,19 @@ pub fn install(cx: &mut App) {
         KeyBinding::new("cmd-h", Hide, None),
         KeyBinding::new("alt-cmd-h", HideOthers, None),
         KeyBinding::new("cmd-m", Minimize, None),
+        #[cfg(feature = "boxes")]
         KeyBinding::new("cmd-n", NewTask, None),
+        #[cfg(not(feature = "boxes"))]
+        KeyBinding::new("cmd-n", NewLane, None),
+        #[cfg(not(feature = "boxes"))]
+        KeyBinding::new("cmd-p", QuickOpenFile, None),
+        #[cfg(feature = "boxes")]
         KeyBinding::new("cmd-r", StartPlay, None),
+        #[cfg(feature = "boxes")]
         KeyBinding::new("cmd-.", StopPlay, None),
+        #[cfg(feature = "boxes")]
         KeyBinding::new("ctrl-`", SwitchTerminal, None),
+        #[cfg(feature = "boxes")]
         KeyBinding::new("shift-cmd-f", ToggleFollow, None),
         KeyBinding::new("cmd-b", ToggleSidebar, None),
         KeyBinding::new("alt-cmd-b", ToggleChanges, None),
@@ -107,15 +146,15 @@ pub fn rebuild(cx: &mut App) {
 /// The menu bar, in the language in force and for the `panes` shown.
 fn menus(panes: PanesShown, cx: &App) -> Vec<Menu> {
     let choice = crate::language::choice(cx);
-    vec![
-        app_menu(choice),
-        file_menu(),
-        edit_menu(),
-        view_menu(),
-        window_menu(panes),
-    ]
+    let mut menus = vec![app_menu(choice), file_menu(), edit_menu()];
+    menus.push(view_menu());
+    menus.push(window_menu(panes));
+    #[cfg(not(feature = "boxes"))]
+    menus.push(help_menu());
+    menus
 }
 
+#[cfg(feature = "boxes")]
 /// Every command of the menu bar that has a key, in the menu bar's order: what "Shortcuts" in
 /// Settings lists. It is read from the menus and the key bindings themselves, so it cannot say
 /// anything they do not do.
@@ -132,6 +171,7 @@ pub fn shortcuts(cx: &App) -> Vec<Shortcut> {
     found
 }
 
+#[cfg(feature = "boxes")]
 /// Adds the commands of `menu` that have a key to `found`, those of its submenus under their own name.
 fn collect_shortcuts(menu: &Menu, cx: &App, found: &mut Vec<Shortcut>) {
     for item in &menu.items {
@@ -159,6 +199,7 @@ fn collect_shortcuts(menu: &Menu, cx: &App, found: &mut Vec<Shortcut>) {
     }
 }
 
+#[cfg(feature = "boxes")]
 /// A key as the Mac's menus write it: the modifiers in the Mac's order, then the key.
 fn keys_of(stroke: &Keystroke) -> String {
     let modifiers = [
@@ -184,6 +225,7 @@ pub fn sidebar_label(is_shown: bool) -> Key {
     }
 }
 
+#[cfg_attr(not(feature = "boxes"), allow(dead_code))]
 /// What the right pane's toggle would do, in the menu and in its tooltip.
 pub fn changes_label(is_shown: bool) -> Key {
     if is_shown {
@@ -199,6 +241,7 @@ fn app_menu(choice: LanguageChoice) -> Menu {
             tr(crate::ui::brand::about::TITLE),
             crate::ui::brand::about::About,
         ),
+        MenuItem::action(tr(Key("updates.check_menu")), CheckForUpdates),
         MenuItem::separator(),
         MenuItem::action(tr(Key("menu.app.settings")), ShowSettings),
         MenuItem::submenu(language_menu(choice)),
@@ -227,17 +270,34 @@ fn language_menu(choice: LanguageChoice) -> Menu {
 
 fn file_menu() -> Menu {
     Menu::new(tr(Key("menu.file"))).items([
+        #[cfg(feature = "boxes")]
         MenuItem::action(tr(NEW_TASK), NewTask),
-        MenuItem::action(
-            tr(Key("menu.file.open_file")),
-            crate::ui::files::quick_open::ToggleQuickOpen,
-        ),
+        #[cfg(not(feature = "boxes"))]
+        MenuItem::action(tr(Key("sidebar.new_lane")), NewLane),
+        #[cfg(not(feature = "boxes"))]
+        MenuItem::action(tr(Key("menu.file.open_file")), QuickOpenFile),
+        #[cfg(not(feature = "boxes"))]
         MenuItem::action(
             tr(Key("menu.file.commands")),
             crate::ui::palette::TogglePalette,
         ),
+        #[cfg(not(feature = "boxes"))]
         MenuItem::separator(),
-        MenuItem::action(tr(tabs::CLOSE_TAB), tabs::keys::CloseTab),
+        #[cfg(feature = "boxes")]
+        MenuItem::action(
+            tr(Key("menu.file.open_file")),
+            crate::ui::files::quick_open::ToggleQuickOpen,
+        ),
+        #[cfg(feature = "boxes")]
+        MenuItem::action(
+            tr(Key("menu.file.commands")),
+            crate::ui::palette::TogglePalette,
+        ),
+        #[cfg(feature = "boxes")]
+        MenuItem::separator(),
+        #[cfg(not(feature = "boxes"))]
+        MenuItem::action(tr(Key("bar.new_tab")), tab_keys::NewTab),
+        MenuItem::action(tr(CLOSE_TAB), tab_keys::CloseTab),
     ])
 }
 
@@ -257,8 +317,9 @@ fn edit_menu() -> Menu {
     ])
 }
 
-/// What the lavoro on screen shows and runs: its agent or its terminal, whether the right pane follows
-/// the agent, and its Play. Each acts on the lavoro on screen and does nothing without one.
+#[cfg(feature = "boxes")]
+/// What the task on screen shows and runs: its agent or its terminal, whether the right pane follows
+/// the agent, and its Play. Each acts on the task on screen and does nothing without one.
 fn view_menu() -> Menu {
     Menu::new(tr(Key("menu.view"))).items([
         MenuItem::action(tr(Key("menu.view.terminal")), SwitchTerminal),
@@ -269,6 +330,15 @@ fn view_menu() -> Menu {
     ])
 }
 
+#[cfg(not(feature = "boxes"))]
+/// The way through the pages of the tab on screen.
+fn view_menu() -> Menu {
+    Menu::new(tr(Key("menu.view"))).items([
+        MenuItem::action(tr(Key("bar.back")), tab_keys::GoBack),
+        MenuItem::action(tr(Key("bar.forward")), tab_keys::GoForward),
+    ])
+}
+
 /// One window only, so the menu holds the window commands and no window list.
 fn window_menu(panes: PanesShown) -> Menu {
     Menu::new(tr(Key("menu.window"))).items([
@@ -276,8 +346,19 @@ fn window_menu(panes: PanesShown) -> Menu {
         MenuItem::action(tr(Key("menu.window.zoom")), Zoom),
         MenuItem::separator(),
         MenuItem::action(tr(sidebar_label(panes.sidebar)), ToggleSidebar),
+        #[cfg(not(feature = "boxes"))]
+        MenuItem::action(
+            tr(Key("menu.window.focus_other_pane")),
+            tab_keys::FocusOtherPane,
+        ),
+        #[cfg(feature = "boxes")]
         MenuItem::action(tr(changes_label(panes.changes)), ToggleChanges),
     ])
+}
+
+#[cfg(not(feature = "boxes"))]
+fn help_menu() -> Menu {
+    Menu::new(tr(Key("menu.help"))).items([MenuItem::action(tr(Key("tour.show")), ShowTour)])
 }
 
 #[cfg(test)]
@@ -303,9 +384,18 @@ mod tests {
         let is_about = matches!(&menu.items[0],
             MenuItem::Action { name, .. } if name.as_ref() == "About Sakura");
         assert!(is_about, "About is the first command of the app menu");
-        assert!(matches!(menu.items[1], MenuItem::Separator));
+        assert!(matches!(menu.items[2], MenuItem::Separator));
     }
 
+    #[test]
+    fn updates_command_is_directly_under_about_in_the_app_menu() {
+        crate::l10n::set_for_test(Language::English);
+        let menu = app_menu(LanguageChoice::Automatic);
+        assert!(matches!(&menu.items[1], MenuItem::Action {name, ..}
+            if name.as_ref() == "Check for Updates…"));
+    }
+
+    #[cfg(feature = "boxes")]
     #[test]
     fn a_key_is_written_as_the_mac_s_menus_write_it() {
         let written = |keys: &'static str| keys_of(&Keystroke::parse(keys).expect("a key"));
@@ -316,6 +406,7 @@ mod tests {
         assert_eq!(written("ctrl-alt-shift-cmd-k"), "⌃⌥⇧⌘K");
     }
 
+    #[cfg(feature = "boxes")]
     #[gpui::test]
     fn the_shortcuts_are_the_menu_bar_s_commands_that_have_a_key(cx: &mut gpui::TestAppContext) {
         crate::l10n::set_for_test(Language::English);

@@ -20,6 +20,8 @@ pub enum Stage {
     NeedsPerson,
     /// Its agent is at work.
     Working,
+    /// Work or a result waits to be looked at: counted by the badge, told only when it follows work.
+    Review,
     /// Its agent ended.
     Done,
     /// Anything else.
@@ -78,7 +80,7 @@ impl Notifier {
             .collect();
         let needing = lavori
             .iter()
-            .filter(|lavoro| lavoro.stage == Stage::NeedsPerson);
+            .filter(|lavoro| matches!(lavoro.stage, Stage::NeedsPerson | Stage::Review));
         let badge = u32::try_from(needing.count()).unwrap_or(u32::MAX);
         let mut notes = Vec::new();
         for lavoro in &lavori {
@@ -108,7 +110,9 @@ impl Notifier {
         let was_at_work = matches!(before, Some(Stage::Working | Stage::NeedsPerson));
         let kind = match lavoro.stage {
             Stage::NeedsPerson => NoteKind::NeedsPerson,
-            Stage::Done if was_at_work || self.before.is_none() => NoteKind::Finished,
+            Stage::Done | Stage::Review if was_at_work || self.before.is_none() => {
+                NoteKind::Finished
+            }
             _ => return false,
         };
         let fact = (kind, lavoro.fact.clone());
@@ -126,7 +130,7 @@ impl Notifier {
 fn kind_of(stage: Stage) -> Option<NoteKind> {
     match stage {
         Stage::NeedsPerson => Some(NoteKind::NeedsPerson),
-        Stage::Done => Some(NoteKind::Finished),
+        Stage::Done | Stage::Review => Some(NoteKind::Finished),
         Stage::Working | Stage::Quiet => None,
     }
 }

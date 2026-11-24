@@ -1,30 +1,55 @@
-//! The tab strip's model, with no UI: which lavori are open, in what order, and which one is shown. As in a
-//! browser every tab is equal: none is pinned, any tab goes to any place (the first included) and any tab
-//! closes while another remains. A tab shows one lavoro, and a lavoro is open in one tab at most. A strip
-//! with no tab is a state like any other: nothing is shown and there is nothing to close. The strip is
-//! stored with a version, so a later format can tell an older file apart.
+//! The page model behind the page bar, with no UI: which pages are open in which tabs, which tab is shown,
+//! and each tab's own back and forward history. A tab shows one [`Page`]; moving inside a tab pushes the
+//! page it leaves onto that tab's history, as in a browser.
+//!
+//! Version 4 also keeps the split and its members' histories. Standalone strips still write version 3.
 
 use serde_json::{json, Value};
 
 #[cfg(test)]
 mod tests;
 
-/// The version [`Tabs::to_json`] writes and the only one [`Tabs::from_json`] reads.
-pub const STORAGE_VERSION: u32 = 1;
-/// Cmd+9 selects the last tab, whatever its place.
-pub const LAST_TAB_DIGIT: usize = 9;
+/// The storage version for a strip without a pair.
+pub const STORAGE_VERSION: u32 = 3;
+const SPLIT_STORAGE_VERSION: u64 = 4;
+/// The version of the pinned strip the older app wrote, which [`Tabs::restore`] still reads.
+const PINNED_STORAGE_VERSION: u64 = 2;
+/// Cmd+9 shows the last tab, whatever its place.
+const LAST_TAB_DIGIT: usize = 9;
+const DEFAULT_SPLIT_SHARE: u16 = 5000;
+/// The smallest supported left pane share, in basis points.
+pub const MIN_SPLIT_SHARE: u16 = 4000;
+/// The largest supported left pane share, in basis points.
+pub const MAX_SPLIT_SHARE: u16 = 6000;
 
+const TALK_KEY: &str = "talk";
 const VERSION_KEY: &str = "version";
 const TABS_KEY: &str = "tabs";
 const ACTIVE_KEY: &str = "active";
+const SPLIT_KEY: &str = "split";
+const LEFT_KEY: &str = "left";
+const RIGHT_KEY: &str = "right";
+const SHARE_KEY: &str = "left_share_bps";
+const BACK_KEY: &str = "back";
+const FORWARD_KEY: &str = "forward";
+const PAGE_KEY: &str = "page";
+const LANE_KEY: &str = "lane";
+const PAGE_INBOX: &str = "inbox";
+const PAGE_MASTER: &str = "master";
+const PAGE_LANES: &str = "lanes";
+const PAGE_SCHEDULED: &str = "scheduled";
+const PAGE_ENGINE: &str = "engine";
+const PAGE_LANE: &str = "lane";
+const PAGE_PROJECT: &str = "project";
+const PAGE_TRACK: &str = "track";
+const FOLDER_KEY: &str = "folder";
+// The kinds of a version 2 tab.
 const KIND_KEY: &str = "kind";
-const TASK_KEY: &str = "task";
-const KIND_TASK: &str = "task";
-/// The kind of a tab on the home view, which a strip stored before the view was dropped (2026-11-10) may
-/// hold: such an entry is skipped when the strip is read.
-const KIND_FORMER_HOME: &str = "today";
+const KIND_WAITING: &str = "waiting";
+const KIND_MASTER: &str = "master";
+const KIND_LANE: &str = "lane";
 
-/// A tab's identity for as long as it is open: it survives a move and a change of page.
+/// A tab's identity for as long as it is open: it survives a change of page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TabId(u64);
 
@@ -35,29 +60,93 @@ impl TabId {
     }
 }
 
-/// One open tab, and the lavoro it shows.
+/// A page of the app.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Page {
+    /// Every ask of every lane that needs the person.
+    Inbox,
+    /// The conversation with the engine's master.
+    Master,
+    /// The list of lanes.
+    Lanes,
+    Scheduled,
+    /// The engine: preset, pace, accounts.
+    Engine,
+    /// One lane, by its key.
+    Lane(String),
+    /// One project, by its folder: where it is, its branch, its lanes.
+    Project(String),
+    Track(String),
+}
+
+/// One open tab: the page it shows and the pages it can go back and forward to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tab {
-    pub id: TabId,
-    pub task: String,
+    id: TabId,
+    /// The conversation of the Master this tab holds, whatever page it shows: made with the tab, kept with it
+    /// across launches, and never the one of another tab, open or closed. Empty for the conversation kept
+    /// before tabs had their own.
+    talk: String,
+    page: Page,
+    back: Vec<Page>,
+    forward: Vec<Page>,
 }
 
-/// Whether a tab opened beside the current one is shown at once.
+impl Tab {
+    /// The tab's identity.
+    pub fn id(&self) -> TabId {
+        self.id
+    }
+
+    /// The name of the tab's conversation of the Master, which tells it from the other tabs' in what is kept.
+    pub fn conversation(&self) -> &str {
+        &self.talk
+    }
+
+    /// The page the tab shows.
+    pub fn page(&self) -> &Page {
+        &self.page
+    }
+
+    /// Whether [`Tabs::back`] has a page to go to in this tab.
+    pub fn can_go_back(&self) -> bool {
+        !self.back.is_empty()
+    }
+
+    /// Whether [`Tabs::forward`] has a page to go to in this tab.
+    pub fn can_go_forward(&self) -> bool {
+        !self.forward.is_empty()
+    }
+}
+
+/// Two adjacent tabs in display order, with the divider position in basis points.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Placement {
-    /// The new tab is shown.
-    Foreground,
-    /// The page on screen stays; the new tab waits at the end of the strip (a browser's Cmd+click).
-    Background,
+pub struct SplitTabs {
+    pub left: TabId,
+    pub right: TabId,
+    pub left_share_bps: u16,
 }
 
-/// The open tabs in strip order and the one shown. While a tab is open one is shown; with none open,
-/// none is.
+impl SplitTabs {
+    /// The other member when `id` belongs to this pair.
+    pub fn other(self, id: TabId) -> Option<TabId> {
+        if id == self.left {
+            Some(self.right)
+        } else if id == self.right {
+            Some(self.left)
+        } else {
+            None
+        }
+    }
+}
+
+/// The open tabs in strip order, with a selected tab and at most one pair.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tabs {
     tabs: Vec<Tab>,
-    active: Option<TabId>,
+    active: TabId,
     next_id: u64,
+    split: Option<SplitTabs>,
 }
 
 impl Default for Tabs {
@@ -67,12 +156,23 @@ impl Default for Tabs {
 }
 
 impl Tabs {
-    /// A strip with no tab.
+    /// One tab, on the Inbox.
     pub fn new() -> Self {
-        Self::from_tasks(Vec::new(), 0)
+        let active = TabId(1);
+        Self {
+            tabs: vec![Tab::on(active, Page::Inbox)],
+            active,
+            next_id: 2,
+            split: None,
+        }
     }
 
-    /// The tabs in strip order.
+    /// Restores stored tabs, falling back to one Inbox tab for unsupported or unreadable strips.
+    pub fn restore(stored: Option<&Value>) -> Self {
+        stored.and_then(Self::from_json).unwrap_or_default()
+    }
+
+    /// The tabs in order.
     pub fn tabs(&self) -> &[Tab] {
         &self.tabs
     }
@@ -82,24 +182,14 @@ impl Tabs {
         self.tabs.len()
     }
 
-    /// Whether no tab is open.
+    /// Whether no tab is open: never, a strip keeps its last tab.
     pub fn is_empty(&self) -> bool {
         self.tabs.is_empty()
     }
 
-    /// The tab shown, when one is open.
-    pub fn active_id(&self) -> Option<TabId> {
-        self.active
-    }
-
-    /// The place of the tab shown.
-    pub fn active_index(&self) -> Option<usize> {
-        self.index_of(self.active?)
-    }
-
     /// The tab shown.
-    pub fn active(&self) -> Option<&Tab> {
-        self.tabs.get(self.active_index()?)
+    pub fn active(&self) -> &Tab {
+        &self.tabs[self.active_index()]
     }
 
     /// The place of the tab `id`, when it is open.
@@ -107,85 +197,198 @@ impl Tabs {
         self.tabs.iter().position(|tab| tab.id == id)
     }
 
-    /// Shows `task` in the current tab (a click on a sidebar row). A lavoro already open in another tab is
-    /// shown there instead, so none is open twice; with no tab open it gets the first. Returns the tab now
-    /// shown.
-    pub fn show(&mut self, task: &str) -> TabId {
-        if let Some(open) = self.tab_on(task) {
-            self.active = Some(open);
-            return open;
-        }
-        match self.active_index() {
-            Some(index) => {
-                self.tabs[index].task = task.to_string();
-                self.tabs[index].id
-            }
-            None => self.open(task, Placement::Foreground),
+    /// Looks up a tab by identity, including tabs in the background.
+    pub fn tab(&self, id: TabId) -> Option<&Tab> {
+        self.index_of(id).map(|index| &self.tabs[index])
+    }
+
+    /// Returns the pair even when it is in the background.
+    pub fn split(&self) -> Option<SplitTabs> {
+        self.split
+    }
+
+    /// Returns the visible tabs in display order, independent of the active side.
+    pub fn visible(&self) -> (TabId, Option<TabId>) {
+        match self.split.filter(|pair| pair.other(self.active).is_some()) {
+            Some(pair) => (pair.left, Some(pair.right)),
+            None => (self.active, None),
         }
     }
 
-    /// Opens `task` in a tab of its own at the end of the strip (Cmd+click on a sidebar row); a lavoro
-    /// already open keeps its tab. The first tab of a strip is shown wherever it was asked to open.
-    /// Returns that tab.
-    pub fn open(&mut self, task: &str, placement: Placement) -> TabId {
-        let id = match self.tab_on(task) {
-            Some(open) => open,
-            None => {
-                let id = self.new_id();
-                let task = task.to_string();
-                self.tabs.push(Tab { id, task });
-                id
-            }
-        };
-        if placement == Placement::Foreground || self.active.is_none() {
-            self.active = Some(id);
+    /// Returns the visible peer of the selected tab.
+    pub fn other_in_visible_split(&self) -> Option<TabId> {
+        self.split?.other(self.active)
+    }
+
+    /// Replaces the active tab's slot with the ordered pair, keeping it selected.
+    pub fn create_split(&mut self, left: TabId, right: TabId) -> bool {
+        if self.split.is_some() || left == right {
+            return false;
         }
+        let (peer, peer_is_left) = if self.active == left {
+            (right, false)
+        } else if self.active == right {
+            (left, true)
+        } else {
+            return false;
+        };
+        let Some(index) = self.index_of(peer) else {
+            return false;
+        };
+        let tab = self.tabs.remove(index);
+        let slot = self.active_index() + usize::from(!peer_is_left);
+        self.tabs.insert(slot, tab);
+        self.split = Some(SplitTabs {
+            left,
+            right,
+            left_share_bps: DEFAULT_SPLIT_SHARE,
+        });
+        true
+    }
+
+    /// Reverses the pair without moving the divider or changing the selected tab.
+    pub fn swap_split(&mut self, member: TabId) -> bool {
+        let Some(mut pair) = self.split.filter(|pair| pair.other(member).is_some()) else {
+            return false;
+        };
+        let left = self.index_of(pair.left).expect("split members are open");
+        self.tabs.swap(left, left + 1);
+        std::mem::swap(&mut pair.left, &mut pair.right);
+        self.split = Some(pair);
+        true
+    }
+
+    /// Commits a divider change only for the current ordered pair.
+    pub fn set_split_share(&mut self, left: TabId, right: TabId, left_share_bps: u16) -> bool {
+        let Some(pair) = self
+            .split
+            .as_mut()
+            .filter(|pair| (pair.left, pair.right) == (left, right))
+        else {
+            return false;
+        };
+        let share = left_share_bps.clamp(MIN_SPLIT_SHARE, MAX_SPLIT_SHARE);
+        if share == pair.left_share_bps {
+            return false;
+        }
+        pair.left_share_bps = share;
+        true
+    }
+
+    /// Navigates from the selected tab.
+    pub fn navigate(&mut self, page: Page) {
+        self.navigate_from(self.active, page);
+    }
+
+    /// Navigates a visible source, keeping split histories local to each tab.
+    pub fn navigate_from(&mut self, id: TabId, page: Page) -> bool {
+        let (left, right) = self.visible();
+        if left != id && right != Some(id) {
+            return false;
+        }
+        let index = self.index_of(id).expect("visible tabs are open");
+        if self.tabs[index].page == page {
+            return false;
+        }
+        if right.is_none() {
+            if let Some(open) = self.tabs.iter().find(|tab| tab.page == page) {
+                self.active = open.id;
+                return true;
+            }
+        }
+        Self::navigate_in(&mut self.tabs[index], page)
+    }
+
+    /// Opens a page in the active tab even if another tab already shows that page.
+    pub fn navigate_here(&mut self, page: Page) -> bool {
+        Self::navigate_in(self.active_mut(), page)
+    }
+
+    fn navigate_in(tab: &mut Tab, page: Page) -> bool {
+        if tab.page == page {
+            return false;
+        }
+        let left = std::mem::replace(&mut tab.page, page);
+        tab.back.push(left);
+        tab.forward.clear();
+        true
+    }
+
+    /// Opens `page` in a new tab at the end and shows it, even when another tab shows the page already (a
+    /// new tab on the Inbox is a new tab). Returns the new tab.
+    pub fn open_new(&mut self, page: Page) -> TabId {
+        let id = self.new_id();
+        self.tabs.push(Tab::on(id, page));
+        self.active = id;
         id
+    }
+
+    /// Goes back one page in the tab shown. False when it has no history behind it.
+    pub fn back(&mut self) -> bool {
+        let tab = self.active_mut();
+        let Some(earlier) = tab.back.pop() else {
+            return false;
+        };
+        let left = std::mem::replace(&mut tab.page, earlier);
+        tab.forward.push(left);
+        true
+    }
+
+    /// Goes forward one page in the tab shown. False when it has no history ahead.
+    pub fn forward(&mut self) -> bool {
+        let tab = self.active_mut();
+        let Some(later) = tab.forward.pop() else {
+            return false;
+        };
+        let left = std::mem::replace(&mut tab.page, later);
+        tab.back.push(left);
+        true
     }
 
     /// Shows the tab `id`. False when it is not open or already shown.
     pub fn activate(&mut self, id: TabId) -> bool {
-        if self.active == Some(id) || self.index_of(id).is_none() {
+        if self.active == id || self.index_of(id).is_none() {
             return false;
         }
-        self.active = Some(id);
+        self.active = id;
         true
     }
 
-    /// Closes the tab `id` while another remains. The active tab hands over to its right neighbour, else
-    /// to its left one. False when nothing closed.
+    /// Closes the tab `id`; the last tab goes back to the Inbox instead. The tab shown hands over to its right
+    /// neighbour, else to its left one. False when nothing changed.
     pub fn close(&mut self, id: TabId) -> bool {
         let Some(index) = self.index_of(id) else {
             return false;
         };
         if self.tabs.len() == 1 {
-            return false;
+            let tab = &mut self.tabs[0];
+            let did_close = tab.reset_to(Page::Inbox);
+            if did_close {
+                tab.talk = new_talk();
+            }
+            return did_close;
         }
+        let survivor = self.split.and_then(|pair| pair.other(id));
+        let is_visible = self.other_in_visible_split().is_some();
         self.tabs.remove(index);
-        if self.active == Some(id) {
-            let heir = index.min(self.tabs.len() - 1);
-            self.active = Some(self.tabs[heir].id);
+        if let Some(survivor) = survivor {
+            self.split = None;
+            if is_visible {
+                self.active = survivor;
+            }
+        } else if self.active == id {
+            self.active = self.tabs[index.min(self.tabs.len() - 1)].id;
         }
         true
     }
 
-    /// "Close other tabs": keeps the tab `id` only, and shows it. False when nothing closed.
-    pub fn close_others(&mut self, id: TabId) -> bool {
-        if self.index_of(id).is_none() || self.tabs.len() == 1 {
-            return false;
-        }
-        self.tabs.retain(|tab| tab.id == id);
-        self.active = Some(id);
-        true
-    }
-
-    /// Puts the tab `id` at the place `to`, clamped to the strip's ends; the lavoro shown does not change.
-    /// False when the tab did not move.
+    /// Puts the tab `id` at the place `to`, clamped to the strip's ends; the tab shown and every history stay
+    /// as they are. False when the tab is not open or did not move.
     pub fn move_to(&mut self, id: TabId, to: usize) -> bool {
-        let Some(from) = self.index_of(id) else {
+        let Some(to) = self.reorder_target(id, to) else {
             return false;
         };
-        let to = to.min(self.tabs.len() - 1);
+        let from = self.index_of(id).expect("the reordered tab is open");
         if to == from {
             return false;
         }
@@ -194,97 +397,165 @@ impl Tabs {
         true
     }
 
-    /// Cmd+`digit`: 1 to 8 select the tab at that place, 9 the last one. Returns the tab selected, or
-    /// `None` when no tab stands there.
-    pub fn select_position(&mut self, digit: usize) -> Option<TabId> {
+    /// Finds a standalone tab's destination without inserting it between paired tabs.
+    pub fn reorder_target(&self, id: TabId, to: usize) -> Option<usize> {
+        let from = self.index_of(id)?;
+        let mut to = to.min(self.tabs.len() - 1);
+        if let Some(pair) = self.split {
+            if pair.other(id).is_some() {
+                return None;
+            }
+            let left = self.index_of(pair.left).expect("split members are open");
+            let insertion_between = left + usize::from(from > left);
+            if to == insertion_between {
+                to = if from < left { to + 1 } else { to - 1 };
+            }
+        }
+        Some(to)
+    }
+
+    /// Cmd+`digit`: 1 to 8 show the tab at that place, 9 the last one. False when no tab stands there or it
+    /// is shown already.
+    pub fn activate_digit(&mut self, digit: usize) -> bool {
         let index = match digit {
-            LAST_TAB_DIGIT => self.tabs.len().checked_sub(1)?,
+            LAST_TAB_DIGIT => self.tabs.len() - 1,
             place if (1..LAST_TAB_DIGIT).contains(&place) => place - 1,
-            _ => return None,
+            _ => return false,
         };
-        let id = self.tabs.get(index)?.id;
-        self.active = Some(id);
-        Some(id)
+        match self.tabs.get(index) {
+            Some(tab) => self.activate(tab.id),
+            None => false,
+        }
     }
 
-    /// Closes the tabs of lavori `exists` no longer knows (a lavoro removed, a stored strip older than the
-    /// lavori), the last one too. A shown tab that goes hands over to its right neighbour that stays,
-    /// else to its left one; a strip left with no tab shows nothing. False when nothing closed.
-    pub fn retain_tasks(&mut self, exists: impl Fn(&str) -> bool) -> bool {
-        let stays = |tab: &&Tab| exists(&tab.task);
-        let heir = self.active_index().and_then(|shown| {
-            let (before, from_shown) = self.tabs.split_at(shown);
-            let right = from_shown.iter().find(stays);
-            right.or_else(|| before.iter().rev().find(stays))
-        });
-        let heir = heir.map(|tab| tab.id);
-        let open = self.tabs.len();
-        self.tabs.retain(|tab| exists(&tab.task));
-        self.active = heir;
-        self.tabs.len() != open
-    }
-
-    /// The strip as stored in the preferences: its version, the lavori in order and the place shown.
+    /// Stores pages in strip order, with histories for the two members of a split.
     pub fn to_json(&self) -> Value {
         let tabs: Vec<Value> = self
             .tabs
             .iter()
-            .map(|tab| json!({ KIND_KEY: KIND_TASK, TASK_KEY: tab.task }))
-            .collect();
-        let shown = self.active_index().unwrap_or(0);
-        json!({ VERSION_KEY: STORAGE_VERSION, TABS_KEY: tabs, ACTIVE_KEY: shown })
-    }
-
-    /// The strip a stored value describes, or `None` when the value is of another version, holds no tab or
-    /// holds one that cannot be read: the caller then starts with [`Tabs::new`]. A lavoro stored twice
-    /// keeps its first tab, a tab on the home view of before is dropped, and a place shown that no longer
-    /// holds a tab becomes the first.
-    pub fn from_json(stored: &Value) -> Option<Self> {
-        if stored.get(VERSION_KEY)?.as_u64()? != u64::from(STORAGE_VERSION) {
-            return None;
-        }
-        let read: Option<Vec<Option<String>>> = stored
-            .get(TABS_KEY)?
-            .as_array()?
-            .iter()
-            .map(read_task)
-            .collect();
-        let read = read?;
-        let shown = stored
-            .get(ACTIVE_KEY)
-            .and_then(Value::as_u64)
-            .and_then(|place| read.get(usize::try_from(place).ok()?)?.as_ref());
-        let mut tasks: Vec<String> = Vec::with_capacity(read.len());
-        for task in read.iter().flatten() {
-            if !tasks.contains(task) {
-                tasks.push(task.clone());
-            }
-        }
-        let active = shown.and_then(|task| tasks.iter().position(|open| open == task));
-        (!tasks.is_empty()).then(|| Self::from_tasks(tasks, active.unwrap_or(0)))
-    }
-
-    /// `tasks` (no lavoro twice) as tabs with fresh ids, the one at `active` shown.
-    fn from_tasks(tasks: Vec<String>, active: usize) -> Self {
-        let tabs: Vec<Tab> = (1..)
-            .zip(tasks)
-            .map(|(id, task)| Tab {
-                id: TabId(id),
-                task,
+            .map(|tab| {
+                let mut stored = page_to_json(&tab.page);
+                stored[TALK_KEY] = json!(tab.talk);
+                if self.split.is_some_and(|pair| pair.other(tab.id).is_some()) {
+                    stored[BACK_KEY] = tab.back.iter().map(page_to_json).collect();
+                    stored[FORWARD_KEY] = tab.forward.iter().map(page_to_json).collect();
+                }
+                stored
             })
             .collect();
-        Self {
-            active: tabs.get(active).map(|tab| tab.id),
-            next_id: tabs.len() as u64 + 1,
-            tabs,
+        let mut stored = json!({
+            VERSION_KEY: STORAGE_VERSION, TABS_KEY: tabs, ACTIVE_KEY: self.active_index()
+        });
+        if let Some(pair) = self.split {
+            stored[VERSION_KEY] = json!(SPLIT_STORAGE_VERSION);
+            stored[SPLIT_KEY] = json!({
+                LEFT_KEY: self.index_of(pair.left),
+                RIGHT_KEY: self.index_of(pair.right),
+                SHARE_KEY: pair.left_share_bps
+            });
         }
+        stored
     }
 
-    fn tab_on(&self, task: &str) -> Option<TabId> {
-        self.tabs
-            .iter()
-            .find(|tab| tab.task == task)
-            .map(|tab| tab.id)
+    fn from_json(stored: &Value) -> Option<Self> {
+        let version = stored.get(VERSION_KEY)?.as_u64()?;
+        let read: fn(&Value) -> Option<Page> = match version {
+            v if v == u64::from(STORAGE_VERSION) || v == SPLIT_STORAGE_VERSION => read_page,
+            PINNED_STORAGE_VERSION => read_pinned,
+            _ => return None,
+        };
+        let entries = stored.get(TABS_KEY)?.as_array()?;
+        let mut kept = Vec::with_capacity(entries.len());
+        for (place, tab) in entries.iter().enumerate() {
+            if let Some(page) = read(tab) {
+                kept.push((place, page, talk_of(tab)));
+            } else if version != SPLIT_STORAGE_VERSION {
+                return None;
+            }
+        }
+        let (mut tabs, places) = Self::from_kept(kept, read_index(stored, ACTIVE_KEY))?;
+        if version == SPLIT_STORAGE_VERSION {
+            tabs.restore_split(stored, entries, &places);
+        }
+        Some(tabs)
+    }
+
+    /// The tabs of the stored `kept` (each page with the conversation it was kept with, none for a tab stored
+    /// before conversations were kept), the tab at the stored place `shown` shown. Two tabs stored with the
+    /// same conversation are one; a Master tab kept with a conversation is never taken for another; the first
+    /// Master tab kept with none takes up the conversation kept before tabs had their own.
+    fn from_kept(
+        kept: Vec<(usize, Page, Option<String>)>,
+        shown: Option<usize>,
+    ) -> Option<(Self, Vec<usize>)> {
+        let mut tabs: Vec<Tab> = Vec::with_capacity(kept.len());
+        let mut places = Vec::with_capacity(kept.len());
+        let mut shown_id = None;
+        let mut has_old_talk = false;
+        for (place, page, talk) in kept {
+            let is_open = tabs.iter().any(|tab| match (&talk, &page) {
+                (Some(talk), _) => tab.talk == *talk && !talk.is_empty(),
+                (None, page) => tab.page == *page,
+            });
+            if is_open {
+                continue;
+            }
+            let id = TabId(tabs.len() as u64 + 1);
+            let talk = match talk {
+                Some(talk) => talk,
+                None if page == Page::Master && !has_old_talk => {
+                    has_old_talk = true;
+                    String::new()
+                }
+                None => new_talk(),
+            };
+            tabs.push(Tab::restored(id, page, talk));
+            places.push(place);
+            if shown == Some(place) {
+                shown_id = Some(id);
+            }
+        }
+        let active = shown_id.or(tabs.first().map(|tab| tab.id))?;
+        let strip = Self {
+            next_id: tabs.len() as u64 + 1,
+            tabs,
+            active,
+            split: None,
+        };
+        Some((strip, places))
+    }
+
+    fn restore_split(&mut self, stored: &Value, entries: &[Value], places: &[usize]) {
+        let Some(pair) = stored.get(SPLIT_KEY) else {
+            return;
+        };
+        let (Some(left), Some(right)) = (read_index(pair, LEFT_KEY), read_index(pair, RIGHT_KEY))
+        else {
+            return;
+        };
+        let Some(index) = places.windows(2).position(|pair| pair == [left, right]) else {
+            return;
+        };
+        if left.checked_add(1) != Some(right) {
+            return;
+        }
+        self.tabs[index].restore_history(&entries[left]);
+        self.tabs[index + 1].restore_history(&entries[right]);
+        self.split = Some(SplitTabs {
+            left: self.tabs[index].id,
+            right: self.tabs[index + 1].id,
+            left_share_bps: read_share(pair.get(SHARE_KEY)),
+        });
+    }
+
+    fn active_index(&self) -> usize {
+        self.index_of(self.active)
+            .unwrap_or_else(|| unreachable!("the tab shown is always open"))
+    }
+
+    fn active_mut(&mut self) -> &mut Tab {
+        let index = self.active_index();
+        &mut self.tabs[index]
     }
 
     fn new_id(&mut self) -> TabId {
@@ -294,24 +565,146 @@ impl Tabs {
     }
 }
 
-/// The digit of the shortcut that selects the tab at `index` of `count`: 1 to 8 for the first eight places,
-/// 9 for the last tab wherever it stands, none for a tab in between.
-pub fn shortcut_digit(index: usize, count: usize) -> Option<usize> {
-    if index + 1 < LAST_TAB_DIGIT {
-        return Some(index + 1);
+impl Tab {
+    /// Makes the tab show `page` with no history; false when it showed it already with none.
+    fn reset_to(&mut self, page: Page) -> bool {
+        let is_same = self.page == page && self.back.is_empty() && self.forward.is_empty();
+        self.page = page;
+        self.back.clear();
+        self.forward.clear();
+        !is_same
     }
-    (index + 1 == count).then_some(LAST_TAB_DIGIT)
+
+    fn on(id: TabId, page: Page) -> Self {
+        Self::restored(id, page, new_talk())
+    }
+
+    fn restored(id: TabId, page: Page, talk: String) -> Self {
+        Self {
+            id,
+            talk,
+            page,
+            back: Vec::new(),
+            forward: Vec::new(),
+        }
+    }
+
+    fn restore_history(&mut self, stored: &Value) {
+        let read = |key| {
+            stored[key]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(read_page)
+                .collect()
+        };
+        self.back = read(BACK_KEY);
+        self.forward = read(FORWARD_KEY);
+    }
 }
 
-/// The lavoro of one stored tab: `Some(None)` for an entry to skip (the home view of before), `None` for
-/// one that cannot be read.
-fn read_task(stored: &Value) -> Option<Option<String>> {
-    match stored.get(KIND_KEY)?.as_str()? {
-        KIND_FORMER_HOME => Some(None),
-        KIND_TASK => {
-            let name = stored.get(TASK_KEY)?.as_str()?;
-            (!name.is_empty()).then(|| Some(name.to_string()))
-        }
+fn read_index(stored: &Value, key: &str) -> Option<usize> {
+    usize::try_from(stored.get(key)?.as_u64()?).ok()
+}
+
+fn read_share(stored: Option<&Value>) -> u16 {
+    let Some(stored) = stored else {
+        return DEFAULT_SPLIT_SHARE;
+    };
+    if let Some(share) = stored.as_u64() {
+        return share.clamp(u64::from(MIN_SPLIT_SHARE), u64::from(MAX_SPLIT_SHARE)) as u16;
+    }
+    if stored.as_i64().is_some() {
+        return MIN_SPLIT_SHARE;
+    }
+    DEFAULT_SPLIT_SHARE
+}
+
+/// The conversation a stored tab was kept with; none for a tab stored before they were kept.
+fn talk_of(stored: &Value) -> Option<String> {
+    stored.get(TALK_KEY)?.as_str().map(str::to_string)
+}
+
+/// A name for a new conversation that no other has had: the time it was made and a count of those made since
+/// the app started, so two made at once differ too.
+fn new_talk() -> String {
+    static MADE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_nanos());
+    let count = MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("t{nanos:x}-{count:x}")
+}
+
+pub(crate) fn page_to_json(page: &Page) -> Value {
+    match page {
+        Page::Inbox => json!({ PAGE_KEY: PAGE_INBOX }),
+        Page::Master => json!({ PAGE_KEY: PAGE_MASTER }),
+        Page::Lanes => json!({ PAGE_KEY: PAGE_LANES }),
+        Page::Scheduled => json!({ PAGE_KEY: PAGE_SCHEDULED }),
+        Page::Engine => json!({ PAGE_KEY: PAGE_ENGINE }),
+        Page::Lane(key) => json!({ PAGE_KEY: PAGE_LANE, LANE_KEY: key }),
+        Page::Project(folder) => json!({ PAGE_KEY: PAGE_PROJECT, FOLDER_KEY: folder }),
+        Page::Track(id) => json!({ PAGE_KEY: PAGE_TRACK, PAGE_TRACK: id }),
+    }
+}
+
+/// The page of one stored tab of version 3; `None` for one that cannot be read.
+pub(crate) fn read_page(stored: &Value) -> Option<Page> {
+    match stored.get(PAGE_KEY)?.as_str()? {
+        PAGE_INBOX => Some(Page::Inbox),
+        PAGE_MASTER => Some(Page::Master),
+        PAGE_LANES => Some(Page::Lanes),
+        PAGE_SCHEDULED => Some(Page::Scheduled),
+        PAGE_ENGINE => Some(Page::Engine),
+        PAGE_LANE => read_lane(stored),
+        PAGE_PROJECT => read_project(stored),
+        PAGE_TRACK => stored
+            .get(PAGE_TRACK)?
+            .as_str()
+            .filter(|id| !id.is_empty())
+            .map(|id| Page::Track(id.into())),
         _ => None,
+    }
+}
+
+/// The page of one stored tab of version 2: Waiting is the Inbox, the Master stays, a lane keeps its key;
+/// `None` for one that cannot be read.
+fn read_pinned(stored: &Value) -> Option<Page> {
+    match stored.get(KIND_KEY)?.as_str()? {
+        KIND_WAITING => Some(Page::Inbox),
+        KIND_MASTER => Some(Page::Master),
+        KIND_LANE => read_lane(stored),
+        _ => None,
+    }
+}
+
+fn read_project(stored: &Value) -> Option<Page> {
+    let folder = stored.get(FOLDER_KEY)?.as_str()?;
+    (!folder.is_empty()).then(|| Page::Project(folder.to_string()))
+}
+
+fn read_lane(stored: &Value) -> Option<Page> {
+    let key = stored.get(LANE_KEY)?.as_str()?;
+    (!key.is_empty()).then(|| Page::Lane(key.to_string()))
+}
+
+#[cfg(test)]
+mod project_page_tests {
+    use super::*;
+
+    #[test]
+    fn a_project_page_is_kept_by_its_folder_and_read_back() {
+        let page = Page::Project("/work/orchard".to_string());
+        assert_eq!(read_page(&page_to_json(&page)), Some(page));
+        assert_eq!(
+            read_page(&json!({ PAGE_KEY: PAGE_PROJECT })),
+            None,
+            "a folder is needed"
+        );
+        assert_eq!(
+            read_page(&json!({ PAGE_KEY: PAGE_PROJECT, FOLDER_KEY: "" })),
+            None
+        );
     }
 }

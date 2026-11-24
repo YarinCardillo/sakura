@@ -2,13 +2,14 @@
 //! view shares (tabular figures, monospace for shas and branch names).
 
 use crate::l10n::{tr, Key};
-use crate::theme;
+use crate::theme::kit::scale::{Typeset as _, CONTROL_LABEL, CONTROL_REGULAR, SPACE_M};
+use crate::theme::{self, Palette};
 use gpui::{
     div, Div, ElementId, Font, FontFeatures, FontWeight, Hsla, InteractiveElement as _,
     MouseButton, ParentElement as _, Pixels, SharedString, Stateful,
     StatefulInteractiveElement as _, Styled as _, TextRun, Window,
 };
-use gpui_component::button::Button;
+use gpui_component::button::{Button, ButtonCustomVariant};
 use gpui_component::tooltip::Tooltip;
 use std::sync::Arc;
 
@@ -29,6 +30,27 @@ pub fn drag_region(id: impl Into<ElementId>) -> Stateful<Div> {
 /// Keeps a click on a control inside a [`drag_region`] from moving the window.
 pub fn keep_click(element: Stateful<Div>) -> Stateful<Div> {
     element.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+}
+
+/// The mark of a connector at the icon size, in the text colour, with nothing around it. `id` names it in the
+/// window.
+#[cfg(not(feature = "boxes"))]
+pub fn connector_mark(
+    icon: crate::icons::ConnectorIcon,
+    id: String,
+    palette: &Palette,
+) -> gpui::AnyElement {
+    use gpui::IntoElement as _;
+    use gpui_component::{Icon, Sizable as _};
+    div()
+        .debug_selector(move || id.clone())
+        .flex_none()
+        .child(
+            Icon::new(icon)
+                .with_size(theme::ICON_SIZE)
+                .text_color(palette.text),
+        )
+        .into_any_element()
 }
 
 /// A block of interface text at `size` in `colour`.
@@ -55,12 +77,11 @@ pub fn steady_label(shown: &'static str, words: &[&'static str]) -> Div {
 /// A kit button at the one control height, its word in the small text at the weight of the view tabs,
 /// keeping room for the widest of `words`.
 pub fn control(button: Button, shown: &'static str, words: &[&'static str]) -> Button {
-    let label = steady_label(shown, words)
-        .text_size(theme::TEXT_SMALL)
-        .font_weight(theme::WEIGHT_MEDIUM);
+    let label = steady_label(shown, words).text_style(CONTROL_LABEL);
     button
-        .h(theme::CONTROL_HEIGHT)
-        .px(theme::CONTROL_PADDING_X)
+        .h(CONTROL_REGULAR)
+        .px(SPACE_M)
+        .rounded(theme::RADIUS_CONTROL)
         .child(label)
 }
 
@@ -118,4 +139,23 @@ pub fn mono() -> Div {
 /// and diff views use the same features.
 pub fn mono_features() -> FontFeatures {
     FontFeatures(Arc::new(vec![(theme::MONO_PLAIN_ZERO.into(), 1)]))
+}
+
+/// No fill at rest, the secondary fill under the pointer and while the menu is open.
+pub fn quiet_variant(palette: &Palette, cx: &gpui::App) -> ButtonCustomVariant {
+    ButtonCustomVariant::new(cx)
+        .color(gpui::transparent_black())
+        .foreground(palette.text_secondary)
+        .hover(palette.fill)
+        .active(palette.fill_hover)
+}
+
+/// The secondary button: a filled box a step above its surface, never an outline.
+pub fn secondary_variant(cx: &gpui::App) -> ButtonCustomVariant {
+    let palette = crate::theme::Theme::palette(cx);
+    ButtonCustomVariant::new(cx)
+        .color(palette.fill)
+        .foreground(palette.text)
+        .hover(palette.fill_hover)
+        .active(palette.fill_hover)
 }

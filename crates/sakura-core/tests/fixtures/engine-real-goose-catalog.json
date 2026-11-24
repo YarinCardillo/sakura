@@ -1,0 +1,45 @@
+{
+  "accounts": [
+    {
+      "fetched_at": "",
+      "id": "studio",
+      "label": "Studio",
+      "models": [],
+      "models_reason": null,
+      "models_state": "missing",
+      "provider": "claude",
+      "source": ""
+    },
+    {
+      "fetched_at": "",
+      "id": "archive",
+      "label": "Archive",
+      "models": [],
+      "models_reason": null,
+      "models_state": "missing",
+      "provider": "codex",
+      "source": ""
+    },
+    {
+      "fetched_at": "2026-11-18T08:00:00+00:00",
+      "id": "goose-fixture",
+      "label": "Local models",
+      "models": [
+        {
+          "default_effort": "",
+          "description": "",
+          "efforts": [],
+          "id": "qwen2.5:3b",
+          "is_default": true,
+          "label": "Qwen 2.5 (Ollama)",
+          "resolved": ""
+        }
+      ],
+      "models_reason": "adapter_timeout",
+      "models_state": "stale",
+      "provider": "goose",
+      "source": "ACP session",
+      "upstream_provider": "ollama"
+    }
+  ]
+}

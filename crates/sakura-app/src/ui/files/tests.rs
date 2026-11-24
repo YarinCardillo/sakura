@@ -621,7 +621,32 @@ fn a_file_that_is_too_large_or_not_text_is_one_sentence(cx: &mut TestAppContext)
         Some(Key("files.view.unreadable"))
     );
     assert_eq!(note(&mut opened, "README.md"), None);
-    assert_eq!(opened.text(), "# Folders\n");
+    assert_eq!(opened.text(), "# Folders", "its one line, numbered once");
+}
+
+#[gpui::test]
+fn a_file_is_numbered_only_on_the_lines_it_has(cx: &mut TestAppContext) {
+    let mut opened = open(cx);
+    let numbered = |opened: &mut Opened, path: &str, text: &str| {
+        opened.source.set_file(path, text);
+        opened
+            .pane
+            .update_in(opened.cx, |pane, window, cx| pane.open(path, window, cx));
+        draw(opened.cx);
+        let file = opened.file();
+        opened.cx.read(|cx| {
+            let editor = file.read(cx).editor();
+            gpui_component::input::RopeExt::lines_len(editor.read(cx).text())
+        })
+    };
+    assert_eq!(numbered(&mut opened, "one.txt", "uno\n"), 1);
+    assert_eq!(numbered(&mut opened, "six.txt", &"line\n".repeat(6)), 6);
+    assert_eq!(numbered(&mut opened, "bare.txt", "uno\ndue"), 2);
+    assert_eq!(
+        numbered(&mut opened, "blank.txt", "uno\n\n"),
+        2,
+        "an empty line the file has is its own line"
+    );
 }
 
 #[gpui::test]

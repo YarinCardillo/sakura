@@ -27,6 +27,53 @@ pub struct RunningRequest {
 pub enum RunnerPhase {
     Running,
     Stopped,
+    /// The engine runs the checks and a program it needs is missing: no check runs until it is
+    /// installed (`checkRunner.engine` says which).
+    #[serde(rename = "not-installed")]
+    NotInstalled,
+}
+
+/// Which runner runs the checks (`checkRunner.runner`): the service's own, or the Restate engine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RunnerKind {
+    Bash,
+    Engine,
+}
+
+impl RunnerKind {
+    /// The value `box config set RUNNER` takes.
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::Bash => "bash",
+            Self::Engine => "engine",
+        }
+    }
+}
+
+/// Whether the two programs the engine needs are there, and the service's line that says what to
+/// install (`None` when nothing is missing).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnginePrerequisites {
+    pub restate_server: bool,
+    pub node: bool,
+    pub setup: Option<String>,
+}
+
+impl EnginePrerequisites {
+    /// Whether the engine can run.
+    pub fn is_complete(&self) -> bool {
+        self.restate_server && self.node
+    }
+}
+
+/// `checkRunner` of `box status --json`: the runner chosen in the service's config, and what the
+/// engine needs (`None` when the service could not examine it).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckRunner {
+    pub runner: RunnerKind,
+    pub engine: Option<EnginePrerequisites>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -71,6 +118,10 @@ pub struct VerifyResult {
     /// For the test verb, how many tests ran.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tests: Option<TestCounts>,
+    /// Why `box` set the result aside (the folder changed while the check ran, the folder was not the
+    /// commit requested): its exit code says nothing about the work. `None` for a result that counts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discarded: Option<String>,
 }
 
 /// The existing test files a commit changed: how many it modified, how many it deleted, and which (at
@@ -101,7 +152,9 @@ pub struct TestCounts {
 }
 
 /// `null` where a flag is expected reads as false.
-fn null_as_false<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
+pub(crate) fn null_as_false<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<bool, D::Error> {
     Ok(Option::<bool>::deserialize(deserializer)?.unwrap_or(false))
 }
 
@@ -150,11 +203,11 @@ pub struct Preparing {
 pub struct Task {
     pub name: String,
     pub profile: String,
-    /// Where the lavoro lives; a `box` from before places existed says nothing, and that is a box.
+    /// Where the task lives; a `box` from before places existed says nothing, and that is a box.
     #[serde(default, rename = "where", skip_serializing_if = "Place::is_box")]
     pub place: Place,
-    /// The worktree of a lavoro on the Mac, as an absolute path: the working directory of its agent.
-    /// `None` for a lavoro in a box, whose agent works in `/work/<task>`.
+    /// The worktree of a task on the Mac, as an absolute path: the working directory of its agent.
+    /// `None` for a task in a box, whose agent works in `/work/<task>`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder: Option<String>,
     pub base: String,
@@ -164,6 +217,9 @@ pub struct Task {
     pub head: Option<String>,
     pub head_subject: Option<String>,
     pub head_time: Option<String>,
+    /// Last completed agent turn, or task creation until a turn ends, as UTC.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub age_at: Option<String>,
     pub ahead: Option<u32>,
     pub dirty_files: Option<u32>,
     pub files_changed: Option<u32>,
@@ -211,6 +267,13 @@ pub struct TaskSummary {
 pub struct BoxStatus {
     pub runner: RunnerState,
     pub tasks: Vec<Task>,
+    /// Absent from a service that has one runner only.
+    #[serde(
+        default,
+        rename = "checkRunner",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub check_runner: Option<CheckRunner>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -260,7 +323,7 @@ pub struct JournalEvent {
 #[serde(rename_all = "camelCase")]
 pub struct Account {
     pub name: String,
-    /// Which lavori it serves: an account of the boxes, or one of the person's own logins on the Mac.
+    /// Which tasks it serves: an account of the boxes, or one of the person's own logins on the Mac.
     #[serde(default, rename = "where")]
     pub place: Place,
     /// Whether it is signed in. `box` says nothing (`null`) for an account of the Mac: it never opens
@@ -283,7 +346,7 @@ impl Account {
     }
 }
 
-/// Where a lavoro lives, and which lavori an account serves.
+/// Where a task lives, and which tasks an account serves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Place {
@@ -337,21 +400,24 @@ pub struct Machine {
     pub disk_free_gb: f64,
 }
 
-/// One plan's weekly use, from the Leeway service.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AccountUsage {
-    pub label: String,
-    pub weekly_percent: f64,
-    pub resets_at: Option<String>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TerminalKind {
     Agent,
     Login,
     Shell,
+    /// `box up`: builds the image of the boxes and starts their network and proxy.
+    Up,
+}
+
+/// Whether a box can be used now (`box up --check`): Docker answers, the image is there, the proxy
+/// runs. `ready` is all three.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BoxReadiness {
+    pub docker: bool,
+    pub image: bool,
+    pub proxy: bool,
+    pub ready: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -363,12 +429,6 @@ pub struct TerminalRequest {
     pub account: Option<String>,
     pub cols: u16,
     pub rows: u16,
-}
-
-/// Payload of the `facts-changed` event.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct FactsChanged {
-    pub task: Option<String>,
 }
 
 /// Payload of the `terminal-exit` event.
@@ -421,6 +481,51 @@ mod tests {
         let status: BoxStatus = serde_json::from_str(FIXTURE).unwrap();
         let written = serde_json::to_value(&status).unwrap();
         assert!(same_json(&original, &written), "{written:#}");
+    }
+
+    #[test]
+    fn the_runner_chosen_is_read_and_a_service_without_a_choice_still_parses() {
+        let status: BoxStatus = serde_json::from_str(FIXTURE).unwrap();
+        assert_eq!(status.check_runner, None);
+        let bash = r#"{"runner":{"state":"stopped","current":null,"queue":[]},"tasks":[],
+            "checkRunner":{"runner":"bash","engine":{"restateServer":false,"node":true,
+            "setup":"checks need the Restate server, which is not installed: brew install restatedev/tap/restate-server"}}}"#;
+        let status: BoxStatus = serde_json::from_str(bash).unwrap();
+        let choice = status.check_runner.unwrap();
+        assert_eq!(choice.runner, RunnerKind::Bash);
+        let engine = choice.engine.unwrap();
+        assert!(!engine.is_complete() && engine.node && !engine.restate_server);
+        let unexamined = r#"{"runner":"bash","engine":null}"#;
+        let choice: CheckRunner = serde_json::from_str(unexamined).unwrap();
+        assert_eq!(choice.engine, None);
+    }
+
+    #[test]
+    fn the_engine_s_status_is_read_with_its_own_states_and_fields() {
+        let missing = r#"{"runner":{"state":"not-installed","setup":"checks need Node 24 or newer, which is not installed: brew install node",
+            "current":null,"queue":[],"waiting":null},"idle":[],"tasks":[],
+            "checkRunner":{"runner":"engine","engine":{"restateServer":true,"node":false,"setup":"checks need Node 24 or newer, which is not installed: brew install node"}}}"#;
+        let status: BoxStatus = serde_json::from_str(missing).unwrap();
+        assert_eq!(status.runner.state, RunnerPhase::NotInstalled);
+        assert_eq!(status.check_runner.unwrap().runner, RunnerKind::Engine);
+        let running = r#"{"runner":{"state":"running","current":{"task":"m1","verb":"test","sha":"a","startedAt":"t"},
+            "queue":[],"waiting":{"reason":"free memory 3100 MB is under 7168 MB","since":"t"}},
+            "idle":[{"piece":"restate","rssMb":118,"cpuPercent":0.3}],"tasks":[],
+            "checkRunner":{"runner":"engine","engine":{"restateServer":true,"node":true,"setup":null}}}"#;
+        let status: BoxStatus = serde_json::from_str(running).unwrap();
+        assert_eq!(status.runner.state, RunnerPhase::Running);
+        assert!(status.check_runner.unwrap().engine.unwrap().is_complete());
+    }
+
+    #[test]
+    fn a_status_the_engine_wrote_on_a_real_check_is_read_whole() {
+        // Written by `box status --json` with RUNNER=engine after a real check in a box on OrbStack.
+        let written = include_str!("../tests/fixtures/status-engine.json");
+        let status: BoxStatus = serde_json::from_str(written).unwrap();
+        assert_eq!(status.runner.state, RunnerPhase::Running);
+        assert_eq!(status.check_runner.unwrap().runner, RunnerKind::Engine);
+        let probe = &status.tasks[0].results["probe"];
+        assert_eq!((probe.exit_code, probe.is_head), (0, true));
     }
 
     #[test]

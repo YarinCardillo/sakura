@@ -9,6 +9,10 @@
 #                           copied and signed instead of building here
 #   SAKURA_CARGO            the cargo command to run (default: cargo)
 #   CARGO_TARGET_DIR        where cargo builds
+#   SAKURA_UPDATE_FEED_URL, SAKURA_UPDATE_PUBLIC_KEY
+#                           the update feed and public key the bundle gets (see docs/release.md)
+#   SAKURA_SPARKLE_ACCOUNT  the Sparkle keychain account that signs the update feed; needed to make
+#                           appcast.xml, and only a notarised build gets one. The script never creates a key.
 # The script never reads, prints or creates a credential: it asks codesign and notarytool to use what
 # the keychain already holds, and every such call has a deadline, so a keychain prompt nobody answers
 # stops the release instead of hanging it. Without the identity or the profile the bundle is signed
@@ -120,6 +124,7 @@ verify_distributed_app() {
 }
 
 sign_for_distribution() {
+    scripts/sign-sparkle.sh "$APP" "$IDENTITY"
     python3 scripts/sign_bundle.py "$APP" "$IDENTITY" scripts/release.entitlements
     printf 'Submitting the app for notarization\n'
     ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT/notarization.zip"
@@ -138,9 +143,37 @@ sign_ad_hoc() {
     printf 'ad-hoc\n' > "$OUT/signature.txt"
 }
 
+# The bundle of an update release must carry the feed and the public key the app checks updates against.
+require_update_keys() {
+    [[ -n ${SAKURA_SPARKLE_ACCOUNT:-} ]] || return 0
+    python3 - "$APP/Contents/Info.plist" <<'PY'
+import plistlib
+import sys
+from pathlib import Path
+info = plistlib.loads(Path(sys.argv[1]).read_bytes())
+if not (info.get("SUFeedURL") and info.get("SUPublicEDKey")):
+    sys.exit("SAKURA_SPARKLE_ACCOUNT is set but the bundle has no update feed or public key: "
+             "set SAKURA_UPDATE_FEED_URL and SAKURA_UPDATE_PUBLIC_KEY (docs/release.md)")
+PY
+}
+
+# Signs the zip for the update feed and writes appcast.xml beside it. Only a notarised build gets one.
+make_update_feed() {
+    if [[ -z ${SAKURA_SPARKLE_ACCOUNT:-} ]]; then
+        printf 'Skipping the update feed: SAKURA_SPARKLE_ACCOUNT is not set.\n'
+    elif [[ $(cat "$OUT/signature.txt") != developer-id-notarized ]]; then
+        printf 'Skipping the update feed: only a notarised build gets one.\n'
+    else
+        local sparkle
+        sparkle=$(scripts/fetch-sparkle.sh)
+        scripts/generate-appcast.sh "$VERSION" "$sparkle/bin" "$OUT" "https://github.com/$REPO"
+    fi
+}
+
 # The command that publishes: it adds to the draft the tag's workflow made, or makes the draft.
 write_publish_command() {
     local assets=("$ZIP" "$OUT/SHA256SUMS-macos.txt") create
+    if [[ -f "$OUT/appcast.xml" ]]; then assets+=("$OUT/appcast.xml"); fi
     create=(gh release create "v$VERSION" --repo "$REPO" --draft --title "Sakura $VERSION"
         --target "$SOURCE_COMMIT" --notes-file "$OUT/release-notes.md")
     if [[ $VERSION == *-* ]]; then create+=(--prerelease); fi
@@ -175,6 +208,7 @@ build_bundle
 require_clean_worktree
 [[ $(git rev-parse HEAD) == "$SOURCE_COMMIT" ]] || { printf 'Source commit changed during the build.\n' >&2; exit 1; }
 python3 scripts/release_metadata.py bundle "$APP/Contents/Info.plist" "$VERSION"
+require_update_keys
 ARCHITECTURE=$(architecture_of "$APP/Contents/MacOS/sakura")
 printf 'Architecture: %s\n' "$ARCHITECTURE"
 
@@ -196,8 +230,11 @@ else
 fi
 rm -r "$OUT/zip-check"
 
+make_update_feed
 python3 scripts/write_cask.py "$VERSION" "$ZIP" "$OUT/sakura.rb" "$ARCHITECTURE"
-(cd "$OUT" && shasum -a 256 "${ZIP##*/}") > "$OUT/SHA256SUMS-macos.txt"
+checksummed=("${ZIP##*/}")
+if [[ -f "$OUT/appcast.xml" ]]; then checksummed+=(appcast.xml); fi
+(cd "$OUT" && shasum -a 256 "${checksummed[@]}") > "$OUT/SHA256SUMS-macos.txt"
 write_publish_command
 mkdir -p Casks
 cp "$OUT/sakura.rb" Casks/sakura.rb

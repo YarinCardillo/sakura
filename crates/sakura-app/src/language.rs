@@ -67,6 +67,7 @@ pub fn set_choice(choice: LanguageChoice, cx: &mut App) {
 
 /// The window became the active one: with the automatic choice, the Mac's list is read again and the
 /// language follows it. An explicit choice is left alone.
+#[cfg(any(test, feature = "boxes"))]
 pub fn follow_the_system(cx: &mut App) {
     if choice(cx) == LanguageChoice::Automatic {
         speak(choose(LanguageChoice::Automatic, &preferred(cx)), cx);
@@ -93,49 +94,12 @@ fn preferred(cx: &App) -> Vec<String> {
 /// `[NSLocale preferredLanguages]` as strings (`it-IT`, `en-GB`); empty when Foundation gives none.
 #[cfg(target_os = "macos")]
 fn preferred_by_the_system() -> Vec<String> {
-    use std::ffi::{c_char, c_void, CStr};
-
-    /// More languages than anyone lists; a bound on what is read.
     const MOST: usize = 64;
-
-    #[link(name = "objc")]
-    extern "C" {
-        fn objc_getClass(name: *const c_char) -> *mut c_void;
-        fn sel_registerName(name: *const c_char) -> *mut c_void;
-        fn objc_msgSend();
-    }
-    type Get = unsafe extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void;
-    type Count = unsafe extern "C" fn(*mut c_void, *mut c_void) -> usize;
-    type At = unsafe extern "C" fn(*mut c_void, *mut c_void, usize) -> *mut c_void;
-    type Utf8 = unsafe extern "C" fn(*mut c_void, *mut c_void) -> *const c_char;
-    // SAFETY: the class and the selectors are looked up by their documented names and every object is
-    // checked for null; `objc_msgSend` is called through the exact C signature of each method (a class
-    // getter returning an NSArray, `count`, `objectAtIndex:` within the count, `UTF8String` of an
-    // NSString, whose bytes are copied before anything else runs), on the main thread.
-    unsafe {
-        let class = objc_getClass(c"NSLocale".as_ptr());
-        if class.is_null() {
-            return Vec::new();
-        }
-        let send = objc_msgSend as unsafe extern "C" fn();
-        let get: Get = std::mem::transmute(send);
-        let list = get(class, sel_registerName(c"preferredLanguages".as_ptr()));
-        if list.is_null() {
-            return Vec::new();
-        }
-        let count: Count = std::mem::transmute(send);
-        let at: At = std::mem::transmute(send);
-        let utf8: Utf8 = std::mem::transmute(send);
-        let total = count(list, sel_registerName(c"count".as_ptr())).min(MOST);
-        let tag = |index: usize| {
-            let string = at(list, sel_registerName(c"objectAtIndex:".as_ptr()), index);
-            let bytes = (!string.is_null())
-                .then(|| utf8(string, sel_registerName(c"UTF8String".as_ptr())))
-                .filter(|bytes| !bytes.is_null())?;
-            Some(CStr::from_ptr(bytes).to_string_lossy().into_owned())
-        };
-        (0..total).filter_map(tag).collect()
-    }
+    objc2_foundation::NSLocale::preferredLanguages()
+        .iter()
+        .take(MOST)
+        .map(|tag| tag.to_string())
+        .collect()
 }
 
 /// The language of the session's locale (`LC_ALL`, `LC_MESSAGES`, `LANG`) as a tag: `it_IT.UTF-8` is

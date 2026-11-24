@@ -1,0 +1,60 @@
+build	a message you sent to an agent is still being worked on: the lane waits for it before it merges or moves on
+build	done
+build	merged {} into the engine's head {}
+build	skipped
+build	tests.full is empty, so the engine ran none of the repository's own tests (only the contract rows); to have it run them add [tests] full = ["<command>"] to .sakura/flow.toml
+build	workspace 0 still shows another revision than the engine's head: {}
+build	{} build tasks on up to {} builders
+build	{} commit(s) from a message to the final builder join the engine's head and go through the final review
+build	{} conflicts with merged work in {}: its builder gets a round to resolve it
+build	{} needs no change
+build	{} round {} needs changes
+build	{}: {} commit(s) from a message to its builder go through review and merge like a fix round
+calibrate	calibration {}: exit {} (receipt at {})
+cleanup	done
+cleanup	skipped
+contract	contract invalid after {} attempts: {}
+contract	done
+contract	skipped
+contract	workspace 0 cannot be moved to the engine's head: {}
+contract	{} wait for the person's approval
+contract	{}: nothing proves the new behavior
+evaluate	check {}: exit {}{} (receipt at {})
+evaluate	done
+evaluate	not verified by an evaluator
+evaluate	skipped
+evaluate	{} wait for the person's approval
+intake	done
+intake	intake failed: {}
+intake	skipped
+intake	spec changed after approval
+integration	overlap notice not posted: {}
+integration	{}: the engine's head is {}
+notify	notify defer failed: {}
+notify	notify deferred (night): {}; night mode sends no phone page, this one is kept and the cockpit lists it once the day starts at {}
+notify	notify failed: {}
+notify	notify {}: {}
+owner	row {} marked {} by {}
+owner	workspace 0 put back on the engine's head by {}
+pace	{} moves to the account {}
+pace	{}; steps run on the reserve rules alone
+plan	done
+plan	plan invalid after {} attempts: {}
+plan	skip: the plan step is off, one task builds the goal
+plan	skipped
+plan_review	round {} REVISE
+plan_review	skip: plan review is off
+pr	done
+pr	overlap check skipped for {}: its delivered head is not in the store
+pr	skipped
+questions	question {} asked by {}
+report	done
+report	owner report written to {}
+report	skipped
+review	contract flows review: {}
+review	final review round {}: REVISE
+review	final review sent back to build: round {}
+review	final review still asks for changes after {}: the person decides
+review	final review: the person accepted the branch as it is
+review	{} review round {}: {}
+review	{}: builder made no commit

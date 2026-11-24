@@ -1,5 +1,5 @@
-//! What the window tells the system and how a lavoro's work is ended, in a test window: the notifications
-//! and the Dock's count follow the lavori's state, on GPUI's test platform, which records what is posted
+//! What the window tells the system and how a task's work is ended, in a test window: the notifications
+//! and the Dock's count follow the tasks's state, on GPUI's test platform, which records what is posted
 //! to the system and posts nothing.
 
 use super::conversation_tests as live;
@@ -14,7 +14,7 @@ use sakura_core::model::Live;
 use std::rc::Rc;
 use std::time::Duration;
 
-/// Two lavori of the sample data, neither with an agent at work.
+/// Two tasks of the sample data, neither with an agent at work.
 const FIRST: &str = "sample-accent";
 const SECOND: &str = "headings-26";
 
@@ -64,9 +64,13 @@ fn nothing_is_told_while_the_window_is_in_front_and_the_badge_still_counts(
     agent_is(cx, &desk, FIRST, Live::Working);
     agent_waits(cx, &desk, FIRST, true);
     assert!(posted(cx).is_empty(), "the person is looking at it");
-    assert_eq!(badge(cx, &desk).as_deref(), Some("1"));
+    assert_eq!(badge(cx, &desk).as_deref(), Some("2"));
     agent_waits(cx, &desk, FIRST, false);
-    assert_eq!(badge(cx, &desk), None, "answered: nothing needs the person");
+    assert_eq!(
+        badge(cx, &desk).as_deref(),
+        Some("1"),
+        "only the unreadable workspace needs review"
+    );
 }
 
 #[gpui::test]
@@ -82,7 +86,7 @@ fn behind_another_app_a_lavoro_that_needs_the_person_and_an_agent_that_finished_
     agent_waits(cx, &desk, FIRST, true);
     agent_waits(cx, &desk, FIRST, true);
     assert_eq!(posted(cx), [(FIRST.to_string(), "Needs you.".to_string())]);
-    assert_eq!(badge(cx, &desk).as_deref(), Some("1"));
+    assert_eq!(badge(cx, &desk).as_deref(), Some("2"));
     agent_is(cx, &desk, SECOND, Live::Answered);
     assert_eq!(
         posted(cx).last(),
@@ -108,7 +112,7 @@ fn news_the_person_muted_is_not_told_and_the_badge_still_counts(cx: &mut TestApp
     draw(cx);
     agent_waits(cx, &desk, FIRST, true);
     assert!(posted(cx).is_empty());
-    assert_eq!(badge(cx, &desk).as_deref(), Some("1"));
+    assert_eq!(badge(cx, &desk).as_deref(), Some("2"));
 }
 
 /// The request the fake agent answers with a pull request, and the pull request it names.
@@ -116,7 +120,7 @@ const FAST: &str = "--delay-ms 2";
 /// What the service lists when the person has one login on this Mac.
 const MAC_LOGIN: &str = r#"[{"name":"mine","where":"mac","exists":true,"loggedIn":null}]"#;
 const PULL_REQUEST: &str = "https://github.com/acme/desk/pull/12";
-/// The fixture's lavoro in a box whose head was taken.
+/// The fixture's task in a box whose head was taken.
 const TAKEN: &str = "headings-26";
 
 fn is_on_screen(cx: &mut VisualTestContext, selector: &'static str) -> bool {
@@ -128,7 +132,7 @@ fn publish_asks_the_lavoros_own_agent_and_the_pull_request_it_names_appears_in_t
     cx: &mut TestAppContext,
 ) {
     l10n::set_for_test(Language::English);
-    // A lavoro on this Mac, whose agent runs on the person's one login here.
+    // A task on this Mac, whose agent runs on the person's one login here.
     let acp = format!("exec \"{}\" {FAST}", live::fake_agent().display());
     let (dir, script) = live::box_with(&acp, MAC_LOGIN);
     live::move_to_the_mac(dir.path(), FIRST);
@@ -223,7 +227,7 @@ fn after_take_publish_starts_a_lavoro_on_this_mac_from_the_branch_taken(cx: &mut
     );
 }
 
-/// The overflow's last item ends the lavoro, and is called what it does: the removal itself, its hold
+/// The overflow's last item ends the task, and is called what it does: the removal itself, its hold
 /// when work would be lost and its refusal are the ones the removal's own tests cover.
 #[test]
 fn what_ends_a_lavoro_is_called_archive_in_both_languages() {
@@ -234,7 +238,7 @@ fn what_ends_a_lavoro_is_called_archive_in_both_languages() {
         ),
         (
             Language::Italian,
-            ["Archivia", "Archivia comunque", "Archivio"],
+            ["Archivia", "Archivia comunque", "Archiviazione in corso"],
         ),
     ];
     for (language, [item, anyway, running]) in words {

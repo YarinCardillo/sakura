@@ -1,0 +1,7 @@
+{
+  "harnesses": [
+    {"id":"claude","program_path":null,"version":null,"found":false},
+    {"id":"codex","program_path":null,"version":null,"found":false}
+  ],
+  "logins": []
+}

@@ -30,7 +30,7 @@ use warnings;
 use Fcntl qw(F_GETFL F_SETFL O_NONBLOCK);
 use IO::Select;
 use JSON::PP;
-use POSIX qw(EAGAIN EINTR);
+use POSIX qw(EAGAIN EINTR strftime);
 
 use constant {
     READ_BYTES         => 65536,
@@ -57,6 +57,8 @@ die "usage: acp_proxy.pl <max line bytes> <end seconds> <stall seconds> <report 
 my $json = JSON::PP->new->utf8;
 my %count = (refused => 0, refused_unnamed => 0, agent_dropped => 0, client_dropped => 0);
 my %refused_method;
+my $prompt_id;
+my $age_file = delete $ENV{BOX_ACP_AGE_FILE};
 # Set by a signal that asks for the end.
 my $stop_requested = 0;
 # The wait status of the command once it has ended, and when that was seen. A command that has
@@ -64,7 +66,7 @@ my $stop_requested = 0;
 # wait for that end of the pipe, it stops a moment after the command.
 my ($command_status, $command_ended_at);
 
-# ---- messages -------------------------------------------------------------------------------
+# Messages.
 
 sub printable {
     my ($text) = @_;
@@ -86,12 +88,28 @@ sub client_line {
         $count{client_dropped}++;
         return;
     }
+    if (($message->{method} // '') eq 'session/prompt' && exists $message->{id} && !ref $message->{id}) {
+        $prompt_id = $json->encode($message->{id});
+    }
     my $params = $message->{params};
     if (($message->{method} // '') eq 'initialize' && ref $params eq 'HASH' && exists $params->{clientCapabilities}) {
         my $given = ref $params->{clientCapabilities} eq 'HASH' ? $params->{clientCapabilities} : {};
         $params->{clientCapabilities} = { map { $_ => $given->{$_} } grep { $PASSED_CAPABILITIES{$_} } keys %$given };
     }
     return $json->encode($message) . "\n";
+}
+
+# Only a response to the pending prompt completes a turn. Publish before forwarding it.
+sub record_turn_end {
+    return unless defined $prompt_id;
+    undef $prompt_id;
+    return unless defined $age_file;
+    my $temporary = "$age_file.$$";
+    open(my $file, '>', $temporary) or die "cannot record turn completion: $!";
+    chmod 0600, $temporary or die "cannot protect turn completion: $!";
+    print $file strftime('%Y-%m-%dT%H:%M:%SZ', gmtime), "\n";
+    close $file or die "cannot close turn completion: $!";
+    rename $temporary, $age_file or die "cannot publish turn completion: $!";
 }
 
 # Refusals are counted by method name, for the first MAX_NAMED_METHODS names only: an agent that
@@ -121,6 +139,9 @@ sub agent_line {
     my ($line) = @_;
     my $message = parsed($line);
     my $kind    = agent_message_kind($message);
+    if ($kind eq 'response' && defined $prompt_id && $json->encode($message->{id}) eq $prompt_id) {
+        record_turn_end();
+    }
     my $method  = $kind eq 'request' || $kind eq 'notification' ? $message->{method} : '';
     if ($kind eq 'response' || ($kind eq 'notification' && $PASSED_NOTIFICATIONS{$method}) || ($kind eq 'request' && $PASSED_REQUESTS{$method})) {
         return ($json->encode($message) . "\n", undef);
@@ -136,7 +157,7 @@ sub agent_line {
     return (undef, undef);
 }
 
-# ---- the command and its pipes ----------------------------------------------------------------
+# The command and its pipes.
 
 sub start_command {
     pipe(my $command_in, my $to_agent)   or die "pipe: $!\n";
@@ -285,7 +306,7 @@ sub relay {
     }
 }
 
-# ---- the end ----------------------------------------------------------------------------------
+# Shutdown.
 
 # Writes what the agent said last to the client, until the moment given: a client that does not
 # read is not waited for. The moment is absolute and the caller's: when the end of the session
@@ -379,5 +400,6 @@ if (!$why) {
     print STDERR "[box] acp: the agent did not end within $end_seconds s after the conversation was closed; the session was ended\n";
 }
 my $code = wait_for($pid);
+record_turn_end();
 write_report();
 exit(!$why ? $code : $why =~ /^oversized/ ? OVERSIZED_EXIT : STALLED_EXIT);

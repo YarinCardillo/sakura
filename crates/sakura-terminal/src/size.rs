@@ -39,11 +39,6 @@ impl GridSize {
             ..self
         }
     }
-
-    /// Whether the columns and rows match, ignoring the pixel size of a cell.
-    pub fn same_cells(&self, other: &GridSize) -> bool {
-        self.columns == other.columns && self.rows == other.rows
-    }
 }
 
 impl Default for GridSize {

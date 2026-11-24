@@ -26,7 +26,7 @@ readonly CHECKOUT_VOLUME_PREFIX="$RESOURCE_PREFIX-co"
 readonly JOB_DEPS_VOLUME_PREFIX="$RESOURCE_PREFIX-nmjob"
 readonly PRISTINE_DEPS_PREFIX="$RESOURCE_PREFIX-pristine"
 
-# ---- volumes ----------------------------------------------------------------------------
+# Volumes.
 
 # The dependencies a task's agent installs and may write.
 deps_volume() {
@@ -64,7 +64,7 @@ job_deps_volume() {
   echo "$JOB_DEPS_VOLUME_PREFIX-$1"
 }
 
-# ---- networks ---------------------------------------------------------------------------
+# Networks.
 
 # The internal network of one task. Only the proxy is attached to every task network, so a box
 # cannot reach a port another box opens, by address or by name.
@@ -72,7 +72,7 @@ task_network() {
   echo "$NETWORK-$1"
 }
 
-# ---- containers -------------------------------------------------------------------------
+# Containers.
 
 agent_container_name() {
   echo "$AGENT_CONTAINER_PREFIX-$1"

@@ -1,7 +1,7 @@
 # shellcheck shell=bash
-# Checks for a lavoro on the Mac. box verify queues a request as for a box; the runner runs the
+# Checks for a task on the Mac. box verify queues a request as for a box; the runner runs the
 # project's check command natively in the folder of the project inside the worktree, as the
-# person, one request at a time across all lavori (this is what keeps the Mac from being
+# person, one request at a time across all tasks (this is what keeps the Mac from being
 # crushed). The waiting box verify of a task in a box uses the same request_and_wait: on the
 # host a request is always published through the queue, never through a drop directory.
 # A check is for a commit: it runs only when the worktree is at the commit that was
@@ -19,14 +19,14 @@ readonly VERIFY_POLL_SECONDS="${BOX_VERIFY_POLL:-2}"
 readonly VERIFY_LOG_TAIL_LINES=40
 readonly COMMIT_FIRST="commit first: a check is for a commit"
 
-# Succeeds when the key of a request (<id>.<task>) names a lavoro on the Mac.
+# Succeeds when the key of a request (<id>.<task>) names a task on the Mac.
 request_is_native() {
   [[ "$1" == *.* ]] && task_is_on_mac "${1##*.}"
 }
 
-# ---- box verify ---------------------------------------------------------------------------------
+# Box verify.
 
-# box verify <task> <verb> [--no-wait] for a lavoro on the Mac.
+# box verify <task> <verb> [--no-wait] for a task on the Mac.
 verify_on_mac() {
   local task="$1" verb="$2" no_wait="$3" problem generation
   [[ "$verb" =~ $VERB_PATTERN ]] || die "invalid verb '$verb'"
@@ -108,22 +108,22 @@ print_verify_result() {
   exit "$exit_code"
 }
 
-# ---- the runner's side --------------------------------------------------------------------------
+# The runner's side.
 
-# run_native_job <task> <key> <sha> <command>: the job of a request for a lavoro on the Mac, in
+# run_native_job <task> <key> <sha> <command>: the job of a request for a task on the Mac, in
 # place of run_job. Prints what it refuses into the log; returns the exit code of the command,
 # 124 at the deadline, 2 when the check is refused or its result does not count.
 #
-# The agent of a lavoro can edit files at any moment, so nothing is checked first and looked at
+# The agent of a task can edit files at any moment, so nothing is checked first and looked at
 # again later. One reading of the worktree (worktree_state) is taken before the command: it
 # must itself show the commit that was requested and nothing else. The same reading is taken
 # after the command and must be equal. A reading that cannot be taken never counts as equal.
 run_native_job() {
-  local task="$1" key="$2" sha="$3" command="$4" host_dir started code=0 before after
+  local task="$1" key="$2" sha="$3" command="$4" host_dir started code=0 before after problem
   checked_lavoro "$task" || { echo "[box] $LAVORO_PROBLEM"; return 1; }
-  hidden_entries_problem "$task" && return "$REJECTED_EXIT_CODE"
-  before="$(worktree_state "$task")" || { echo "[box] $STATE_UNREADABLE: the check was not run"; return "$REJECTED_EXIT_CODE"; }
-  state_problem "$task" "$sha" "$before" && return "$REJECTED_EXIT_CODE"
+  if problem="$(hidden_entries_problem "$task")"; then discard "$key" "$problem"; return "$REJECTED_EXIT_CODE"; fi
+  before="$(worktree_state "$task")" || { discard "$key" "[box] $STATE_UNREADABLE: the check was not run"; return "$REJECTED_EXIT_CODE"; }
+  if problem="$(state_problem "$task" "$sha" "$before")"; then discard "$key" "$problem"; return "$REJECTED_EXIT_CODE"; fi
   cancel_requested "$key" && return "$CANCELLED_EXIT_CODE"
   host_dir="$(request_host_dir "$key")"
   mkdir -p "$host_dir"
@@ -132,7 +132,7 @@ run_native_job() {
   echo "$(( $(monotonic_seconds) - started ))" >"$host_dir/seconds"
   after="$(worktree_state "$task")" || after="unreadable"
   if [ "$after" != "$before" ]; then
-    echo "[box] $WORKTREE_CHANGED (the command ended with $code): this is not a result for ${sha:0:12}"
+    discard "$key" "[box] $WORKTREE_CHANGED (the command ended with $code): this is not a result for ${sha:0:12}"
     return "$REJECTED_EXIT_CODE"
   fi
   return "$code"
@@ -205,7 +205,7 @@ end_native_job() {
 }
 readonly NATIVE_JOB_END_SECONDS=1
 
-# native_changes_json <task> <sha>: the output of the changes rules for a commit of a lavoro on
+# native_changes_json <task> <sha>: the output of the changes rules for a commit of a task on
 # the Mac against its base, from a name list that plain git produces.
 native_changes_json() {
   local task="$1" sha="$2"
@@ -214,7 +214,7 @@ native_changes_json() {
     | python3 -B -I "$BOX_ROOT/lib/native_changes.py" "$SUBDIR" "${PROTECTED:-}" "${TEST_FILES:-}" "${SAFE_OUTSIDE:-}" 2>/dev/null
 }
 
-# Prints the path of the oldest queued request that can run now: any request of a lavoro on the
+# Prints the path of the oldest queued request that can run now: any request of a task on the
 # Mac, a request of a box only while Docker answers. Sets nothing; prints nothing when none can.
 next_runnable_request() {
   local id file docker=""

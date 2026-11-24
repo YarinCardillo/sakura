@@ -1,0 +1,244 @@
+/* The cockpit stylesheet: one column that fits a 375 px phone, light and dark, no external resources. */
+
+:root {
+  --background: #f6f7f9;
+  --surface: #ffffff;
+  --text: #16181d;
+  --muted: #5b6270;
+  --line: #d5d9e0;
+  --accent: #1f5fbf;
+  --accent-text: #ffffff;
+  --warning: #9a3b00;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #101216;
+    --surface: #181b21;
+    --text: #e8eaee;
+    --muted: #9aa2b1;
+    --line: #2d323c;
+    --accent: #6ea2f2;
+    --accent-text: #101216;
+    --warning: #ffb27a;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  padding: 1rem;
+  background: var(--background);
+  color: var(--text);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  overflow-wrap: anywhere;
+}
+
+body > * {
+  max-width: 48rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+h1 {
+  font-size: 1.4rem;
+  margin: 0 0 0.5rem;
+}
+
+h2 {
+  font-size: 1.15rem;
+  margin: 1.5rem 0 0.5rem;
+}
+
+h3 {
+  font-size: 1rem;
+  margin: 0 0 0.5rem;
+}
+
+small,
+.state {
+  color: var(--muted);
+  font-weight: normal;
+}
+
+.problem {
+  color: var(--warning);
+}
+
+a {
+  color: var(--accent);
+}
+
+section,
+article {
+  min-width: 0;
+}
+
+article {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin: 0.75rem 0;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.15rem 0.75rem;
+  margin: 0 0 0.5rem;
+}
+
+dt {
+  color: var(--muted);
+}
+
+dd {
+  margin: 0;
+}
+
+ul {
+  padding-left: 1.25rem;
+}
+
+form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: end;
+  margin: 0.5rem 0;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 10rem;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+input[type="text"],
+textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--text);
+  font: inherit;
+}
+
+button {
+  min-height: 44px;
+  padding: 0.5rem 1rem;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  font-weight: 600;
+}
+
+pre {
+  margin: 0.5rem 0;
+  padding: 0.5rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.from {
+  color: var(--muted);
+  margin: 0.25rem 0;
+}
+
+.detail {
+  white-space: pre-line;
+}
+
+ol {
+  padding-left: 1.25rem;
+}
+
+.inbox-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.15rem 0.75rem;
+  margin: 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: 0.25rem 0;
+  background: transparent;
+}
+
+.inbox-row form {
+  margin: 0;
+  min-width: 0;
+}
+
+.inbox-row button {
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.inbox-row small {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inbox-row-read button,
+.inbox-row time {
+  color: var(--muted);
+}
+
+.inbox-row time {
+  grid-row: 1;
+  grid-column: 2;
+  align-self: center;
+  font-size: 0.85rem;
+}
+
+.unread-dot {
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  margin-inline-end: 0.3rem;
+  vertical-align: middle;
+  background: var(--accent);
+}
+
+select {
+  max-width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.5rem;
+  background: var(--background);
+  color: var(--text);
+  font: inherit;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}

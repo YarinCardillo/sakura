@@ -21,6 +21,7 @@ pub fn readable(name: &str) -> Task {
         head: Some(HEAD.into()),
         head_subject: Some("Subject".into()),
         head_time: Some("2026-11-10T06:43:31Z".into()),
+        age_at: None,
         ahead: Some(3),
         dirty_files: Some(0),
         files_changed: Some(9),
@@ -114,6 +115,7 @@ fn record(task: &mut Task, verb: &str, exit_code: i32) {
         checks_reason: None,
         tests_touched: None,
         tests: None,
+        discarded: None,
     };
     task.results.insert(verb.to_string(), result);
 }

@@ -3,10 +3,10 @@
 #   box tree <task> [--path <dir>] [--all] --json    one directory level
 #   box file <task> <path> [--at <sha>]              the bytes of one file
 #   box search <task> <text> --json                  file names, for quick open
-#   box graph <project or task> --json [--limit <n>] the commits of the base and of the lavori
+#   box graph <project or task> --json [--limit <n>] the commits of the base and of the tasks
 # tree, file and search are the same scripts of image/runner for both places: in a box they run
 # in a workspace container (what they print is the agent's word, validated and only shown); for
-# a lavoro on the Mac box runs them natively and gives them the git command (lavoro.py). graph
+# a task on the Mac box runs them natively and gives them the git command (task.py). graph
 # reads the person's repository and the worktrees with host git, and a task in a box through
 # the verified store.
 
@@ -48,10 +48,10 @@ readonly GRAPH_ANSWER='
         | group_by(.sha) | map(.[0] + {lavoro: (map(.lavoro) | if any(. == null) then null else .[0] end)})
         | map(. + {branches: ($tips[.sha] // [])}) | sort_by(.time) | reverse ) }'
 
-# ---- the scripts, in the place of the task ---------------------------------------------------------
+# The scripts, in the place of the task.
 
 # read_script <task> <script name> <arguments...>: runs a read script of image/runner for the
-# task: natively with the git command of the lavoro on the Mac, in a workspace container for a
+# task: natively with the git command of the task on the Mac, in a workspace container for a
 # task in a box. Needs the project of the task loaded.
 read_script() {
   local task="$1" script="$2" command
@@ -71,7 +71,7 @@ require_readable_task() {
   require_existing_task "$1"
   require_jq
   if task_is_on_mac "$1"; then
-    command -v python3 >/dev/null 2>&1 || die "python3 is needed to read a lavoro on the Mac"
+    command -v python3 >/dev/null 2>&1 || die "python3 is needed to read a task on the Mac"
     require_checked_lavoro "$1"
   else
     load_task_project "$1"
@@ -84,7 +84,7 @@ require_plain_path() {
   [ "${#1}" -le "$READ_PATH_MAX_LENGTH" ] && [[ "$1" != *[[:cntrl:]]* ]] || die "the path is not a path box accepts"
 }
 
-# ---- tree, search -------------------------------------------------------------------------------
+# box tree, box search.
 
 cmd_tree() {
   local task="${1:-}" path="" all=0 json=0 out
@@ -103,7 +103,7 @@ cmd_tree() {
   require_plain_path "$path"
   require_readable_task "$task"
   out="$(sandbox_json "$TREE_FILTER" read_script "$task" tree.py "$(task_base_sha "$task")" "$path" "$all")" \
-    || die "could not list '${path:-the root}' of task '$task' (is it a directory of the lavoro?)"
+    || die "could not list '${path:-the root}' of task '$task' (is it a directory of the task?)"
   echo "$out"
 }
 
@@ -117,10 +117,10 @@ cmd_search() {
   echo "$out"
 }
 
-# ---- file -----------------------------------------------------------------------------------------
+# box file.
 
 # box file <task> <path> [--at <sha>]: the bytes on standard output, or one line and an exit
-# code: 82 too big, 3 no such file, 1 a path that leaves the lavoro or anything else.
+# code: 82 too big, 3 no such file, 1 a path that leaves the task or anything else.
 cmd_file() {
   local task="${1:-}" path="${2:-}" sha="" code=0
   [ "$#" -eq 2 ] || { [ "$#" -eq 4 ] && [ "$3" = "--at" ]; } || die "usage: box file <task> <path> [--at <sha>]"
@@ -136,12 +136,12 @@ cmd_file() {
     0) ;;
     82) warn "the file is larger than 2 MiB: box file does not print it"; exit "$FILE_TOO_BIG_EXIT_CODE" ;;
     3) warn "no such file in task '$task'${sha:+ at $sha}"; exit "$NOT_FOUND_EXIT_CODE" ;;
-    4) die "the path leaves the lavoro, or is a link that does: box file does not follow it" ;;
+    4) die "the path leaves the task, or is a link that does: box file does not follow it" ;;
     *) die "could not read the file of task '$task'" ;;
   esac
 }
 
-# ---- graph ----------------------------------------------------------------------------------------
+# box graph.
 
 # box graph <project or task> --json [--limit <n>]: a project of that name wins over a task.
 cmd_graph() {
@@ -186,7 +186,7 @@ graph_json() {
   jq -nc --arg project "$project" --arg base "$base" --argjson limit "$limit" --argjson lanes "$lanes" --argjson groups "$groups" "$GRAPH_ANSWER"
 }
 
-# {lane, commits} of one task, in a subshell (it loads the project values of the task). A lavoro
+# {lane, commits} of one task, in a subshell (it loads the project values of the task). A task
 # that cannot be read is a lane without commits, readable false.
 task_lane_json() {
   (

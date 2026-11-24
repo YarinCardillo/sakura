@@ -1,7 +1,7 @@
 //! What the app asks of `box` and of the screen while nobody touches it: a fake `box` logs every call, a
 //! window is opened and ten minutes of ticks are played on the test clock. After the launch nothing is
 //! asked, except the one thing no file tells: whether an agent that no terminal of the app is attached to
-//! still runs, once a minute. And nothing is drawn: the first page, an empty desk, a desk of idle lavori
+//! still runs, once a minute. And nothing is drawn: the first page, an empty desk, a desk of idle tasks
 //! and an open conversation build no frame and ask for none. The Settings window has the same test beside
 //! its own (`settings::tests`).
 
@@ -173,8 +173,8 @@ fn ten_idle_minutes_with_five_tasks_start_no_box_process_after_the_launch(cx: &m
         "asked while idle: {:#?}",
         &after[at_launch..]
     );
-    // The projects are read when "New task" opens or when there is no lavoro at all, never for a
-    // window that has lavori to show.
+    // The projects are read when "New task" opens or when there is no task at all, never for a
+    // window that has tasks to show.
     let of_projects = |call: &&String| call.starts_with("project") || call.starts_with("branches");
     assert_eq!(after.iter().filter(of_projects).count(), 0, "{after:#?}");
 }
@@ -220,6 +220,30 @@ fn checks_that_wait_with_no_runner_are_run_by_the_app_one_run_at_a_time(cx: &mut
         runs(&dir),
         both,
         "never two at once, and none once nothing waits"
+    );
+}
+
+#[gpui::test]
+fn checks_the_engine_holds_are_never_run_by_the_app(cx: &mut TestAppContext) {
+    let runner = r#"  runner) echo start >> "$d/order" ;;"#;
+    let (dir, script) = five_tasks(false, runner);
+    let path = dir.path().join("status.json");
+    let written = std::fs::read_to_string(&path).expect("the status");
+    let mut status: BoxStatus = serde_json::from_str(&written).expect("the status parses");
+    status.runner.state = RunnerPhase::NotInstalled;
+    status.runner.queue = vec![QueuedRequest {
+        task: TALKED.into(),
+        verb: "test".into(),
+        sha: "9b1e0c3a5d7f2468ace013579bdf02468ace1357".into(),
+        queued_at: "2026-11-10T06:43:50Z".into(),
+    }];
+    std::fs::write(&path, serde_json::to_string(&status).expect("the status")).expect("written");
+    let (cx, desk, _) = open_settled(cx, &dir, script, false);
+    idle_ten_minutes(cx, &desk);
+    assert!(
+        runs(&dir).is_empty(),
+        "box runner was started: {:?}",
+        runs(&dir)
     );
 }
 
@@ -275,18 +299,21 @@ fn the_journal_is_read_when_it_changes_and_never_on_a_tick(cx: &mut TestAppConte
 fn the_first_page_at_rest_builds_no_frame_and_asks_nothing_though_a_check_runs(
     cx: &mut TestAppContext,
 ) {
-    // No lavoro and no project; the sample status still says a verification runs, which no glyph on
+    // No task and no project; the sample status still says a verification runs, which no glyph on
     // this page shows.
     let (dir, script) = super::project_setup_tests::empty_box("");
     let (cx, desk, _) = open_live(cx, script, None, false);
     wait_for(cx, "the first page", |cx| {
         cx.debug_bounds("project-choose").is_some()
     });
-    let is_verifying = desk.read_with(cx, |desk, cx| {
-        let runner = desk.facts.read(cx).runner();
-        runner.is_some_and(|runner| runner.current.is_some())
+    // The first page stands on the list of projects, which can come before the status that says a
+    // check runs: the status is waited for, not assumed.
+    wait_for(cx, "the fixture's running check", |cx| {
+        desk.read_with(cx, |desk, cx| {
+            let runner = desk.facts.read(cx).runner();
+            runner.is_some_and(|runner| runner.current.is_some())
+        })
     });
-    assert!(is_verifying, "the fixture has a check running");
     rest(cx, &desk, &dir).assert_still();
 }
 

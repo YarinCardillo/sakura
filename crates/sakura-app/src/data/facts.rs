@@ -96,12 +96,12 @@ pub struct Facts {
     /// The tasks a full read took off the list, with when that read was asked: facts of one of them that
     /// were asked before it are about a task that is gone, and must not list it again.
     removed: HashMap<String, Instant>,
-    /// The lavori whose agent asked the person something in its conversation and waits for the answer:
-    /// known to the window alone, and shown as the lavoro's state before anything `box` says.
+    /// The tasks whose agent asked the person something in its conversation and waits for the answer:
+    /// known to the window alone, and shown as the task's state before anything `box` says.
     waiting: HashSet<String>,
-    /// What each lavoro's conversation in this window says of its agent (at work, answered).
+    /// What each task's conversation in this window says of its agent (at work, answered).
     live: HashMap<String, sakura_core::model::Live>,
-    /// The lavori whose conversation is kept from an earlier run of the app.
+    /// The tasks whose conversation is kept from an earlier run of the app.
     kept: HashSet<String>,
     /// The tasks whose agent's terminal is attached in the window.
     attached: HashSet<String>,
@@ -173,7 +173,7 @@ impl Facts {
         self.waiting.contains(task)
     }
 
-    /// What the conversation of `task` says of its agent. A lavoro whose conversation is kept from
+    /// What the conversation of `task` says of its agent. A task whose conversation is kept from
     /// before and was not taken up in this window yet had its answer then: its agent stands by.
     pub fn live(&self, task: &str) -> sakura_core::model::Live {
         use sakura_core::model::Live;
@@ -183,7 +183,7 @@ impl Facts {
         }
     }
 
-    /// Notes which lavori have a conversation kept from before.
+    /// Notes which tasks have a conversation kept from before.
     pub fn set_kept(&mut self, kept: HashSet<String>, cx: &mut Context<Self>) {
         if self.kept != kept {
             self.kept = kept;
@@ -198,7 +198,7 @@ impl Facts {
         }
     }
 
-    /// The lavori whose agent waits for the person.
+    /// The tasks whose agent waits for the person.
     pub fn waiting(&self) -> &HashSet<String> {
         &self.waiting
     }
@@ -307,9 +307,24 @@ impl Facts {
 
     fn on_signal(&mut self, signal: Signal, now: Instant, cx: &mut Context<Self>) {
         match signal {
-            Signal::Changed(Some(name)) => self.load_task(name, Why::Changed, cx),
+            Signal::Changed(Some(name)) => {
+                self.touch_work(&name, now, cx);
+                self.load_task(name, Why::Changed, cx);
+            }
             Signal::Changed(None) => self.on_change(cx),
             Signal::Tick => self.on_tick(now, cx),
+        }
+    }
+
+    /// The files of `name` changed. When the window reads files itself, the views read them again now,
+    /// without waiting for the task's facts (which `box facts` gives, starting a container for a box).
+    fn touch_work(&mut self, name: &str, now: Instant, cx: &mut Context<Self>) {
+        if self.source.readers().is_none() {
+            return;
+        }
+        if let Some(row) = self.rows.iter_mut().find(|row| row.task.name == name) {
+            row.work_read_at = row.work_read_at.max(now);
+            cx.notify();
         }
     }
 
@@ -673,6 +688,7 @@ fn unread_task(summary: TaskSummary) -> Task {
         head: None,
         head_subject: None,
         head_time: None,
+        age_at: None,
         ahead: None,
         dirty_files: None,
         files_changed: None,

@@ -10,7 +10,7 @@
 use crate::blocks::block_rects;
 use crate::core::{selection_spans, CursorState, GridFrame, SelectionSpan};
 use crate::palette::FAINT_OPACITY;
-use crate::rows::{BlockCell, CellStyle, TextSegment, Underline};
+use crate::rows::{BlockCell, CellStyle, RowLayout, TextSegment, Underline};
 use crate::size::{GridSize, MIN_COLUMNS, MIN_ROWS};
 use crate::stats::StatsRecorder;
 use crate::style::TerminalStyle;
@@ -73,6 +73,7 @@ struct Metrics {
 struct ShapedRow {
     built_at: u64,
     lines: Vec<(usize, ShapedLine)>,
+    paint: Option<Rc<PaintRow>>,
 }
 
 /// The view that owns the grid's caches.
@@ -83,6 +84,7 @@ pub(crate) struct GridView {
     frame: GridFrame,
     shaped: Vec<ShapedRow>,
     metrics: Option<Metrics>,
+    paint_geometry: Option<GridGeometry>,
     info: Rc<Cell<FrameInfo>>,
     stats: Rc<StatsRecorder>,
 }
@@ -105,6 +107,7 @@ impl GridView {
             frame: GridFrame::default(),
             shaped: Vec::new(),
             metrics: None,
+            paint_geometry: None,
             info,
             stats,
         }
@@ -131,7 +134,7 @@ impl GridView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> GridPaint {
-        let started = Instant::now();
+        let started = cfg!(any(test, feature = "measure")).then(Instant::now);
         let metrics = self.metrics(window, cx);
         let geometry = self.fit_grid(bounds, metrics, window.scale_factor(), cx);
         let (rebuilt, spans, cursor) = self.refresh_frame(&geometry, cx);
@@ -141,8 +144,10 @@ impl GridView {
             cursor,
         });
         let paint = self.paint_list(&geometry, &spans);
-        self.stats
-            .grid_laid_out(started.elapsed(), rebuilt, segments);
+        if let Some(started) = started {
+            self.stats
+                .grid_laid_out(started.elapsed(), rebuilt, segments);
+        }
         paint
     }
 
@@ -244,54 +249,51 @@ impl GridView {
                 })
                 .collect::<Vec<_>>();
             shaped_segments += lines.len();
-            self.shaped[index] = ShapedRow { built_at, lines };
+            self.shaped[index] = ShapedRow {
+                built_at,
+                lines,
+                paint: None,
+            };
         }
         shaped_segments
     }
 
-    fn paint_list(&self, geometry: &GridGeometry, spans: &[SelectionSpan]) -> GridPaint {
-        let mut quads = self.background_quads(geometry);
+    fn paint_list(&mut self, geometry: &GridGeometry, spans: &[SelectionSpan]) -> GridPaint {
+        if self.paint_geometry != Some(*geometry) {
+            for row in &mut self.shaped {
+                row.paint = None;
+            }
+            self.paint_geometry = Some(*geometry);
+        }
+        let rows = self
+            .frame
+            .rows
+            .iter()
+            .zip(&mut self.shaped)
+            .enumerate()
+            .map(|(index, (row, shaped))| {
+                shaped
+                    .paint
+                    .get_or_insert_with(|| {
+                        Rc::new(PaintRow::new(geometry, index, row, &shaped.lines))
+                    })
+                    .clone()
+            })
+            .collect();
         let palette = &self.style.palette;
         let tint = color(palette.selection, palette.selection_alpha);
-        quads.extend(spans.iter().map(|span| {
-            let bounds = geometry.cell_bounds(span.line, span.start, span.end - span.start);
-            (bounds, tint)
-        }));
-        let lines = self
-            .shaped
+        let selection = spans
             .iter()
-            .enumerate()
-            .flat_map(|(line, row)| {
-                row.lines.iter().map(move |(column, shaped)| {
-                    (
-                        geometry.cell_bounds(line, *column, 1).origin,
-                        shaped.clone(),
-                    )
-                })
+            .map(|span| {
+                let bounds = geometry.cell_bounds(span.line, span.start, span.end - span.start);
+                (bounds, tint)
             })
             .collect();
         GridPaint {
-            quads,
-            lines,
+            rows,
+            selection,
             line_height: geometry.line_height,
         }
-    }
-
-    /// Cell backgrounds, then block elements, row by row.
-    fn background_quads(&self, geometry: &GridGeometry) -> Vec<(Bounds<Pixels>, Hsla)> {
-        let mut quads = Vec::new();
-        for (line, row) in self.frame.rows.iter().enumerate() {
-            for span in &row.backgrounds {
-                let bounds = geometry.cell_bounds(line, span.column, span.width);
-                quads.push((bounds, color(span.color, 1.0)));
-            }
-        }
-        for (line, row) in self.frame.rows.iter().enumerate() {
-            for block in &row.blocks {
-                quads.extend(block_quads(geometry, line, block));
-            }
-        }
-        quads
     }
 }
 
@@ -470,10 +472,51 @@ pub(crate) fn color(hex: u32, alpha: f32) -> Hsla {
     color
 }
 
-/// Quads and text the grid paints this frame.
-pub(crate) struct GridPaint {
-    quads: Vec<(Bounds<Pixels>, Hsla)>,
+type ColouredQuad = (Bounds<Pixels>, Hsla);
+
+struct PaintRow {
+    backgrounds: Vec<ColouredQuad>,
+    blocks: Vec<ColouredQuad>,
     lines: Vec<(Point<Pixels>, ShapedLine)>,
+}
+
+impl PaintRow {
+    fn new(
+        geometry: &GridGeometry,
+        index: usize,
+        row: &RowLayout,
+        shaped: &[(usize, ShapedLine)],
+    ) -> Self {
+        let backgrounds = row
+            .backgrounds
+            .iter()
+            .map(|span| {
+                (
+                    geometry.cell_bounds(index, span.column, span.width),
+                    color(span.color, 1.0),
+                )
+            })
+            .collect();
+        let blocks = row
+            .blocks
+            .iter()
+            .flat_map(|block| block_quads(geometry, index, block))
+            .collect();
+        let lines = shaped
+            .iter()
+            .map(|(column, line)| (geometry.cell_bounds(index, *column, 1).origin, line.clone()))
+            .collect();
+        Self {
+            backgrounds,
+            blocks,
+            lines,
+        }
+    }
+}
+
+pub(crate) struct GridPaint {
+    rows: Vec<Rc<PaintRow>>,
+    selection: Vec<ColouredQuad>,
     line_height: Pixels,
 }
 
@@ -539,10 +582,16 @@ impl Element for GridElement {
         cx: &mut App,
     ) {
         window.with_content_mask(Some(ContentMask { bounds }), |window| {
-            for (quad_bounds, quad_color) in &paint.quads {
+            let quads = paint
+                .rows
+                .iter()
+                .flat_map(|row| &row.backgrounds)
+                .chain(paint.rows.iter().flat_map(|row| &row.blocks))
+                .chain(&paint.selection);
+            for (quad_bounds, quad_color) in quads {
                 window.paint_quad(fill(*quad_bounds, *quad_color));
             }
-            for (origin, line) in &paint.lines {
+            for (origin, line) in paint.rows.iter().flat_map(|row| &row.lines) {
                 if let Err(error) = line.paint(
                     *origin,
                     paint.line_height,

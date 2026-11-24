@@ -1,0 +1,15 @@
+operator	start requested actor=app:me
+operator	resume requested actor=app:me
+operator	stop requested actor=app:me
+operator	discard requested actor=app:me
+operator	spec approved actor=app:me
+operator	budget approved actor=app:me
+operator	{} contract commands approved ({}) actor=app:me
+operator	{} contract commands remembered for later contracts actor=app:me
+operator	local sockets approved for this project's commands actor=app:me
+operator	delivery approved despite an overlap with another lane actor=app:me
+operator	budget wait released: the rule that stopped the flow is lifted until the wait's end, the other rules keep applying actor=app:me
+budget	off (no usage archive configured)
+budget	Ruling: defer until {} ({})
+budget	Ruling: ask, the person decides ({})
+budget	preflight asks: {} ({})

@@ -130,7 +130,7 @@ cmd_stop() {
   note_exited_agent "$task"
 }
 
-# box shell <task>: a terminal for the person. For a lavoro on the Mac their own login shell in
+# box shell <task>: a terminal for the person. For a task on the Mac their own login shell in
 # its folder (native_shell.sh); for a task in a box interactive bash in a one-off container.
 cmd_shell() {
   local task="${1:-}" name

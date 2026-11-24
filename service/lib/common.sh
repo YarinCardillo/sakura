@@ -42,7 +42,7 @@ readonly TRUSTED_BASH=/bin/bash
 # for itself at its start (bin/box: absolute entries only, outside the data directory, not
 # writable by everybody). Fails when there is none, and, as a second layer under that PATH, when
 # the program found lies in the data directory (by what its folder is, see folder_is_under).
-# For a program whose path is recorded or is used after box has changed into a folder of a lavoro.
+# For a program whose path is recorded or is used after box has changed into a folder of a task.
 trusted_program() {
   local program
   program="$(command -v "$1" 2>/dev/null)" && [[ "$program" == /* ]] && [ -x "$program" ] && [ ! -d "$program" ] || return 1
@@ -61,7 +61,7 @@ readonly PIDS_LIMIT=1024
 readonly SHM_SIZE=256m
 readonly TMPFS_SIZE=512m
 
-# ---- what differs between macOS and Linux, one helper per difference ----------------------------
+# What differs between macOS and Linux, one helper per difference.
 # box runs on both. The tools of macOS are the BSD ones, those of Linux the GNU ones, and a few
 # of them take other options for the same thing. Each difference is in one function here and
 # nowhere else. /usr/bin/stat is the system's own stat on both.

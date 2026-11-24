@@ -1,0 +1,1 @@
+{"result":"done","exit_code":0,"output":"{\"accounts\":[{\"id\":\"codex-id\",\"provider\":\"codex\",\"label\":\"Codex\",\"folder\":\"/fixture/.codex\"},{\"id\":\"claude-team-id\",\"provider\":\"claude\",\"label\":\"Team Claude\",\"folder\":\"/fixture/.claude-alt\"}]}"}

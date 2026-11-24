@@ -1,11 +1,10 @@
 //! Visual checks without screen capture: with the `snapshot` feature and `SAKURA_SNAPSHOT=<file.png>`, the
 //! window renders its own last frame through GPUI's renderer after `SAKURA_SNAPSHOT_DELAY_MS` (default 1500)
 //! and quits. It draws the frame itself first, so the image does not depend on the system showing the
-//! window. The traffic lights are drawn by AppKit, not GPUI, so they are not in the image. With
-//! `SAKURA_SNAPSHOT_GRID=1` the lines of the layout grid are drawn over the window.
+//! window. The traffic lights are drawn by AppKit, not GPUI, so they are not in the image.
 //!
-//! The `measure` feature (part of `snapshot`, but also on its own, without GPUI's test support, so it measures
-//! what a normal build does) picks the starting task and view and runs the scroll probe.
+//! With `boxes`, `SAKURA_SNAPSHOT_GRID=1` draws the desk's layout grid. The `measure` feature works
+//! without GPUI's test support and enables the changes list's scroll probe in the `boxes` build.
 
 use gpui::{App, Window};
 
@@ -38,15 +37,55 @@ pub fn schedule(window: &Window, cx: &App) {
             // behind others): draw the frame of now here, so the image is never an old one. What enters
             // with an animation (a dialog, a menu) starts it on the first frame it is drawn in, so one
             // frame is drawn, the animation is given its time, and the frame after it is the image.
-            drop(cx.update(|window, cx| window.draw(cx).clear(cx)));
+            drop(cx.update(draw_frame));
             cx.background_executor().timer(ENTRANCE).await;
             drop(cx.update(|window, cx| {
-                window.draw(cx).clear(cx);
-                save(window, std::path::Path::new(&path));
+                draw_frame(window, cx);
+                save_hidden(window, std::path::Path::new(&path), cx);
                 cx.quit();
             }));
         })
         .detach();
+}
+
+#[cfg(feature = "snapshot")]
+fn save_hidden(window: &Window, path: &std::path::Path, cx: &App) {
+    let is_hidden =
+        !window.is_visible() && !window.is_window_active() && cx.active_window().is_none();
+    eprintln!("sakura: snapshot window hidden and inactive: {is_hidden}");
+    if is_hidden {
+        save(window, path);
+    } else {
+        eprintln!("sakura: snapshot refused: a window is visible or active");
+    }
+}
+
+/// Draws explicitly at the requested snapshot scale, including windows the system never presents.
+#[cfg(feature = "snapshot")]
+pub fn draw_frame(window: &mut Window, cx: &mut App) {
+    if let Some(scale) = requested_scale(std::env::var("SAKURA_SNAPSHOT_SCALE").ok().as_deref()) {
+        window.set_scale_factor(scale);
+    }
+    window.draw(cx).clear(cx);
+}
+
+#[cfg(feature = "snapshot")]
+fn requested_scale(value: Option<&str>) -> Option<f32> {
+    value?.parse().ok().filter(|scale| [1., 2.].contains(scale))
+}
+
+#[cfg(feature = "snapshot")]
+fn sized_frame(
+    image: image::RgbaImage,
+    viewport: gpui::Size<gpui::Pixels>,
+    scale: f32,
+) -> Result<image::RgbaImage, String> {
+    let width = (f32::from(viewport.width) * scale).round() as u32;
+    let height = (f32::from(viewport.height) * scale).round() as u32;
+    if width == 0 || height == 0 || width > image.width() || height > image.height() {
+        return Err("snapshot scale exceeds the native drawable".into());
+    }
+    Ok(image::imageops::crop_imm(&image, 0, 0, width, height).to_image())
 }
 
 /// Saves the window's last frame as a PNG at `path`.
@@ -55,6 +94,7 @@ pub fn save(window: &Window, path: &std::path::Path) {
     let result = window
         .render_to_image()
         .map_err(|error| error.to_string())
+        .and_then(|image| sized_frame(image, window.viewport_size(), window.scale_factor()))
         .and_then(|image| image.save(path).map_err(|error| error.to_string()));
     match result {
         Ok(()) => eprintln!("sakura: snapshot saved to {}", path.display()),
@@ -62,10 +102,17 @@ pub fn save(window: &Window, path: &std::path::Path) {
     }
 }
 
+/// With the feature, `SAKURA_SNAPSHOT_DATA=<folder>` is the private data folder of a scripted run: the kept
+/// sessions are read from and written there, never to the person's own application data.
+#[cfg(feature = "snapshot")]
+pub fn data_folder() -> Option<std::path::PathBuf> {
+    std::env::var_os("SAKURA_SNAPSHOT_DATA").map(std::path::PathBuf::from)
+}
+
 /// Whether this launch is for a snapshot: its words must not depend on this Mac's language.
 #[cfg(feature = "snapshot")]
 pub fn is_asked() -> bool {
-    std::env::var_os(SNAPSHOT_VAR).is_some()
+    std::env::var_os(SNAPSHOT_VAR).is_some() || std::env::var_os("SAKURA_SNAPSHOT_DRIVE").is_some()
 }
 
 /// Without the `snapshot` feature no launch is for a snapshot.
@@ -105,7 +152,7 @@ pub fn window_height() -> Option<f32> {
 }
 
 /// What the grid overlay needs to know of the window's layout now.
-#[cfg(feature = "snapshot")]
+#[cfg(all(feature = "snapshot", feature = "boxes"))]
 pub struct GridMarks {
     /// The sidebar is fully shown.
     pub has_sidebar: bool,
@@ -115,7 +162,7 @@ pub struct GridMarks {
 }
 
 /// Whether `SAKURA_SNAPSHOT_GRID` asks for the lines of the layout grid over the window.
-#[cfg(feature = "snapshot")]
+#[cfg(all(feature = "snapshot", feature = "boxes"))]
 pub fn wants_grid() -> bool {
     std::env::var_os("SAKURA_SNAPSHOT_GRID").is_some()
 }
@@ -124,7 +171,7 @@ pub fn wants_grid() -> bool {
 /// what sits on them: the insets of the sidebar, of the panel and of the changes pane as vertical lines;
 /// the centre of the window strip, its end, the header's centre line and its end, the status bar's top
 /// and its centre as horizontal lines; then, fainter, one line per row pitch down to the status bar.
-#[cfg(feature = "snapshot")]
+#[cfg(all(feature = "snapshot", feature = "boxes"))]
 pub fn grid_overlay(marks: GridMarks) -> gpui::AnyElement {
     use gpui::{IntoElement as _, Styled as _};
     gpui::canvas(
@@ -138,7 +185,7 @@ pub fn grid_overlay(marks: GridMarks) -> gpui::AnyElement {
     .into_any_element()
 }
 
-#[cfg(feature = "snapshot")]
+#[cfg(all(feature = "snapshot", feature = "boxes"))]
 fn paint_grid(bounds: gpui::Bounds<gpui::Pixels>, marks: &GridMarks, window: &mut Window) {
     use crate::theme;
     use gpui::{fill, hsla, point, px, size, Bounds};
@@ -185,12 +232,14 @@ fn paint_grid(bounds: gpui::Bounds<gpui::Pixels>, marks: &GridMarks, window: &mu
 
 /// With the `measure` feature (also part of `snapshot`), `SAKURA_SNAPSHOT_SELECT=<task>` starts with that task selected, so its page can be seen.
 #[cfg(feature = "measure")]
+#[cfg(feature = "boxes")]
 pub fn selection() -> Option<String> {
     std::env::var("SAKURA_SNAPSHOT_SELECT").ok()
 }
 
 /// Without the feature the window starts with nothing selected.
 #[cfg(not(feature = "measure"))]
+#[cfg(feature = "boxes")]
 pub fn selection() -> Option<String> {
     None
 }
@@ -198,6 +247,7 @@ pub fn selection() -> Option<String> {
 /// With the `measure` feature (also part of `snapshot`), `SAKURA_SNAPSHOT_VIEW=changes|checks` picks the pane view, and
 /// `SAKURA_SNAPSHOT_LOG=<verb>` opens that verb's log on the Checks view.
 #[cfg(feature = "measure")]
+#[cfg(feature = "boxes")]
 pub fn view_and_log() -> (Option<String>, Option<String>) {
     let read = |name: &str| std::env::var(name).ok();
     (read("SAKURA_SNAPSHOT_VIEW"), read("SAKURA_SNAPSHOT_LOG"))
@@ -205,12 +255,14 @@ pub fn view_and_log() -> (Option<String>, Option<String>) {
 
 /// Without the feature the window starts on the Agente view with no log open.
 #[cfg(not(feature = "measure"))]
+#[cfg(feature = "boxes")]
 pub fn view_and_log() -> (Option<String>, Option<String>) {
     (None, None)
 }
 
 /// With the `measure` feature (also part of `snapshot`), `SAKURA_SNAPSHOT_OPEN=<path>,<path>` opens those files in the changes pane.
 #[cfg(feature = "measure")]
+#[cfg(feature = "boxes")]
 pub fn open_files() -> Vec<String> {
     std::env::var("SAKURA_SNAPSHOT_OPEN")
         .map(|paths| paths.split(',').map(str::to_string).collect())
@@ -219,6 +271,7 @@ pub fn open_files() -> Vec<String> {
 
 /// Without the feature every file starts closed.
 #[cfg(not(feature = "measure"))]
+#[cfg(feature = "boxes")]
 pub fn open_files() -> Vec<String> {
     Vec::new()
 }
@@ -227,17 +280,17 @@ pub fn open_files() -> Vec<String> {
 /// at the end, and prints two figures once it has seen [`PROBE_FRAMES`] frames: the interval between frames,
 /// and the app's work per frame, from the start of the root view's render to the end of the window's last
 /// paint (render, layout, prepaint and paint of the whole window; not the GPU's work or the present).
-#[cfg(feature = "measure")]
+#[cfg(all(feature = "measure", feature = "boxes"))]
 pub struct ScrollProbe {
     step: f32,
     frames: Vec<std::time::Instant>,
 }
 
 /// Frames a scroll probe measures.
-#[cfg(feature = "measure")]
+#[cfg(all(feature = "measure", feature = "boxes"))]
 const PROBE_FRAMES: usize = 300;
 
-#[cfg(feature = "measure")]
+#[cfg(all(feature = "measure", feature = "boxes"))]
 thread_local! {
     /// When this frame's root render began, and each measured frame's work in milliseconds.
     static FRAME_START: std::cell::Cell<Option<(std::time::Instant, f64)>> = const { std::cell::Cell::new(None) };
@@ -250,31 +303,29 @@ thread_local! {
 }
 
 /// Counts a render of the view `what` while a probe measures, so a report says what each frame drew again.
-#[cfg(feature = "measure")]
+#[cfg(all(feature = "measure", feature = "boxes"))]
 pub fn count_render(what: &'static str) {
     if IS_MEASURING.get() {
         RENDERS.with_borrow_mut(|renders| *renders.entry(what).or_insert(0) += 1);
     }
 }
 
-/// Without the feature nothing is counted.
-#[cfg(not(feature = "measure"))]
+#[cfg(not(all(feature = "measure", feature = "boxes")))]
 pub fn count_render(_: &'static str) {}
 
 /// Notes the start of a frame's work (called first thing in the root view's render).
-#[cfg(feature = "measure")]
+#[cfg(all(feature = "measure", feature = "boxes"))]
 pub fn frame_started() {
     if IS_MEASURING.get() {
         FRAME_START.set(Some((std::time::Instant::now(), thread_cpu_ms())));
     }
 }
 
-/// Without the feature no frame is measured.
-#[cfg(not(feature = "measure"))]
+#[cfg(not(all(feature = "measure", feature = "boxes")))]
 pub fn frame_started() {}
 
 /// An element painted last in the window, closing the frame's measure of work.
-#[cfg(feature = "measure")]
+#[cfg(all(feature = "measure", feature = "boxes"))]
 pub fn frame_marker() -> Option<gpui::AnyElement> {
     use gpui::{IntoElement as _, Styled as _};
     if !IS_MEASURING.get() {
@@ -295,13 +346,12 @@ pub fn frame_marker() -> Option<gpui::AnyElement> {
     Some(marker.into_any_element())
 }
 
-/// Without the feature there is no marker.
-#[cfg(not(feature = "measure"))]
+#[cfg(not(all(feature = "measure", feature = "boxes")))]
 pub fn frame_marker() -> Option<gpui::AnyElement> {
     None
 }
 
-#[cfg(feature = "measure")]
+#[cfg(all(feature = "measure", feature = "boxes"))]
 impl ScrollProbe {
     /// A probe when requested.
     pub fn from_environment() -> Option<Self> {
@@ -376,20 +426,52 @@ impl ScrollProbe {
 
 /// CPU time of the calling thread in milliseconds: the frame's own work, apart from time the thread waited
 /// for a core while other processes ran.
-#[cfg(feature = "measure")]
+#[cfg(all(feature = "measure", feature = "boxes"))]
 fn thread_cpu_ms() -> f64 {
-    let mut now = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    // SAFETY: `now` is a valid, writable timespec for the duration of the call.
-    let status = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut now) };
-    if status != 0 {
-        return 0.0;
-    }
+    use rustix::time::{clock_gettime, ClockId};
+
+    let now = clock_gettime(ClockId::ThreadCPUTime);
     now.tv_sec as f64 * 1000.0 + now.tv_nsec as f64 / 1_000_000.0
 }
 
 /// Frames left out of the work figures at the start of a probe.
-#[cfg(feature = "measure")]
+#[cfg(all(feature = "measure", feature = "boxes"))]
 const PROBE_WARMUP: usize = 10;
+
+#[cfg(all(test, feature = "snapshot"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_scale_accepts_one_and_two_and_defaults_to_the_native_scale() {
+        assert_eq!(requested_scale(Some("1")), Some(1.));
+        assert_eq!(requested_scale(Some("2")), Some(2.));
+        for value in [
+            None,
+            Some(""),
+            Some("0"),
+            Some("-1"),
+            Some("NaN"),
+            Some("3"),
+        ] {
+            assert_eq!(requested_scale(value), None);
+        }
+    }
+
+    #[test]
+    fn a_one_scale_frame_is_cropped_to_its_rendered_viewport_without_resampling() {
+        let viewport = gpui::size(gpui::px(4.), gpui::px(3.));
+        let mut native = image::RgbaImage::new(8, 6);
+        native.put_pixel(3, 2, image::Rgba([10, 20, 30, 255]));
+        let frame = sized_frame(native.clone(), viewport, 1.).expect("a 1x frame");
+        assert_eq!(frame.dimensions(), (4, 3));
+        assert_eq!(frame.get_pixel(3, 2), native.get_pixel(3, 2));
+        assert_eq!(
+            sized_frame(native.clone(), viewport, 2.)
+                .unwrap()
+                .dimensions(),
+            (8, 6)
+        );
+        assert!(sized_frame(native, viewport, 3.).is_err());
+    }
+}

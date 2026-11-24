@@ -2,7 +2,7 @@
 //! call. It turns itself off as soon as the person takes the view (a scroll, a click on a file, a
 //! selection) and keeps the last place the agent was at, so one call turns it on again and goes there.
 
-/// A place in a lavoro's files: a path inside the lavoro and, when known, a line numbered from 1.
+/// A place in a task's files: a path inside the task and, when known, a line numbered from 1.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Location {
     pub path: String,

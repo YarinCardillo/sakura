@@ -3,36 +3,38 @@
 //! frame, before the agent hears of it.
 
 use super::{composed, Phase, ThreadView};
+use crate::l10n::{tr, Key};
 use crate::theme::thread as tokens;
+use crate::ui::enter::is_composing;
 use gpui::{App, Context, SharedString, Task, Window};
 use sakura_acp::connection::{Agent, AgentEvent};
-use sakura_acp::model::StopReason;
+use sakura_acp::model::{SessionChoices, StopReason};
 use sakura_acp::thread::{EntryKind, Problem, ProblemKind, ThreadEvent, Turn};
 use tokio::sync::mpsc::Receiver;
 
-/// What asking for the lavoro's agent gave.
+/// What asking for the task's agent gave.
 pub enum Launched {
     /// The agent's process was started: its handle and its events.
     Started(Agent, Receiver<AgentEvent>),
-    /// No account is signed in for this lavoro: nothing was started, the person signs in first.
+    /// No account is signed in for this task: nothing was started, the person signs in first.
     SignInFirst,
-    /// No account is named for the lavoro's agent, by its project or by being the only one: nothing
+    /// No account is named for the task's agent, by its project or by being the only one: nothing
     /// was started, the person chooses one first.
     NoAccount,
     /// There is no `box` to start an agent with (the sample data).
     Unavailable,
 }
 
-/// Starts the lavoro's agent.
+/// Starts the task's agent.
 pub type Launch = Box<dyn Fn(&App) -> Launched>;
 /// Something the person asks of the window from the conversation: the sign-in, the terminal.
 pub type Ask = Box<dyn Fn(&mut Window, &mut App)>;
-/// Gives the lavoro's project the account the person chose for its agent.
+/// Gives the task's project the account the person chose for its agent.
 pub type ChooseAccount = Box<dyn Fn(&str, &mut App)>;
-/// The accounts the lavoro's agent could start with.
+/// The accounts the task's agent could start with.
 pub type Accounts = Box<dyn Fn(&App) -> Vec<String>>;
 
-/// Reads the session stored for the lavoro.
+/// Reads the session stored for the task.
 pub type StoredSession = Box<dyn Fn(&App) -> Option<String>>;
 /// Stores the session that just opened.
 pub type StoreSession = Box<dyn Fn(&str, &App)>;
@@ -41,10 +43,10 @@ pub type Refusals = Box<dyn Fn(&str, &App) -> Vec<String>>;
 /// Keeps the words of a refusal said in a session.
 pub type KeepRefusal = Box<dyn Fn(&str, &str, &App)>;
 
-/// Where the lavoro of a first message stands with the service that makes it.
+/// Where the task of a first message stands with the service that makes it.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Readiness {
-    /// The lavoro is there: its agent can be started.
+    /// The task is there: its agent can be started.
     Ready,
     /// The service is making it; its own progress line, when it gave one.
     Preparing(Option<String>),
@@ -60,15 +62,17 @@ pub enum Readiness {
 pub enum Login {
     /// An account of the boxes: the window can run its sign-in.
     Box,
+    #[cfg(not(feature = "boxes"))]
+    Codex { is_waiting: bool },
     /// The person's own login on this Mac, by its name: it expired, and is renewed outside Sakura.
     Mac { account: Option<String> },
 }
 
-/// What the view needs from whoever holds it. The desk gives the lavoro's `box acp` command, its session
+/// What the view needs from whoever holds it. The desk gives the task's `box acp` command, its session
 /// store, its sign-in and its terminal; a test gives a fake agent.
 pub struct Host {
     pub launch: Launch,
-    /// The session stored for the lavoro, if any. Asked on every frame of an empty conversation: it must
+    /// The session stored for the task, if any. Asked on every frame of an empty conversation: it must
     /// read memory only.
     pub stored_session: StoredSession,
     pub store_session: StoreSession,
@@ -76,25 +80,25 @@ pub struct Host {
     pub keep_refusal: KeepRefusal,
     /// Whose login the agent needs, as the accounts read now say.
     pub login: Box<dyn Fn(&App) -> Login>,
-    /// The accounts the lavoro's agent could start with, when none is named for it. Read memory only.
+    /// The accounts the task's agent could start with, when none is named for it. Read memory only.
     pub accounts: Accounts,
     pub choose_account: ChooseAccount,
-    /// Opens the sign-in of the lavoro's account (a lavoro in a box).
+    /// Opens the sign-in of the task's account (a task in a box).
     pub sign_in: Ask,
-    /// Shows the lavoro's terminal, when this `box` cannot hold a conversation.
+    /// Shows the task's terminal, when this `box` cannot hold a conversation.
     pub open_terminal: Ask,
     /// The agent's workspace as the agent names it (`/work/<task>` in a box, the worktree on the Mac):
     /// paths are shown from it. Asked when a row is drawn: it must read memory only.
     pub workspace: Box<dyn Fn(&App) -> String>,
-    /// Where the lavoro stands while its first message waits for it. Read memory only.
+    /// Where the task stands while its first message waits for it. Read memory only.
     pub readiness: Box<dyn Fn(&App) -> Readiness>,
-    /// Asks for the lavoro again after its creation failed.
+    /// Asks for the task again after its creation failed.
     pub retry_creation: Ask,
 }
 
 impl ThreadView {
-    /// Shows `text` as the person's first message of a lavoro that was just requested. The agent is
-    /// started, and the message sent to it, when the lavoro is ready (see [`Self::proceed`]).
+    /// Shows `text` as the person's first message of a task that was just requested. The agent is
+    /// started, and the message sent to it, when the task is ready (see [`Self::proceed`]).
     pub fn begin(&mut self, text: String, cx: &mut Context<Self>) {
         self.thread.apply(ThreadEvent::Prompted(text.clone()));
         self.waiting_prompt = Some(text);
@@ -102,7 +106,7 @@ impl ThreadView {
         self.proceed(cx);
     }
 
-    /// Something was heard of the lavoro a first message waits for: once it is ready the agent starts,
+    /// Something was heard of the task a first message waits for: once it is ready the agent starts,
     /// and only once, whatever order the facts come in.
     pub fn proceed(&mut self, cx: &mut Context<Self>) {
         if self.phase != Phase::Preparing {
@@ -114,13 +118,16 @@ impl ThreadView {
         }
     }
 
-    /// Whether the first message still waits for its lavoro.
+    /// Whether the first message still waits for its task.
     pub fn is_preparing(&self) -> bool {
         self.phase == Phase::Preparing
     }
 
     /// Starts the agent, or starts it again after it ended; the stored session is opened when it answers.
     pub fn connect(&mut self, cx: &mut Context<Self>) {
+        if !self.has_opened_session {
+            self.choices = SessionChoices::default();
+        }
         match (self.host.launch)(cx) {
             Launched::Started(agent, events) => {
                 self.agent = Some(agent);
@@ -129,16 +136,20 @@ impl ThreadView {
             }
             Launched::SignInFirst => self.sign_in_needed(),
             Launched::NoAccount => self.phase = Phase::NoAccount,
-            Launched::Unavailable => self.ended(Some(Problem {
-                kind: ProblemKind::NotStarted,
-                detail: String::new(),
-            })),
+            Launched::Unavailable => {
+                let problem = Problem {
+                    kind: ProblemKind::NotStarted,
+                    detail: String::new(),
+                };
+                crate::agent_log::record(&problem, cx);
+                self.ended(Some(problem));
+            }
         }
         self.sync(cx);
     }
 
-    /// Takes up the stored conversation: the agent starts and replays it. Requested when the lavoro's
-    /// conversation is the one shown, so that a lavoro that is only listed starts nothing.
+    /// Takes up the stored conversation: the agent starts and replays it. Requested when the task's
+    /// conversation is the one shown, so that a task that is only listed starts nothing.
     /// It is tried once: an agent that ends without a word is not started again by being looked at.
     pub fn load_kept(&mut self, cx: &mut Context<Self>) {
         if self.phase == Phase::Idle && !self.tried_kept && self.shows_kept_next(cx) {
@@ -147,7 +158,7 @@ impl ThreadView {
         }
     }
 
-    /// Whether what this empty conversation shows next is the one stored for the lavoro: it is about
+    /// Whether what this empty conversation shows next is the one stored for the task: it is about
     /// to be loaded, or its agent is starting to load it.
     pub(super) fn shows_kept_next(&self, cx: &App) -> bool {
         let is_before = match self.phase {
@@ -182,22 +193,62 @@ impl ThreadView {
         for event in batch {
             self.receive_one(event, cx);
         }
+        self.watch_loading(cx);
         self.sync(cx);
     }
 
-    fn receive_one(&mut self, event: AgentEvent, cx: &App) {
+    /// A conversation that is loading and is not loaded after the stall is said not to have loaded: never an
+    /// endless "Loading".
+    fn watch_loading(&mut self, cx: &mut Context<Self>) {
+        match (self.phase == Phase::Loading, self.load_watch.is_some()) {
+            (true, false) => {
+                self.load_watch = Some(cx.spawn(async move |view, cx| {
+                    cx.background_executor().timer(tokens::LOAD_STALL).await;
+                    drop(view.update(cx, |view, cx| view.load_stalled(cx)));
+                }));
+            }
+            (false, true) => self.load_watch = None,
+            _ => {}
+        }
+    }
+
+    fn load_stalled(&mut self, cx: &mut Context<Self>) {
+        self.load_watch = None;
+        if self.phase != Phase::Loading {
+            return;
+        }
+        self.drop_waiting_prompts();
+        self.close_turn();
+        let problem = Problem {
+            kind: ProblemKind::TimedOut,
+            detail: tr(Key("thread.load_stalled")).to_string(),
+        };
+        crate::agent_log::record(&problem, cx);
+        self.phase = Phase::Ended(problem);
+        self.sync(cx);
+    }
+
+    fn receive_one(&mut self, event: AgentEvent, cx: &mut Context<Self>) {
         match event {
             AgentEvent::Connected { .. } => self.open_session(cx),
+            AgentEvent::SessionReady => self.ready_for_prompt(),
             AgentEvent::SessionOpened {
                 session_id,
                 is_loaded,
             } => {
+                self.has_opened_session = true;
                 self.is_kept_lost = self.asked_for_kept && !is_loaded;
                 (self.host.store_session)(&session_id, cx);
-                self.phase = Phase::Ready;
-                self.send_waiting_prompt();
+                self.ready_for_prompt();
+            }
+            AgentEvent::SessionUnavailable { session_id } => {
+                self.kept_session_unavailable(session_id, cx);
             }
             AgentEvent::AuthRequired => self.sign_in_needed(),
+            AgentEvent::Supports(support) => self.prompt_support = Some(support),
+            AgentEvent::Choices(choices) => self.choices.merge(choices),
+            AgentEvent::ModeChanged(mode) => self.choices.set_mode(&mode),
+            AgentEvent::Commands(commands) => self.commands = commands,
             AgentEvent::Thread(event) => {
                 if event == ThreadEvent::ReplayStarted {
                     self.phase = Phase::Loading;
@@ -205,13 +256,47 @@ impl ThreadView {
                 // The Claude adapter opens a session without a login and refuses the prompt instead.
                 let is_sign_in = matches!(&event, ThreadEvent::Failed(problem)
                     if problem.kind == ProblemKind::AuthRequired);
+                // A refusal while the session is still opening (its mode could not be set, say) ends the
+                // wait: the message that waited is never sent to a session that was not opened.
+                let refused = match &event {
+                    ThreadEvent::Failed(problem)
+                        if !is_sign_in
+                            && matches!(self.phase, Phase::Connecting | Phase::Loading) =>
+                    {
+                        Some(problem.clone())
+                    }
+                    _ => None,
+                };
                 match is_sign_in {
                     true => self.sign_in_needed(),
                     false => self.apply_kept(event, cx),
                 }
+                if let Some(problem) = refused {
+                    crate::agent_log::record(&problem, cx);
+                    self.drop_waiting_prompts();
+                    self.close_turn();
+                    self.phase = Phase::Ended(problem);
+                }
             }
-            AgentEvent::Ended(problem) => self.ended(problem),
+            AgentEvent::Ended(Some(problem)) if problem.kind == ProblemKind::AuthRequired => {
+                self.agent = None;
+                self.sign_in_needed();
+            }
+            AgentEvent::Ended(problem) => {
+                if let Some(problem) = &problem {
+                    if matches!(self.phase, Phase::Connecting | Phase::Loading) {
+                        crate::agent_log::record(problem, cx);
+                    }
+                }
+                self.ended(problem);
+            }
         }
+    }
+
+    fn ready_for_prompt(&mut self) {
+        self.phase = Phase::Ready;
+        self.waiting_prompt = self.held_message.take().or(self.waiting_prompt.take());
+        self.send_waiting_prompt();
     }
 
     /// Applies an event of the thread. A refusal is kept with its session when it is said, and is the
@@ -237,7 +322,7 @@ impl ThreadView {
     /// agent refused, is closed; why is said once, under the transcript, with what to do about it.
     fn sign_in_needed(&mut self) {
         self.phase = Phase::SignIn;
-        self.waiting_prompt = None;
+        self.drop_waiting_prompts();
         self.close_turn();
     }
 
@@ -262,7 +347,26 @@ impl ThreadView {
     fn open_session(&mut self, cx: &App) {
         let stored = (self.host.stored_session)(cx);
         self.asked_for_kept = stored.is_some();
-        self.tell_agent(|agent| agent.open_session(stored));
+        match stored {
+            Some(session) if self.master.is_some() => {
+                self.tell_agent(|agent| agent.load_session(session));
+            }
+            stored => self.tell_agent(|agent| agent.open_session(stored)),
+        }
+    }
+
+    fn kept_session_unavailable(&mut self, session_id: String, cx: &mut Context<Self>) {
+        cx.emit(super::ThreadViewEvent::KeptSessionLost(session_id));
+        self.is_kept_lost = true;
+        self.has_opened_session = false;
+        self.choices = SessionChoices::default();
+        if self.waiting_prompt.is_some() || self.held_message.is_some() {
+            self.phase = Phase::Connecting;
+            self.tell_agent(|agent| agent.open_session(None));
+        } else {
+            self.agent = None;
+            self.phase = Phase::Idle;
+        }
     }
 
     /// Starts over after the person signed in: an agent that was started without the login is ended
@@ -279,11 +383,11 @@ impl ThreadView {
 
     fn ended(&mut self, problem: Option<Problem>) {
         self.agent = None;
-        self.waiting_prompt = None;
+        self.drop_waiting_prompts();
         self.phase = match problem {
             // A `box` that does not know `acp` prints its usage: no conversation can be held with it.
             // A prompt that waited is closed; why is said once, under the transcript.
-            Some(problem) if sakura_core::box_cli::is_usage(&problem.detail) => {
+            Some(problem) if sakura_core::process::is_usage(&problem.detail) => {
                 self.close_turn();
                 Phase::NoConversation
             }
@@ -293,6 +397,44 @@ impl ThreadView {
             }
             None => Phase::Idle,
         };
+    }
+
+    /// The first message of the conversation, when there is one: what History names it by.
+    pub fn first_message(&self) -> Option<String> {
+        self.thread
+            .entries()
+            .iter()
+            .find_map(|entry| match &entry.kind {
+                EntryKind::User(text) => Some(text.clone()),
+                _ => None,
+            })
+    }
+
+    /// Leaves the conversation and starts an empty one: the agent is told to end, the transcript clears, and
+    /// the next message, or [`Self::load_kept`] when a session was stored meanwhile, opens a session.
+    pub fn start_over(&mut self, cx: &mut Context<Self>) {
+        if let Some(agent) = self.agent.take() {
+            if let Err(error) = agent.shutdown() {
+                eprintln!("sakura: the agent did not take its end: {error:?}");
+            }
+        }
+        self._pump = None;
+        self.waiting_prompt = None;
+        self.held_message = None;
+        self.thread.apply(ThreadEvent::ReplayStarted);
+        self.thread.apply(ThreadEvent::ReplayFinished);
+        self.phase = Phase::Idle;
+        self.asked_for_kept = false;
+        self.is_kept_lost = false;
+        self.tried_kept = false;
+        self.had_turn = false;
+        self.has_opened_session = false;
+        self.choices = SessionChoices::default();
+        if let Some(kit) = &self.master {
+            kit.start.update(|start| *start = Default::default());
+        }
+        self.commands.clear();
+        self.sync(cx);
     }
 
     /// Adds `text` to what is typed in the composer, on a line of its own, and sends nothing: lines of a
@@ -308,11 +450,12 @@ impl ThreadView {
     }
 
     /// Puts `text` in the composer, as if the person had typed it.
-    #[cfg(any(test, feature = "snapshot"))]
+    #[cfg(any(test, feature = "snapshot", not(feature = "boxes")))]
     pub fn write(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         let text = text.to_string();
         self.composer
             .update(cx, |composer, cx| composer.set_value(text, window, cx));
+        cx.notify();
     }
 
     /// Whether a message can be given to the agent now, whatever the composer holds: no turn runs and
@@ -326,20 +469,49 @@ impl ThreadView {
         is_idle && is_open
     }
 
-    /// Whether the composer's text can be sent now: there is some, and a message can be taken.
+    /// Whether a message can be kept for the conversation that is loading: one is, and none is kept yet.
+    fn can_hold_message(&self) -> bool {
+        self.phase == Phase::Loading
+            && self.held_message.is_none()
+            && self.thread.turn() == Turn::Idle
+    }
+
+    /// Whether the composer's text can be sent now: there is some, and a message can be taken, or kept until the
+    /// conversation has loaded.
     pub fn can_send(&self, cx: &App) -> bool {
-        self.can_take_message() && !composed(&self.composer, cx).is_empty()
+        let is_takable = self.can_take_message() || self.can_hold_message();
+        is_takable && !composed(&self.composer, cx).is_empty()
+    }
+
+    /// Return in the composer: it picks the highlighted command while the menu of commands is open and
+    /// otherwise sends, unless an input method holds marked text (Return is then the input method's).
+    pub fn on_return(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if is_composing(&self.composer, window, cx) {
+            return;
+        }
+        match self.slash_is_open(cx) {
+            true => self.slash_accept(window, cx),
+            false => self.send(window, cx),
+        }
     }
 
     /// Sends the composer's text: it shows as the person's message at once. With no session yet, the agent
-    /// is started and the prompt goes out when the session opens.
+    /// is started and the prompt goes out when the session opens. While the conversation loads the text is kept
+    /// and goes when it has loaded, so it follows what was loaded instead of being wiped by it.
     pub fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(local) = self.local_command(cx) {
+            return self.run_local(local, window, cx);
+        }
         if !self.can_send(cx) {
             return;
         }
         let text = composed(&self.composer, cx);
         self.composer
             .update(cx, |composer, cx| composer.set_value("", window, cx));
+        if self.phase == Phase::Loading {
+            self.held_message = Some(text);
+            return self.sync(cx);
+        }
         self.deliver(text, cx);
     }
 
@@ -357,10 +529,11 @@ impl ThreadView {
     /// `text` becomes the person's message, shown at once, and goes to the agent now or when its
     /// session opens.
     fn deliver(&mut self, text: String, cx: &mut Context<Self>) {
-        self.thread.apply(ThreadEvent::Prompted(text.clone()));
+        let shown = self.with_attached_line(&text);
+        self.thread.apply(ThreadEvent::Prompted(shown));
         self.is_kept_lost = false;
         match self.phase {
-            Phase::Ready => self.tell_agent(|agent| agent.prompt(text)),
+            Phase::Ready => self.hand_over(text),
             Phase::Idle | Phase::Ended(_) => {
                 self.waiting_prompt = Some(text);
                 self.connect(cx);
@@ -375,6 +548,13 @@ impl ThreadView {
     /// The session is open: the prompt that waited for it goes out. When a replay (of the stored
     /// session, or the empty one of a load that failed) cleared the conversation meanwhile, the prompt
     /// and its running turn are shown again first, after what was replayed.
+    /// The prompts that waited for a session that will not come: a held message goes back to the composer, the
+    /// one written before the session was open is closed with its turn, as the problem says.
+    fn drop_waiting_prompts(&mut self) {
+        self.waiting_prompt = None;
+        self.given_back = self.held_message.take().or(self.given_back.take());
+    }
+
     fn send_waiting_prompt(&mut self) {
         let Some(text) = self.waiting_prompt.take() else {
             return;
@@ -382,10 +562,25 @@ impl ThreadView {
         if self.thread.turn() == Turn::Idle {
             self.thread.apply(ThreadEvent::Prompted(text.clone()));
         }
-        self.tell_agent(|agent| agent.prompt(text));
+        self.hand_over(text);
     }
 
-    /// Whether a turn runs that the person can stop. While the lavoro is being made, or its message
+    /// Gives the agent the message and the files attached to it.
+    fn hand_over(&mut self, text: String) {
+        let sent = self.outgoing(&text);
+        let attachments = self.take_attachments();
+        self.tell_agent(|agent| agent.prompt_with(sent, attachments));
+    }
+
+    /// `text` as the agent is sent it: the master's messages say which project they are about.
+    fn outgoing(&self, text: &str) -> String {
+        match &self.master {
+            Some(kit) => kit.outgoing(text),
+            None => text.to_string(),
+        }
+    }
+
+    /// Whether a turn runs that the person can stop. While the task is being made, or its message
     /// waits for an account, there is no agent to stop.
     pub fn can_stop(&self) -> bool {
         let has_agent = !matches!(self.phase, Phase::Preparing | Phase::NoAccount);
@@ -407,7 +602,7 @@ impl ThreadView {
 
     /// Hands a command to the agent. One that cannot be handed over is said on stderr: the connection's
     /// own end, which follows, is what the person sees.
-    fn tell_agent(
+    pub(super) fn tell_agent(
         &self,
         tell: impl FnOnce(&Agent) -> Result<(), sakura_acp::connection::SendError>,
     ) {

@@ -339,3 +339,23 @@ fn patch_written_by_git_itself_reads_completely() {
     assert!(file(&patch, "src/a.txt").hunks[0].lines[4].has_no_newline);
     assert_eq!(file(&patch, "win.ini").hunks[0].lines[2].text, "B");
 }
+
+#[test]
+fn an_added_file_the_engine_sends_without_git_headers_reads_as_one_new_file_with_its_lines() {
+    let text = "--- /dev/null\n+++ b/e2e/version_flow.py\n+import os\n+\n+print(os.name)\n";
+    let patch = Patch::parse_file("e2e/version_flow.py", text);
+    assert_eq!(patch.files.len(), 1);
+    let file = &patch.files[0];
+    assert_eq!(file.path, "e2e/version_flow.py");
+    assert_eq!(file.change, Change::New);
+    assert_eq!((file.added, file.removed), (3, 0));
+    assert_eq!(file.hunks.len(), 1);
+    assert_eq!(file.hunks[0].lines.len(), 3);
+    assert_eq!(file.hunks[0].lines[2].text, "print(os.name)");
+}
+
+#[test]
+fn a_file_patch_that_is_a_whole_git_diff_is_read_as_it_is() {
+    let text = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,1 +1,1 @@\n-old\n+new\n";
+    assert_eq!(Patch::parse_file("a.rs", text), Patch::parse(text));
+}

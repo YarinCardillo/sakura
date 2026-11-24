@@ -74,7 +74,7 @@ detect_repository_root() {
   echo "$root"
 }
 
-# ---- the proposal -----------------------------------------------------------------------------
+# The proposal.
 # Lists of proposals are JSON arrays kept in these variables while the folder is examined.
 
 detect_add() {
@@ -157,7 +157,7 @@ default_branch() {
   local_branches "$root" | head -n 1
 }
 
-# ---- what is recognised -------------------------------------------------------------------------
+# What is recognised.
 
 # The package manager a lockfile in the folder names: "<manager> <lockfile>", nothing without one.
 node_package_manager() {

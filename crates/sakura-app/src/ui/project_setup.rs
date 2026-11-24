@@ -1,6 +1,6 @@
 //! The page that adds a project: it asks for the folder (one sentence, one button, the Mac's own folder
 //! picker), shows on one screen what `box` recognised in it (the repository, the folder inside it, the
-//! branch lavori start from, the checks with why each was proposed) to confirm or correct, and adds it.
+//! branch tasks start from, the checks with why each was proposed) to confirm or correct, and adds it.
 //! What `box` refuses is said in the interface's words, with its own line under "Details".
 
 use super::brand::{BrandMark, Ink, MarkSize};
@@ -85,7 +85,7 @@ pub struct ProjectSetup {
     shows_details: bool,
     /// Whether what the service noted about the folder is open, under its own "Details".
     shows_notes: bool,
-    /// Whether there is something to go back to: a page with lavori, where "Cancel" leads.
+    /// Whether there is something to go back to: a page with tasks, where "Cancel" leads.
     can_cancel: bool,
     /// The brand's mark over the page's sentence. It reveals itself once, the first time it is drawn in
     /// a launch, and is whole ever after; made when the page is first drawn.
@@ -246,7 +246,7 @@ impl ProjectSetup {
     }
 
     /// The person's own login on this Mac that an agent can start with, when `box` knows one: the
-    /// project's lavori on the Mac use it.
+    /// project's tasks on the Mac use it.
     fn first_own_account(&self, cx: &App) -> Option<String> {
         let Accounts::Loaded(accounts) = self.actions.read(cx).accounts() else {
             return None;
@@ -518,12 +518,13 @@ impl ProjectSetup {
         palette: &Palette,
         cx: &mut Context<Self>,
     ) -> gpui::Div {
-        // While `box` adds the project the button keeps its word and its place, and takes no press.
-        let add = button("project-add", tr(ADD), Face::Primary, palette)
-            .debug_selector(|| "project-add".into());
-        let add = match is_adding {
-            true => add.opacity(crate::theme::thread::SEND_BUTTON_DISABLED_OPACITY),
-            false => add.on_click(cx.listener(|page, _, _, cx| page.confirm(cx))),
+        let label = tr(ADD);
+        let kind = super::kit::ButtonKind::Primary;
+        let add = if is_adding {
+            super::kit::button_disabled("project-add", label, kind, palette)
+        } else {
+            super::kit::button("project-add", label, kind, palette)
+                .on_click(cx.listener(|page, _, _, cx| page.confirm(cx)))
         };
         let another = button(
             "project-another",
@@ -593,7 +594,6 @@ fn details_word(
         .debug_selector(move || id.into())
         .text_size(theme::TEXT_SMALL)
         .text_color(palette.text_tertiary)
-        .cursor_pointer()
         .child(tr(DETAILS))
         .on_click(cx.listener(move |page, _, _, cx| {
             flip(page);

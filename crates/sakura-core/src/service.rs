@@ -6,7 +6,7 @@ use crate::box_cli::{ask_to_end, BoxCli, Limit};
 use crate::error::{BridgeError, BridgeResult, ErrorCode};
 use crate::jobs::{self, JobNotifier, Jobs, NewJob, PendingJob};
 use crate::models::{
-    Account, BoxStatus, Commit, JournalEvent, Place, Preparing, Task, TaskSummary,
+    Account, BoxReadiness, BoxStatus, Commit, JournalEvent, Place, Preparing, Task, TaskSummary,
 };
 use crate::projects::NewLavoro;
 use crate::said::Said;
@@ -43,7 +43,7 @@ impl Core {
         }
     }
 
-    // ----- reads ---------------------------------------------------------------------------------
+    // Reads.
 
     /// `box status --json`, plus tasks still being prepared by a `task_new` job.
     pub async fn status(&self) -> BridgeResult<BoxStatus> {
@@ -60,6 +60,11 @@ impl Core {
             Err(error) if error.code == ErrorCode::Unsupported => Ok(None),
             Err(error) => Err(error),
         }
+    }
+
+    /// Whether a box can be used now; nothing is built or started (`box up --check`).
+    pub async fn boxes(&self) -> BridgeResult<BoxReadiness> {
+        self.cli.run_json(&["up", "--check"], Limit::Read).await
     }
 
     /// Accounts and whether each is logged in.
@@ -123,7 +128,7 @@ impl Core {
             .await
     }
 
-    // ----- actions -------------------------------------------------------------------------------
+    // Actions.
 
     /// Starts `box new` for `lavoro` as a tracked job and returns at once. Calling it again while it runs
     /// does nothing.
@@ -159,7 +164,7 @@ impl Core {
         Ok(sha.to_string())
     }
 
-    /// Removes a task. A task whose creation failed and left no workspace is simply forgotten.
+    /// Removes a task. A task whose creation failed and left no workspace is forgotten.
     pub async fn task_remove(&self, task: &str, force: bool) -> BridgeResult<()> {
         validate::task(task)?;
         if self.jobs.preparing(task).is_some_and(|p| !p.failed) {
@@ -220,7 +225,7 @@ impl Core {
     /// Runs the checks that wait, one at a time, and ends when none that can run is left
     /// (`box runner --once`): the app keeps the queue moving with it and leaves nothing running at rest.
     /// The call lasts as long as the checks do. Answers when the run ended and how: `box` warns on its
-    /// last line when it left requests waiting (Docker does not answer for a lavoro in a box).
+    /// last line when it left requests waiting (Docker does not answer for a task in a box).
     pub async fn runner_once(&self) -> (std::time::Instant, BridgeResult<Option<String>>) {
         let started = Arc::clone(&self.queue_run);
         let on_start = move |pid| *started.lock().unwrap_or_else(PoisonError::into_inner) = pid;
@@ -270,7 +275,7 @@ impl Core {
         Ok(())
     }
 
-    // ----- helpers -------------------------------------------------------------------------------
+    // Helpers.
 
     /// The `box` handle, for modules that run terminals.
     pub fn cli(&self) -> &BoxCli {
@@ -357,6 +362,7 @@ fn synthetic_task(job: PendingJob) -> Task {
         head: None,
         head_subject: None,
         head_time: None,
+        age_at: None,
         ahead: None,
         dirty_files: None,
         files_changed: None,
@@ -381,7 +387,7 @@ pub fn is_environment_error(error: &BridgeError) -> bool {
 mod tests {
     use super::*;
 
-    /// A lavoro of `project` with nothing else said.
+    /// A task of `project` with nothing else said.
     fn of(project: &str) -> NewLavoro {
         NewLavoro {
             project: project.into(),
@@ -479,8 +485,8 @@ esac"#
         rig.core.runner_end();
         let (_, ended) = run.await.unwrap();
         assert!(ended.is_err(), "a run that was ended is not a clean end");
-        // SAFETY: signal 0 sends nothing: it only asks whether the process exists.
-        let is_alive = unsafe { libc::kill(pid, 0) } == 0;
+        let is_alive = rustix::process::Pid::from_raw(pid)
+            .is_some_and(|pid| rustix::process::test_kill_process(pid).is_ok());
         assert!(!is_alive, "no runner is left");
         rig.core.runner_end();
     }
@@ -547,6 +553,15 @@ esac"#
     }
 
     #[cfg_attr(windows, ignore = "Unix shell fixture")]
+    #[tokio::test]
+    async fn whether_boxes_can_be_used_is_asked_without_starting_anything() {
+        let rig =
+            rig(r#"  up) echo '{"docker":true,"image":false,"proxy":false,"ready":false}' ;;"#);
+        let boxes = rig.core.boxes().await.unwrap();
+        assert!(boxes.docker && !boxes.ready);
+        assert_eq!(calls(rig.dir.path()), ["up|--check"]);
+    }
+
     #[tokio::test]
     async fn bad_arguments_never_reach_the_process() {
         let rig = rig("");

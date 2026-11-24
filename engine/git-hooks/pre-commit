@@ -1,0 +1,5 @@
+#!/bin/sh
+SOURCE=$(readlink "$0" 2>/dev/null || true)
+[ -n "$SOURCE" ] || SOURCE=$0
+KIT=$(CDPATH= cd -- "$(dirname -- "$SOURCE")/.." && pwd -P)
+exec "$KIT/bin/sakura" git pre-commit "$@"

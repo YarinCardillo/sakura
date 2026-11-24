@@ -263,15 +263,15 @@ fn terminal_args(request: &TerminalRequest) -> BridgeResult<Vec<String>> {
         value.ok_or_else(|| BridgeError::invalid(Said::new(missing)))
     };
     let args = match request.kind {
-        TerminalKind::Agent => [
+        TerminalKind::Agent => vec![
             "attach".to_string(),
             validate::task(&required(&request.task, "error.terminal.missing_task")?)?.to_string(),
         ],
-        TerminalKind::Shell => [
+        TerminalKind::Shell => vec![
             "shell".to_string(),
             validate::task(&required(&request.task, "error.terminal.missing_task")?)?.to_string(),
         ],
-        TerminalKind::Login => [
+        TerminalKind::Login => vec![
             "login".to_string(),
             validate::account(&required(
                 &request.account,
@@ -279,8 +279,9 @@ fn terminal_args(request: &TerminalRequest) -> BridgeResult<Vec<String>> {
             )?)?
             .to_string(),
         ],
+        TerminalKind::Up => vec!["up".to_string()],
     };
-    Ok(args.to_vec())
+    Ok(args)
 }
 
 fn size(cols: u16, rows: u16) -> PtySize {
@@ -388,8 +389,8 @@ mod tests {
     }
 
     fn is_alive(pid: i32) -> bool {
-        // SAFETY: signal 0 only checks that the process exists.
-        unsafe { libc::kill(pid, 0) == 0 }
+        rustix::process::Pid::from_raw(pid)
+            .is_some_and(|pid| rustix::process::test_kill_process(pid).is_ok())
     }
 
     fn wait_dead(pid: i32) -> bool {
@@ -418,18 +419,21 @@ mod tests {
         let (text, exit) = read_until(&rig, &first, "hello\r\nhello");
         assert!(text.contains("hello"), "{text:?}");
         assert!(exit.is_none());
+        // The second terminal's script may not have written its pid yet when the first one has
+        // echoed: wait for the file (under a deadline) rather than read it at once.
         let read_pid = |task: &str| -> i32 {
             let path = rig.dir.path().join(format!("pid-{task}"));
-            let deadline = Instant::now() + WAIT;
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
             loop {
-                if let Some(pid) = std::fs::read_to_string(&path)
-                    .ok()
-                    .and_then(|text| text.trim().parse().ok())
-                {
+                let text = std::fs::read_to_string(&path).unwrap_or_default();
+                if let Ok(pid) = text.trim().parse() {
                     return pid;
                 }
-                assert!(Instant::now() < deadline, "child PID was not recorded");
-                std::thread::sleep(Duration::from_millis(10));
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "no pid written for {task}"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(20));
             }
         };
         let pids = [read_pid("m1"), read_pid("m2")];
@@ -487,6 +491,7 @@ mod tests {
             request(TerminalKind::Agent, Some("m1"), None),
             request(TerminalKind::Shell, Some("m2"), None),
             request(TerminalKind::Login, None, Some("personal")),
+            request(TerminalKind::Up, None, None),
         ] {
             let id = rig.terminals.open(&req).unwrap();
             read_until(&rig, &id, "never appears");
@@ -501,6 +506,7 @@ mod tests {
                 format!("attach m1 {tail}"),
                 format!("login personal {tail}"),
                 format!("shell m2 {tail}"),
+                format!("up {tail}"),
             ]
         );
     }

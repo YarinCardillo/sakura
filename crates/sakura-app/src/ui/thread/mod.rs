@@ -5,46 +5,76 @@
 //! What moves: streamed words fade in, a label that waits shimmers in one direction, and the jump button
 //! fades. Nothing else, and none of it under reduced motion or for a replayed session.
 
+// What the master's conversation adds is built only by the engine's window: the boxes build, which has
+// none, compiles it and uses none of it.
+#![cfg_attr(feature = "boxes", allow(dead_code, unused_imports))]
+
+pub(crate) mod agent_menu;
 mod answer;
+mod attach;
 mod breaks;
 mod composer;
 mod copy;
+mod dictation;
 mod diff;
 mod glyphs;
+mod local_commands;
+mod master;
+mod master_cards;
+mod master_choices;
+mod master_composer;
 mod permission;
 mod rows;
+#[cfg(not(feature = "boxes"))]
+pub(super) use rows::saved_message;
 mod segments;
 mod session;
+mod slash;
 mod states;
 mod tool;
 
 #[cfg(test)]
 mod view_tests;
 
-pub use composer::send_face;
+#[cfg(feature = "snapshot")]
+pub use attach::pick_next_files;
+pub use attach::refusal_words;
+pub use composer::{send_face, send_look};
+pub use copy::tool_words as engine_tool_words;
+#[cfg(not(feature = "boxes"))]
+pub use copy::{elapsed, shown, JUMP_TO_END};
 pub use glyphs::send as send_glyph;
+pub use master::{
+    AgentMenu, LaneAsk, LaneCard, MasterKit, MasterWorld, MenuEntry, MenuGroup, MenuPick, Proposal,
+    ProposalAsk, SharedStart, StartChoice, LOGIN_OPTION, PLAN_MODE,
+};
+pub(crate) use rows::prompt;
 pub use session::{
     Ask, ChooseAccount, Host, Launched, Login, Readiness, StoreSession, StoredSession,
 };
 pub use states::{button, Face};
 
 use crate::l10n::tr;
-use answer::{Answer, Growth};
+pub(crate) use answer::Answer;
+use answer::Growth;
 
 use crate::theme::thread as tokens;
 use crate::theme::Theme;
 use crate::ui::brand::{BrandMark, Rest};
 use gpui::{
-    div, App, AppContext as _, Context, Entity, EventEmitter, IntoElement, ParentElement, Render,
-    Styled, Subscription, Task, Window,
+    div, App, AppContext as _, Context, Entity, EventEmitter, InteractiveElement as _, IntoElement,
+    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
+    Task, Window,
 };
 use gpui_component::input::{InputEvent, TextareaState};
 use gpui_component::message_scroller::MessageScrollerState;
+use sakura_acp::attachment::{Attachment, Refusal};
 use sakura_acp::connection::Agent;
+use sakura_acp::model::{PromptSupport, SessionChoices, SlashCommand};
 #[cfg(test)]
 use sakura_acp::thread::ThreadEvent;
 use sakura_acp::thread::{EntryKind, Problem, Thread, Turn};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 /// Where the conversation stands with its agent.
@@ -52,7 +82,7 @@ use std::time::Instant;
 pub enum Phase {
     /// No agent runs for this view.
     Idle,
-    /// The lavoro is being made: the person's first message is shown and waits for it.
+    /// The task is being made: the person's first message is shown and waits for it.
     Preparing,
     /// The agent is starting or a session is opening.
     Connecting,
@@ -60,7 +90,7 @@ pub enum Phase {
     Loading,
     /// The account must sign in before a session can open.
     SignIn,
-    /// No account is named for the lavoro's agent: the person chooses one. A message that was sent
+    /// No account is named for the task's agent: the person chooses one. A message that was sent
     /// waits, and goes to the agent that starts with the account chosen.
     NoAccount,
     /// A session is open.
@@ -72,12 +102,20 @@ pub enum Phase {
 }
 
 /// What the view tells whoever holds it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ThreadViewEvent {
     /// Whether the agent waits for the person changed: the task's header shows it.
     WaitsForPerson(bool),
     /// What the conversation says of its agent changed: the task's state shows it.
     Live(sakura_core::model::Live),
+    /// The person typed `/clear` in the master's composer: its holder starts a fresh conversation.
+    StartFresh,
+    /// The person chose the project the master's messages are about; the holder reads it.
+    ProjectChosen,
+    /// The person chose to log in to Codex for Sakura: the holder opens the program's own login.
+    CodexLoginRequested,
+    /// The agent can no longer load the stored conversation.
+    KeptSessionLost(String),
 }
 
 /// What the view keeps for one entry, by the entry's id.
@@ -85,7 +123,7 @@ enum RowState {
     /// Nothing to keep.
     Plain,
     /// The agent's answer, as the parts that draw it.
-    Markdown(Answer),
+    Markdown(Box<Answer>),
     /// A row that opens: the person's choice, or none while the default holds; and whether a long body is
     /// shown whole.
     Foldable {
@@ -102,20 +140,55 @@ pub struct ThreadView {
     /// each entry.
     spans: Vec<usize>,
     starts: Vec<usize>,
+    /// The answer the person pressed on, kept as one row of the list while they select in it: a row the list
+    /// drops from its screen takes its text's selection away, and a drag held at the edge scrolls far.
+    held: Option<u64>,
+    /// The wait that says a conversation did not load, while one is loading.
+    load_watch: Option<gpui::Task<()>>,
     scroller: Entity<MessageScrollerState>,
+    /// Scrolls the transcript while a drag-selection is held at its edge.
+    drag_scroll: crate::ui::drag_scroll::DragScroll,
     composer: Entity<TextareaState>,
     phase: Phase,
     host: Host,
     agent: Option<Agent>,
+    has_opened_session: bool,
     /// A prompt written before the session was open, sent when it opens.
     waiting_prompt: Option<String>,
-    /// Whether the session that is opening was requested as the one kept from before, and whether the
-    /// agent then opened a new one because it no longer has it.
+    /// A message sent while the conversation was loading: it goes when the session opens, after what was loaded.
+    held_message: Option<String>,
+    /// A held message that did not go (the agent ended first): put back in the composer when it is next drawn.
+    given_back: Option<String>,
+    /// Whether the session that is opening was requested as the one kept from before.
     asked_for_kept: bool,
     is_kept_lost: bool,
     /// Whether the conversation kept from before was already requested by being shown.
     tried_kept: bool,
     turn_started: Option<Instant>,
+    /// What the master's conversation adds; none for any other.
+    master: Option<MasterKit>,
+    /// The files attached to the message being written, what the agent said its prompts take (not known
+    /// until it connects) and why the last file was refused.
+    attachments: Vec<Attachment>,
+    prompt_support: Option<PromptSupport>,
+    /// The models and modes the session offers, as the agent last said.
+    choices: SessionChoices,
+    /// The slash commands the agent announced, and which one of the menu is highlighted.
+    commands: Vec<SlashCommand>,
+    slash_selected: usize,
+    /// The menu's scroll: it holds more commands than it has room for, and the highlighted one stays in view.
+    slash_scroll: gpui::ScrollHandle,
+    /// `/help` was run: the list of every command is shown over the composer until something is typed.
+    is_help_open: bool,
+    /// The proposal cards of the master (by their call's id) the person opened to read every line.
+    expanded_notes: HashSet<String>,
+    /// The folded rows of tool calls (by the id of the first call of each) the person opened.
+    opened_groups: HashSet<u64>,
+    /// Where each chip of the composer was last drawn, so a command can open its menu.
+    chip_frames: master_choices::ChipFrames,
+    refusal: Option<Refusal>,
+    /// The system did not start dictation when the microphone was pressed.
+    is_dictation_unavailable: bool,
     waits_for_person: bool,
     /// What the desk was last told of the agent, and whether a turn ever ran here.
     told_live: sakura_core::model::Live,
@@ -137,6 +210,7 @@ impl ThreadView {
     /// A view with no agent yet. Nothing takes the focus.
     pub fn new(host: Host, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let scroller = cx.new(|cx| MessageScrollerState::new(0, cx));
+        let drag_scroll = crate::ui::drag_scroll::DragScroll::default();
         let composer = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(tokens::COMPOSER_MIN_ROWS, tokens::COMPOSER_MAX_ROWS)
@@ -147,17 +221,21 @@ impl ThreadView {
             &composer,
             window,
             |view, _, event: &InputEvent, window, cx| {
-                if let InputEvent::PressEnter { shift: false, .. } = event {
-                    view.send(window, cx);
+                match event {
+                    // Return picks a command while the menu of commands is open, and sends otherwise.
+                    InputEvent::PressEnter { shift: false, .. } => view.on_return(window, cx),
+                    InputEvent::Change => {
+                        view.slash_selected = 0;
+                        view.close_help_when_typing(cx);
+                        cx.notify();
+                    }
+                    _ => {}
                 }
             },
         );
-        let on_language =
-            cx.observe_global_in::<crate::l10n::Spoken>(window, |view, window, cx| {
-                let composer = view.composer.clone();
-                composer.update(cx, |composer, cx| {
-                    composer.set_placeholder(tr(copy::PLACEHOLDER), window, cx)
-                });
+        let on_language = cx
+            .observe_global_in::<crate::l10n::Spoken>(window, |view, window, cx| {
+                view.set_placeholder(window, cx)
             });
         // Every change of this view (a phase, a turn) passes here: the desk hears what the agent does.
         let me = cx.entity();
@@ -167,16 +245,35 @@ impl ThreadView {
             rows: HashMap::new(),
             spans: Vec::new(),
             starts: Vec::new(),
+            held: None,
+            load_watch: None,
             scroller,
+            drag_scroll,
             composer,
             phase: Phase::Idle,
             host,
             agent: None,
+            has_opened_session: false,
             waiting_prompt: None,
+            held_message: None,
+            given_back: None,
             asked_for_kept: false,
             is_kept_lost: false,
             tried_kept: false,
             turn_started: None,
+            master: None,
+            attachments: Vec::new(),
+            prompt_support: None,
+            choices: SessionChoices::default(),
+            commands: Vec::new(),
+            slash_selected: 0,
+            slash_scroll: gpui::ScrollHandle::new(),
+            is_help_open: false,
+            expanded_notes: HashSet::new(),
+            opened_groups: HashSet::new(),
+            chip_frames: master_choices::ChipFrames::default(),
+            refusal: None,
+            is_dictation_unavailable: false,
             waits_for_person: false,
             told_live: sakura_core::model::Live::Unknown,
             had_turn: false,
@@ -189,9 +286,45 @@ impl ThreadView {
         }
     }
 
+    /// Makes this the master's conversation: its cards, its project chip, its words.
+    pub fn with_master(&mut self, kit: MasterKit, window: &mut Window, cx: &mut Context<Self>) {
+        self.master = Some(kit);
+        self.set_placeholder(window, cx);
+    }
+
+    /// The composer's focus, for the tests.
     #[cfg(test)]
+    pub fn composer_handle(&self, cx: &App) -> gpui::FocusHandle {
+        gpui::Focusable::focus_handle(self.composer.read(cx), cx)
+    }
+
+    /// What the empty composer says, in the conversation's own words.
+    fn set_placeholder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let words = self.placeholder_words();
+        self.composer.update(cx, |composer, cx| {
+            composer.set_placeholder(words, window, cx)
+        });
+    }
+
+    fn placeholder_words(&self) -> &'static str {
+        match self.master {
+            Some(_) => tr(copy::MASTER_PLACEHOLDER),
+            None => tr(copy::PLACEHOLDER),
+        }
+    }
+
+    #[cfg(any(test, not(feature = "boxes")))]
     pub fn phase(&self) -> &Phase {
         &self.phase
+    }
+
+    /// The person signed in: an agent that ended because it had no login starts again; any other state stays as
+    /// it is.
+    pub fn restart_after_sign_in(&mut self, cx: &mut Context<Self>) {
+        match self.phase {
+            Phase::SignIn | Phase::Ended(_) => self.retry(cx),
+            _ => cx.notify(),
+        }
     }
 
     /// What the empty composer says.
@@ -224,9 +357,53 @@ impl ThreadView {
     }
 
     /// What is written in the composer and not sent yet.
-    #[cfg(test)]
     pub fn draft(&self, cx: &App) -> String {
         composed(&self.composer, cx)
+    }
+
+    /// Where the conversation stands, in a line, for the scripted checks.
+    #[cfg(all(feature = "snapshot", not(feature = "boxes")))]
+    pub fn summary(&self) -> String {
+        let kinds: Vec<&str> = self
+            .thread
+            .entries()
+            .iter()
+            .map(|entry| match entry.kind {
+                EntryKind::User(_) => "user",
+                EntryKind::Assistant(_) => "assistant",
+                EntryKind::Thought(_) => "thought",
+                EntryKind::Tool(_) => "tool",
+                EntryKind::Plan(_) => "plan",
+                EntryKind::Permission(_) => "permission",
+                EntryKind::Problem(_) => "problem",
+            })
+            .collect();
+        let waits = self.waits_for_person;
+        format!(
+            "phase={:?} waits_for_person={waits} entries={kinds:?}",
+            self.phase
+        )
+    }
+
+    /// How many characters of its own words the agent has said in this conversation so far.
+    #[cfg(feature = "snapshot")]
+    pub fn assistant_text_len(&self) -> usize {
+        let length = |entry: &sakura_acp::thread::Entry| match &entry.kind {
+            EntryKind::Assistant(message) => message.text.len(),
+            _ => 0,
+        };
+        self.thread.entries().iter().map(length).sum()
+    }
+
+    /// The words of the agent's last message, for the scripted checks.
+    #[cfg(feature = "snapshot")]
+    pub fn last_assistant_text(&self) -> String {
+        let words = |entry: &sakura_acp::thread::Entry| match &entry.kind {
+            EntryKind::Assistant(message) => Some(message.text.clone()),
+            _ => None,
+        };
+        let last = self.thread.entries().iter().rev().find_map(words);
+        last.unwrap_or_default()
     }
 
     /// The conversation as it stands.
@@ -250,6 +427,7 @@ impl ThreadView {
         if changes.is_reset {
             self.rows.clear();
             self.spans.clear();
+            self.held = None;
             (0..count).for_each(|index| self.add_row(index, cx));
             self.place_rows();
             let rows = self.row_count();
@@ -263,6 +441,14 @@ impl ThreadView {
                 let before = self.row_count();
                 (first..count).for_each(|index| self.add_row(index, cx));
                 self.place_rows();
+                // A call that joined a run changes the row of the run's first call.
+                let owners: HashSet<usize> = (first..count)
+                    .map(|index| self.row_owner(index))
+                    .filter(|owner| *owner < first)
+                    .collect();
+                owners
+                    .into_iter()
+                    .for_each(|owner| self.remeasure(owner, cx));
                 let added = self.row_count() - before;
                 self.scroller
                     .update(cx, |scroller, cx| scroller.append(added, cx));
@@ -305,12 +491,12 @@ impl ThreadView {
     fn add_row(&mut self, index: usize, cx: &mut Context<Self>) {
         let entry = &self.thread.entries()[index];
         let state = match &entry.kind {
-            EntryKind::Assistant(message) => RowState::Markdown(Answer::new(
+            EntryKind::Assistant(message) => RowState::Markdown(Box::new(Answer::new(
                 &message.text,
                 message.is_streaming,
                 entry.is_replayed,
                 cx,
-            )),
+            ))),
             EntryKind::Thought(_)
             | EntryKind::Tool(_)
             | EntryKind::Plan(_)
@@ -322,15 +508,38 @@ impl ThreadView {
         };
         let span = match &state {
             RowState::Markdown(answer) => answer.parts().len(),
+            // A call that follows another is part of the row of the first one.
+            _ if index > 0 && self.is_grouped(index) && self.is_grouped(index - 1) => 0,
             _ => 1,
         };
         self.spans.push(span);
         self.rows.insert(entry.id, state);
     }
 
+    /// Whether the entry at `index` is a tool call of the master that is folded with the calls beside it: the
+    /// calls drawn as cards (a lane started, a note proposed) stand alone.
+    fn is_grouped(&self, index: usize) -> bool {
+        let Some(entry) = self.thread.entries().get(index) else {
+            return false;
+        };
+        let is_call =
+            matches!(&entry.kind, EntryKind::Tool(call) if master::CardTool::of(call).is_none());
+        self.master.is_some() && is_call
+    }
+
+    /// The entry whose row draws the entry at `index`: the first call of the run it is in, or itself.
+    fn row_owner(&self, index: usize) -> usize {
+        let mut owner = index;
+        while owner > 0 && self.is_grouped(owner) && self.is_grouped(owner - 1) {
+            owner -= 1;
+        }
+        owner
+    }
+
     /// An entry changed: its answer takes in the new text, and the list measures again only the rows
     /// that changed (for an answer, its last part and the parts it gained).
     fn refresh_row(&mut self, index: usize, cx: &mut Context<Self>) {
+        let index = self.row_owner(index);
         let Some(entry) = self.thread.entries().get(index) else {
             return;
         };
@@ -342,6 +551,10 @@ impl ThreadView {
         };
         let (first, span) = (self.starts[index], self.spans[index]);
         let end = first + span;
+        if self.held == Some(entry.id) {
+            // Kept as one row: its parts grow inside it.
+            return self.remeasure_rows(first..end, cx);
+        }
         match grown {
             Growth::Same => self.remeasure_rows(end - 1..end, cx),
             Growth::Added(added) => {
@@ -362,8 +575,54 @@ impl ThreadView {
         }
     }
 
+    /// Keeps the answer `id`, which the person pressed on, as one row; the answer held before goes back to a row
+    /// per part. The parts stay as they were: only the rows of the list change.
+    pub(super) fn hold_answer(&mut self, id: u64, cx: &mut Context<Self>) {
+        let has_parts = match self.rows.get(&id) {
+            Some(RowState::Markdown(answer)) => answer.parts().len() > 1,
+            _ => false,
+        };
+        if self.held == Some(id) || !has_parts {
+            return;
+        }
+        if let Some(before) = self.held.take() {
+            self.set_answer_span(before, None, cx);
+        }
+        self.held = Some(id);
+        self.set_answer_span(id, Some(1), cx);
+    }
+
+    /// Gives the answer `id` `span` rows, or a row per part when none is given.
+    fn set_answer_span(&mut self, id: u64, span: Option<usize>, cx: &mut Context<Self>) {
+        let Some(index) = self
+            .thread
+            .entries()
+            .iter()
+            .position(|entry| entry.id == id)
+        else {
+            return;
+        };
+        let Some(RowState::Markdown(answer)) = self.rows.get(&id) else {
+            return;
+        };
+        let wanted = span.unwrap_or_else(|| answer.parts().len());
+        let (first, had) = (self.starts[index], self.spans[index]);
+        if wanted == had {
+            return;
+        }
+        self.spans[index] = wanted;
+        self.place_rows();
+        self.scroller.update(cx, |scroller, cx| match wanted > had {
+            true => drop(scroller.splice(first + had..first + had, wanted - had, cx)),
+            false => drop(scroller.splice(first + wanted..first + had, 0, cx)),
+        });
+        self.remeasure_rows(first..first + wanted, cx);
+        cx.notify();
+    }
+
     /// Measures again every row of the entry at `index`.
     fn remeasure(&mut self, index: usize, cx: &mut Context<Self>) {
+        let index = self.row_owner(index);
         let first = self.starts[index];
         self.remeasure_rows(first..first + self.spans[index], cx);
     }
@@ -377,10 +636,10 @@ impl ThreadView {
     /// Keeps the turn's start and the one-second clock that draws its elapsed time.
     fn follow_turn(&mut self, cx: &mut Context<Self>) {
         let is_running = self.thread.turn() != Turn::Idle;
-        if !is_running {
-            self.turn_started = None;
-            self._clock = None;
-        } else if self.turn_started.is_none() {
+        if self.turn_started.is_some() == is_running {
+            return;
+        }
+        if is_running {
             self.turn_started = Some(Instant::now());
             self._clock = Some(cx.spawn(async move |view, cx| loop {
                 cx.background_executor().timer(tokens::ELAPSED_TICK).await;
@@ -388,6 +647,9 @@ impl ThreadView {
                     break;
                 }
             }));
+        } else {
+            self.turn_started = None;
+            self._clock = None;
         }
     }
 
@@ -403,9 +665,9 @@ impl ThreadView {
         self.had_turn |= works;
         let live = match &self.phase {
             Phase::Preparing => Live::Starting,
-            // The agent starts for a message that waits: the lavoro is at work on it, and the line over
+            // The agent starts for a message that waits: the task is at work on it, and the line over
             // the composer says the step. Starting it to show a conversation kept from before is no
-            // work on the lavoro: its state stays what it was.
+            // work on the task: its state stays what it was.
             Phase::Connecting | Phase::Loading if works => Live::Working,
             Phase::Ended(_) => Live::Stopped,
             Phase::Ready if works => Live::Working,
@@ -461,6 +723,14 @@ impl ThreadView {
         self.row_changed(id, cx);
     }
 
+    /// Opens or folds the row of tool calls that begins with the call `id`.
+    fn toggle_group(&mut self, id: u64, cx: &mut Context<Self>) {
+        if !self.opened_groups.remove(&id) {
+            self.opened_groups.insert(id);
+        }
+        self.row_changed(id, cx);
+    }
+
     fn row_changed(&mut self, id: u64, cx: &mut Context<Self>) {
         let index = self
             .thread
@@ -477,11 +747,23 @@ impl ThreadView {
 impl Render for ThreadView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = Theme::palette(cx);
+        if let Some(text) = self.given_back.take() {
+            self.composer
+                .update(cx, |composer, cx| composer.set_value(text, window, cx));
+        }
+        let dragged_over = palette.fill_hover;
         div()
+            .id("thread")
+            .debug_selector(|| "thread".to_string())
             .size_full()
             .min_h_0()
             .flex()
             .flex_col()
+            // Files dropped on the conversation are attached to the master's next message.
+            .on_drop(cx.listener(|view, paths: &gpui::ExternalPaths, _, cx| {
+                view.attach_paths(paths.paths(), cx)
+            }))
+            .drag_over::<gpui::ExternalPaths>(move |style, _, _, _| style.bg(dragged_over))
             // No fill of its own: the panel under it is the surface, and a square fill here covered
             // the panel's rounded bottom corner.
             .text_color(palette.text)

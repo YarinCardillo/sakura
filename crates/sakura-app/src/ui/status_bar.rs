@@ -2,7 +2,7 @@
 //! end, a group at its right end, and between them, quiet, what is running. It holds only what Sakura has:
 //! at the left the sidebar's toggle; in the middle a sentence that says a thing only while it is true (a
 //! read that failed, the check the runner runs and how many wait, the machine while it is strained); at
-//! the right the lavoro's terminal and the right pane's toggle. An item enters the bar when its function
+//! the right the task's terminal and the right pane's toggle. An item enters the bar when its function
 //! exists, in [`left_items`] or [`right_items`], and nowhere else. At rest the middle is empty.
 //!
 //! Each pane's toggle shows whether its pane is open (the icon filled on the pane's side) or closed (the
@@ -19,12 +19,16 @@
 
 use super::chrome::{tabular, DETAILS};
 use super::pane_toggle;
+#[cfg(feature = "boxes")]
 use crate::data::facts::Facts;
 use crate::icons::PaneIcon;
-use crate::l10n::{say, tr, Key, Said};
-use crate::menus::{
-    self, PanesShown, ShowSettings, SwitchTerminal, ToggleChanges, ToggleFollow, ToggleSidebar,
-};
+use crate::l10n::Key;
+#[cfg(feature = "boxes")]
+use crate::l10n::Said;
+use crate::l10n::{say, tr};
+use crate::menus::{self, ShowSettings, ToggleSidebar};
+#[cfg(feature = "boxes")]
+use crate::menus::{PanesShown, SwitchTerminal, ToggleChanges, ToggleFollow};
 use crate::theme::{self, Palette};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -32,7 +36,9 @@ use gpui::{
     ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, StyledText,
 };
 use gpui_component::tooltip::Tooltip;
+#[cfg(feature = "boxes")]
 use sakura_core::model;
+#[cfg(feature = "boxes")]
 use sakura_core::models::{Machine, RunnerState};
 use std::ops::Range;
 
@@ -70,6 +76,7 @@ impl Line {
     }
 }
 
+#[cfg(feature = "boxes")]
 /// The sentence for what is true now: a read error first, then what the runner does, then the machine
 /// while it is strained. Nothing running and nothing strained is an empty sentence.
 pub fn line(machine: Option<&Machine>, runner: Option<&RunnerState>, error: Option<&Said>) -> Line {
@@ -94,16 +101,18 @@ pub fn line(machine: Option<&Machine>, runner: Option<&RunnerState>, error: Opti
     line
 }
 
+#[cfg(feature = "boxes")]
 /// Whether the runner has something to say: a check under way, or checks that wait (also when the
 /// runner is stopped, which is then why they wait). An idle runner says nothing.
 fn is_worth_saying(runner: &RunnerState) -> bool {
     runner.current.is_some() || !runner.queue.is_empty()
 }
 
-/// Where the centre of the lavoro on screen stands with its terminal.
+#[cfg(feature = "boxes")]
+/// Where the centre of the task on screen stands with its terminal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerminalItem {
-    /// The lavoro has no terminal: a press opens one.
+    /// The task has no terminal: a press opens one.
     None,
     /// It has one, and the centre shows the agent: a press shows the terminal.
     Open,
@@ -111,6 +120,7 @@ pub enum TerminalItem {
     Shown,
 }
 
+#[cfg(feature = "boxes")]
 impl TerminalItem {
     /// What a press would do.
     fn label(self) -> Key {
@@ -122,20 +132,22 @@ impl TerminalItem {
     }
 }
 
+#[cfg(feature = "boxes")]
 /// What the bar shows besides the facts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Bar {
     pub panes: PanesShown,
-    /// The terminal of the lavoro on screen; none while no lavoro is shown.
+    /// The terminal of the task on screen; none while no task is shown.
     pub terminal: Option<TerminalItem>,
-    /// Whether the right pane of the lavoro on screen follows its agent; none while no lavoro is shown
+    /// Whether the right pane of the task on screen follows its agent; none while no task is shown
     /// or its files cannot be read.
     pub follow: Option<bool>,
-    /// Whether the Play of the lavoro on screen runs.
+    /// Whether the Play of the task on screen runs.
     pub is_playing: bool,
 }
 
-/// The status bar for the current facts, panes and lavoro.
+#[cfg(feature = "boxes")]
+/// The status bar for the current facts, panes and task.
 pub fn view(facts: &Facts, bar: Bar, palette: &Palette, cx: &App) -> AnyElement {
     let error = facts.error();
     let line = line(facts.machine(), facts.runner(), error.as_ref());
@@ -160,6 +172,7 @@ pub fn view(facts: &Facts, bar: Bar, palette: &Palette, cx: &App) -> AnyElement 
         .into_any_element()
 }
 
+#[cfg(feature = "boxes")]
 /// The items at the bar's left end, in order. A new item of the left end is added here.
 fn left_items(bar: Bar, cx: &App) -> Vec<AnyElement> {
     vec![pane_toggle::button(
@@ -171,6 +184,7 @@ fn left_items(bar: Bar, cx: &App) -> Vec<AnyElement> {
     )]
 }
 
+#[cfg(feature = "boxes")]
 /// The items at the bar's right end, in order: Settings, then what belongs to the task on screen; the
 /// right pane's toggle is the last. A new item of the
 /// right end ("Follow the agent", a Play that runs) is added here, when its function exists.
@@ -192,11 +206,17 @@ fn right_items(bar: Bar, palette: &Palette, cx: &App) -> Vec<AnyElement> {
         &ShowSettings,
         cx,
     );
-    let items = playing.into_iter().chain([settings]).chain(follow);
+    let update = super::update_link::button("status-update-release", cx);
+    let items = update
+        .into_iter()
+        .chain(playing)
+        .chain([settings])
+        .chain(follow);
     items.chain(terminal).chain([pane]).collect()
 }
 
-/// The Play of the lavoro on screen runs: said in words, beside the bar's sentence.
+#[cfg(feature = "boxes")]
+/// The Play of the task on screen runs: said in words, beside the bar's sentence.
 fn playing_item(palette: &Palette) -> AnyElement {
     super::chrome::text(theme::TEXT_LABEL, palette.text_secondary)
         .debug_selector(|| "status-playing".into())
@@ -206,6 +226,7 @@ fn playing_item(palette: &Palette) -> AnyElement {
         .into_any_element()
 }
 
+#[cfg(feature = "boxes")]
 /// "Follow the agent": while on, the right pane opens the file and line the agent is at, and the item
 /// has the fill of a chosen view and the icon of a place held; off, the icon is struck. A press turns
 /// it off, or on again at the agent's last place.
@@ -229,7 +250,8 @@ fn follow_item(is_on: bool, palette: &Palette, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// The terminal of the lavoro on screen: it opens one, shows it, or goes back to the agent. While the
+#[cfg(feature = "boxes")]
+/// The terminal of the task on screen: it opens one, shows it, or goes back to the agent. While the
 /// terminal is what the centre shows the item has the fill of a chosen view.
 fn terminal_item(item: TerminalItem, palette: &Palette, cx: &App) -> AnyElement {
     let button = pane_toggle::button(
@@ -299,6 +321,7 @@ fn lowercase_first(text: &str) -> String {
     }
 }
 
+#[cfg(feature = "boxes")]
 #[cfg(test)]
 mod tests {
     use super::*;

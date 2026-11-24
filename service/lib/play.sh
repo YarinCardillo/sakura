@@ -1,8 +1,8 @@
 # shellcheck shell=bash
-# Play: the run command of a project (RUN), started for a lavoro on the Mac so that the person
-# can look at the app the lavoro is building. It runs in the folder of the project inside the
+# Play: the run command of a project (RUN), started for a task on the Mac so that the person
+# can look at the app the task is building. It runs in the folder of the project inside the
 # worktree, detached from box, in a process group of its own, with a range of ports reserved
-# for the lavoro (SAKURA_PORT is the first; CONDUCTOR_PORT carries the same value), and its output
+# for the task (SAKURA_PORT is the first; CONDUCTOR_PORT carries the same value), and its output
 # in a bounded log of the data directory. Nothing runs at rest: Play runs only between start and
 # stop, and box rm stops it.
 #
@@ -65,7 +65,7 @@ cmd_play() {
   if [ "$json" = "--json" ]; then play_status_json "$task"; else play_status_line "$task"; fi
 }
 
-# ---- state: host-private files of the data directory ------------------------------------------
+# State: host-private files of the data directory.
 
 play_file() {
   echo "$PLAY_DIR/$1.$2"
@@ -110,7 +110,7 @@ reserve_play_ports() {
   echo "$first $count" >"$(play_file "$task" ports)"
 }
 
-# ---- start, stop --------------------------------------------------------------------------------
+# Start, stop.
 
 play_start() {
   local task="$1" first count folder other launcher launcher_start pid_file log done_file
@@ -193,7 +193,7 @@ forget_play() {
   rm -f "$(play_file "$1" ports)" "$(play_file "$1" log)" "$(play_file "$1" done)"
 }
 
-# ---- status, log --------------------------------------------------------------------------------
+# Status, log.
 
 play_status_json() {
   local task="$1" group="" first=0 count=0 since=""

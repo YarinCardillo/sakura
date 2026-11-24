@@ -49,11 +49,11 @@ impl Row {
 }
 
 /// The rows of `patch`, with the files `is_open` says are open shown in full.
-pub fn rows(patch: &Patch, is_open: impl Fn(&str) -> bool) -> Vec<Row> {
+pub fn rows(patch: &Patch, is_open: impl Fn(&FilePatch) -> bool) -> Vec<Row> {
     let mut rows = Vec::new();
     for (index, file) in patch.files.iter().enumerate() {
         rows.push(Row::Header { file: index });
-        if !is_open(&file.path) {
+        if !is_open(file) {
             continue;
         }
         if note(file).is_some() {
@@ -219,7 +219,7 @@ mod tests {
     #[test]
     fn an_open_file_shows_its_hunks_and_lines_in_place() {
         let patch = patch();
-        let rows = rows(&patch, |path| path == "src/lib/catalogs/scope.ts");
+        let rows = rows(&patch, |file| file.path == "src/lib/catalogs/scope.ts");
         let scope = &patch.files[0];
         assert_eq!(
             rows.len(),
@@ -366,7 +366,7 @@ mod tests {
         };
         let anchor = anchor_at(laid, &patch, top).unwrap();
         assert_eq!(anchor.path, "src/components/catalogs/ItemPicker.tsx");
-        let first_closed = rows(&patch, |path| path != patch.files[0].path);
+        let first_closed = rows(&patch, |file| file.path != patch.files[0].path);
         let closed_heights = heights(&first_closed);
         let relaid = Laid {
             rows: &first_closed,

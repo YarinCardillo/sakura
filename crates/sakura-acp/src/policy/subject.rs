@@ -2,6 +2,7 @@
 //! else, and the window shows this and nothing else: there is one reading, so the person is never shown
 //! one thing while another is judged. The agent's title for the call is not part of it.
 
+use super::lexer;
 use crate::model::{ToolCallFields, ToolContent, ToolKind};
 use serde_json::Value;
 
@@ -23,6 +24,18 @@ const TARGET_KEYS: [&str; 8] = [
     "source",
     "destination",
 ];
+/// Grep's `pattern` matches contents, while Glob's matches paths. Unknown tools check both fields.
+/// Path patterns with an absolute prefix, `..` or unfamiliar syntax require a decision because
+/// the tool's glob engine may interpret them as paths outside the search root.
+fn path_pattern_keys(name: Option<&str>) -> &'static [&'static str] {
+    match name {
+        Some("Grep") => &["glob"],
+        Some("Glob") => &["pattern"],
+        _ => &["pattern", "glob"],
+    }
+}
+/// The characters besides letters and digits a confined pattern of paths may hold.
+const PATTERN_CHARACTERS: [char; 7] = ['*', '?', '.', '_', '-', '/', ' '];
 /// The raw-input field that holds a command.
 const COMMAND_KEY: &str = "command";
 /// The most fields listed as unread, and the most of one field's value shown.
@@ -34,7 +47,7 @@ const MAX_FIELD_BYTES: usize = 512;
 /// person (every field is then shown).
 fn inert_keys(kind: Option<ToolKind>) -> Option<&'static [&'static str]> {
     Some(match kind? {
-        ToolKind::Read => &["offset", "limit", "line", "pages"],
+        ToolKind::Read => &["offset", "limit", "line", "pages", "allow_large"],
         ToolKind::Edit => &[
             "content",
             "old_string",
@@ -64,6 +77,9 @@ fn inert_keys(kind: Option<ToolKind>) -> Option<&'static [&'static str]> {
             "-A",
             "-B",
             "-C",
+            "-l",
+            "-c",
+            "-o",
         ],
         ToolKind::Execute => &[COMMAND_KEY, "description", "timeout"],
         ToolKind::SwitchMode => &MODE_KEYS,
@@ -105,9 +121,7 @@ impl Subject {
             Some((text, is_cut)) => (Some(text), is_cut),
             None => (None, false),
         };
-        let (unread, is_unread_cut) = input
-            .map(|input| unread(tool.kind, input))
-            .unwrap_or_default();
+        let (unread, is_unread_cut) = unread(tool.kind, tool.name.as_deref(), input);
         Self {
             kind: tool.kind,
             command: input.and_then(command_text),
@@ -146,22 +160,124 @@ fn command_text(input: &Value) -> Option<String> {
     }
 }
 
-/// The fields of `input` the policy has no rule for in a call of `kind`, and whether the list was cut. A
-/// field is read when it is a target given as a string (judged as a path), the command of a command, a
-/// mode of a mode switch, or on the kind's list of fields that reach nothing.
-fn unread(kind: Option<ToolKind>, input: &Value) -> (Vec<String>, bool) {
-    let (Some(fields), Some(inert)) = (input.as_object(), inert_keys(kind)) else {
+/// The fields of `input` the policy has no rule for in a call of `kind` by the tool `name`, and whether the
+/// list was cut. A field is read when it is a target given as a string (judged as a path), the command of
+/// a command, a mode of a mode switch, or on the kind's list of fields that reach nothing (a pattern of
+/// paths only while it is plainly confined).
+fn unread(
+    kind: Option<ToolKind>,
+    name: Option<&str>,
+    input: Option<&Value>,
+) -> (Vec<String>, bool) {
+    let Some(inert) = inert_keys(kind) else {
+        return (Vec::new(), false);
+    };
+    let Some(fields) = input.and_then(Value::as_object) else {
+        let is_required = name.is_some()
+            && matches!(
+                kind,
+                Some(
+                    ToolKind::Read
+                        | ToolKind::Edit
+                        | ToolKind::Delete
+                        | ToolKind::Move
+                        | ToolKind::Search
+                )
+            );
+        if input.is_some() || is_required {
+            return (vec!["rawInput must be an object".into()], false);
+        }
         return (Vec::new(), false);
     };
     let is_read = |key: &str, value: &Value| {
-        let is_target = TARGET_KEYS.contains(&key) && value.is_string();
-        is_target || inert.contains(&key)
+        let is_target = TARGET_KEYS.contains(&key) && is_target(value);
+        let is_escaping = kind == Some(ToolKind::Search)
+            && path_pattern_keys(name).contains(&key)
+            && is_escaping_pattern(value);
+        is_target || (inert.contains(&key) && is_typed_field(key, value) && !is_escaping)
     };
     let unread = fields.iter().filter(|(key, value)| !is_read(key, value));
     let mut listed: Vec<String> = unread.map(|(key, value)| field_text(key, value)).collect();
+    if listed.is_empty() && !is_complete(kind, name, fields) {
+        listed.push("rawInput is missing a required field".into());
+    }
     let is_cut = listed.len() > MAX_UNREAD_FIELDS;
     listed.truncate(MAX_UNREAD_FIELDS);
     (listed, is_cut)
+}
+
+fn is_complete(
+    kind: Option<ToolKind>,
+    name: Option<&str>,
+    fields: &serde_json::Map<String, Value>,
+) -> bool {
+    let has = |keys: &[&str]| keys.iter().any(|key| fields.contains_key(*key));
+    match (kind, name) {
+        (Some(ToolKind::Move), Some(_)) => {
+            has(&["source", "old_path"]) && has(&["destination", "new_path"])
+        }
+        (Some(ToolKind::Edit), Some("Edit")) => {
+            has(&TARGET_KEYS) && has(&["old_string"]) && has(&["new_string"])
+        }
+        (Some(ToolKind::Edit), Some("Write")) => has(&TARGET_KEYS) && has(&["content"]),
+        (Some(ToolKind::Edit), Some("MultiEdit")) => has(&TARGET_KEYS) && has(&["edits"]),
+        (Some(ToolKind::Edit), Some("NotebookEdit")) => has(&TARGET_KEYS) && has(&["new_source"]),
+        (Some(ToolKind::Read | ToolKind::Edit | ToolKind::Delete), Some(_)) => has(&TARGET_KEYS),
+        (Some(ToolKind::Search), Some("Grep" | "Glob")) => has(&["pattern"]),
+        _ => true,
+    }
+}
+
+fn is_target(value: &Value) -> bool {
+    value
+        .as_str()
+        .is_some_and(|path| !path.is_empty() && !path.chars().any(char::is_control))
+}
+
+fn is_typed_field(key: &str, value: &Value) -> bool {
+    match key {
+        COMMAND_KEY => {
+            value.is_string()
+                || value.as_array().is_some_and(|args| {
+                    !args.is_empty()
+                        && args.iter().all(|arg| {
+                            arg.as_str().is_some_and(|arg| {
+                                lexer::words(arg).is_some_and(|words| words == [arg])
+                            })
+                        })
+                })
+        }
+        "offset" | "limit" | "line" | "timeout" | "head_limit" | "context" | "-A" | "-B" | "-C" => {
+            value.as_u64().is_some()
+        }
+        "allow_large" | "replace_all" | "multiline" | "-i" | "-n" | "-l" | "-c" | "-o" => {
+            value.is_boolean()
+        }
+        "edits" => value
+            .as_array()
+            .is_some_and(|edits| !edits.is_empty() && edits.iter().all(is_text_edit)),
+        _ => value.is_string(),
+    }
+}
+
+fn is_text_edit(value: &Value) -> bool {
+    value.as_object().is_some_and(|edit| {
+        edit.get("old_string").is_some_and(Value::is_string)
+            && edit.get("new_string").is_some_and(Value::is_string)
+            && edit.iter().all(|(key, value)| match key.as_str() {
+                "old_string" | "new_string" => true,
+                "replace_all" => value.is_boolean(),
+                _ => false,
+            })
+    })
+}
+
+/// Whether a pattern of paths may reach outside where the search starts: it is not plainly confined.
+fn is_escaping_pattern(value: &Value) -> bool {
+    value.as_str().is_some_and(|text| {
+        let is_plain = |c: char| c.is_ascii_alphanumeric() || PATTERN_CHARACTERS.contains(&c);
+        text.starts_with('/') || text.contains("..") || !text.chars().all(is_plain)
+    })
 }
 
 /// `name: value`, the value as compact JSON cut at [`MAX_FIELD_BYTES`] on a character boundary.

@@ -40,7 +40,7 @@ pub(super) fn waiting(
 }
 
 /// The space above the composer with one sentence, and under it a hint when there is something more to
-/// say than the composer already does.
+/// say than the composer already does, in the middle of the space.
 pub(super) fn quiet(
     sentence: &'static str,
     hint: Option<&'static str>,
@@ -51,9 +51,19 @@ pub(super) fn quiet(
         .flex()
         .flex_col()
         .gap(theme::GAP_TIGHT)
+        .items_center()
+        .text_center()
         .child(text(theme::TEXT_BODY, palette.text_secondary).child(sentence))
         .children(hint);
-    top(lines.into_any_element())
+    div()
+        .debug_selector(|| "thread-empty".into())
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(lines)
+        .into_any_element()
 }
 
 fn top(content: AnyElement) -> AnyElement {
@@ -93,7 +103,6 @@ pub fn button(
         .text_color(ink)
         .text_size(theme::TEXT_SMALL)
         .font_weight(theme::WEIGHT_MEDIUM)
-        .cursor_pointer()
         .hover(move |style| style.bg(hover))
         .active(|style| style.opacity(tokens::PRESSED_OPACITY))
         .child(label.into())

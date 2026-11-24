@@ -1,0 +1,62 @@
+{
+  "conversation": {
+    "problem": "scheduled_store_unavailable"
+  },
+  "expired": {
+    "problem": "run_unavailable"
+  },
+  "history": {
+    "problem": "scheduled_store_unavailable"
+  },
+  "snapshot": {
+    "api": 1,
+    "connectors_problem": "the connectors cannot be read",
+    "scheduled": {
+      "actions": [],
+      "problem": "scheduled_store_unavailable",
+      "target": "[\"host\",\"scheduled\"]",
+      "tasks": [],
+      "templates": [
+        {
+          "definitions": {
+            "en": {
+              "account": null,
+              "connector_ids": [],
+              "enabled": false,
+              "may_start_lanes": false,
+              "preset": null,
+              "project": null,
+              "prompt": "Summarize what changed in my selected sources. Propose actionable findings in Inbox.",
+              "title": "Morning summary",
+              "when": {
+                "kind": "daily",
+                "time": "07:30",
+                "timezone": "Europe/Rome"
+              }
+            },
+            "it": {
+              "account": null,
+              "connector_ids": [],
+              "enabled": false,
+              "may_start_lanes": false,
+              "preset": null,
+              "project": null,
+              "prompt": "Riassumi le novit\u00e0 nelle fonti selezionate. Proponi in Posta in arrivo gli elementi che richiedono un'azione.",
+              "title": "Riepilogo del mattino",
+              "when": {
+                "kind": "daily",
+                "time": "07:30",
+                "timezone": "Europe/Rome"
+              }
+            }
+          },
+          "id": "morning-summary",
+          "labels": {
+            "en": "Morning summary",
+            "it": "Riepilogo del mattino"
+          }
+        }
+      ]
+    }
+  }
+}

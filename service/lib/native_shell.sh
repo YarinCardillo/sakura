@@ -1,10 +1,10 @@
 # shellcheck shell=bash
-# box shell <task> for a lavoro on the Mac: the person's own login shell, in the folder of the
-# lavoro. It is not confined, like everything of the Mac place: it is the person's shell with
+# box shell <task> for a task on the Mac: the person's own login shell, in the folder of the
+# task. It is not confined, like everything of the Mac place: it is the person's shell with
 # the person's privileges. box does not stay beside it (the shell takes the place of the box
 # process) and holds no lock while it is open: a terminal lasts as long as the person wants.
 # What box keeps is a record of the shell (its process, the boot of the machine and its start,
-# like the records of process groups), so that box rm knows a terminal is open in the lavoro:
+# like the records of process groups), so that box rm knows a terminal is open in the task:
 # it refuses then, and with --force tells the shell to hang up first.
 
 readonly SHELLS_DIR="$AGENTBOX_HOME/shells"
@@ -19,7 +19,7 @@ person_shell() {
   default_person_shell
 }
 
-# The lifecycle lock is held from before the lavoro is looked at until the record of the shell
+# The lifecycle lock is held from before the task is looked at until the record of the shell
 # is written, then let go: the shell itself runs without it.
 shell_on_mac() {
   local task="$1" folder shell
@@ -48,7 +48,7 @@ record_shell() {
   printf '%s\n%s\n%s\n' "$$" "$boot" "$start" >"$SHELLS_DIR/$1.$$"
 }
 
-# Prints "<pid> <record>" for every terminal that is open in a lavoro. A record that no longer
+# Prints "<pid> <record>" for every terminal that is open in a task. A record that no longer
 # names its process (the terminal was closed, the machine restarted) is dropped on the way.
 open_shells() {
   local record pid

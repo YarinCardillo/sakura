@@ -1,5 +1,4 @@
-//! Quick open driven on GPUI's test platform: its key opens it with the caret in its field, what is
-//! typed is asked of the source, Enter picks the first file and Esc leaves.
+//! Quick open on GPUI's test platform, from activation to selection or dismissal.
 
 use super::quick_open::{self, QuickOpen, QuickOpenEvent, Target};
 use super::tests::{draw, task, Fake};
@@ -22,6 +21,7 @@ const PANEL_LEFT: gpui::Pixels = gpui::px(240.);
 fn target(task: &str, source: &Rc<Fake>) -> Target {
     Target {
         task: task.to_string(),
+        tab: None,
         source: source.clone(),
         panel_left: PANEL_LEFT,
     }
@@ -40,7 +40,7 @@ fn open(cx: &mut TestAppContext) -> Opened<'_> {
     let (_, cx) = cx.add_window_view(move |window, cx| {
         let quick_open = cx.new(|cx| QuickOpen::new(window, cx));
         cx.subscribe(&quick_open, move |_, _, event: &QuickOpenEvent, _| {
-            let QuickOpenEvent::Picked { task, path } = event;
+            let QuickOpenEvent::Picked { task, path, .. } = event;
             chosen.borrow_mut().push((task.clone(), path.clone()));
         })
         .detach();
@@ -63,6 +63,13 @@ fn the_key_opens_it_and_what_is_typed_is_asked_of_box(cx: &mut TestAppContext) {
         opened.source.read().is_empty(),
         "nothing typed, nothing asked"
     );
+    opened.cx.simulate_input("ignored");
+    draw(opened.cx);
+    assert!(
+        opened.source.read().is_empty(),
+        "opening leaves the field unfocused"
+    );
+    focus_search(opened.cx);
     opened.cx.simulate_input("lib");
     draw(opened.cx);
     let asked = opened.source.read();
@@ -77,6 +84,7 @@ fn it_stands_at_the_centre_of_the_panel_not_of_the_window(cx: &mut TestAppContex
     opened.cx.simulate_keystrokes("cmd-p");
     draw(opened.cx);
     let panel = opened.cx.debug_bounds("quick-open-panel").expect("it");
+    assert!((panel.top() - crate::theme::DIALOG_TOP).abs() <= gpui::px(1.));
     let window = opened.cx.update(|window, _| window.viewport_size());
     let across = (PANEL_LEFT + window.width) / 2.;
     assert!(
@@ -91,6 +99,7 @@ fn enter_picks_the_first_file_found_and_esc_leaves_without_one(cx: &mut TestAppC
     let opened = open(cx);
     opened.cx.simulate_keystrokes("cmd-p");
     draw(opened.cx);
+    focus_search(opened.cx);
     opened.cx.simulate_input("lib");
     draw(opened.cx);
     opened.cx.simulate_keystrokes("enter");
@@ -127,7 +136,7 @@ fn an_answer_for_the_task_it_was_closed_on_never_shows_for_another(cx: &mut Test
     let (_, cx) = cx.add_window_view(move |window, cx| {
         let quick_open = cx.new(|cx| QuickOpen::new(window, cx));
         cx.subscribe(&quick_open, move |_, _, event: &QuickOpenEvent, _| {
-            let QuickOpenEvent::Picked { task, path } = event;
+            let QuickOpenEvent::Picked { task, path, .. } = event;
             chosen.borrow_mut().push((task.clone(), path.clone()));
         })
         .detach();
@@ -143,6 +152,7 @@ fn an_answer_for_the_task_it_was_closed_on_never_shows_for_another(cx: &mut Test
     first.is_holding.set(true);
     cx.simulate_keystrokes("cmd-p");
     draw(cx);
+    focus_search(cx);
     cx.simulate_input("query");
     draw(cx);
     assert_eq!(first.read().first().map(String::as_str), Some("search q"));
@@ -152,6 +162,7 @@ fn an_answer_for_the_task_it_was_closed_on_never_shows_for_another(cx: &mut Test
     second.is_holding.set(true);
     cx.simulate_keystrokes("cmd-p");
     draw(cx);
+    focus_search(cx);
     cx.simulate_input("query");
     draw(cx);
     assert_eq!(
@@ -178,4 +189,11 @@ fn an_answer_for_the_task_it_was_closed_on_never_shows_for_another(cx: &mut Test
         [picked_file],
         "the event names the task it was opened for"
     );
+}
+
+fn focus_search(cx: &mut VisualTestContext) {
+    let panel = cx.debug_bounds("quick-open-panel").unwrap();
+    let point = gpui::point(panel.center().x, panel.top() + gpui::px(15.));
+    cx.simulate_click(point, gpui::Modifiers::none());
+    draw(cx);
 }

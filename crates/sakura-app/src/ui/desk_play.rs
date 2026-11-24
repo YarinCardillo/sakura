@@ -1,6 +1,6 @@
-//! Play in the desk: each open lavoro has one [`Play`], made the first time its page is drawn once
+//! Play in the desk: each open task has one [`Play`], made the first time its page is drawn once
 //! the run command of its project is known. The header shows its control, the right pane its view,
-//! the status bar an item while the lavoro on screen plays. The service is asked where a Play
+//! the status bar an item while the task on screen plays. The service is asked where a Play
 //! stands once, when it is made; after that only a press asks. Nothing is asked on a timer.
 
 use super::chrome::{keep_click, text_width};
@@ -23,42 +23,51 @@ use sakura_core::play::Availability;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-/// Makes the source of a lavoro's Play; none where there is no service to ask (the sample data).
+/// Makes the source of a task's Play; none where there is no service to ask (the sample data).
 pub type PlaySources = Rc<dyn Fn(&str) -> Option<Rc<dyn PlaySource>>>;
 
-/// The Plays of the open lavori.
+/// The Plays of the open tasks.
 pub struct Plays {
     sources: PlaySources,
     of: HashMap<String, (Entity<Play>, [Subscription; 2])>,
-    /// The lavori whose Play runs, as each Play last said.
+    /// The tasks whose Play runs, as each Play last said.
     running: HashSet<String>,
-    /// The lavori that can play: the header keeps the room of their port.
+    /// The tasks that can play: the header keeps the room of their port.
     able: HashSet<String>,
+    /// Whether there is a service to ask for a Play: the row of views and the header offer one from
+    /// the first frame, before the run command of any project is known.
+    is_served: bool,
 }
 
 impl Plays {
     /// Over the service `source` talks to.
     pub fn over(source: &Source) -> Self {
         let (cli, runtime) = (source.cli().cloned(), source.runtime().clone());
-        Self::with(Rc::new(move |task| {
-            let play = BoxPlay::new(cli.clone()?, task, runtime.clone());
-            Some(Rc::new(play) as Rc<dyn PlaySource>)
-        }))
+        let is_served = cli.is_some();
+        Self::with(
+            Rc::new(move |task| {
+                let play = BoxPlay::new(cli.clone()?, task, runtime.clone());
+                Some(Rc::new(play) as Rc<dyn PlaySource>)
+            }),
+            is_served,
+        )
     }
 
-    /// Over the sources `sources` makes.
-    pub fn with(sources: PlaySources) -> Self {
+    /// Over the sources `sources` makes; `is_served` tells whether it makes one at all.
+    pub fn with(sources: PlaySources, is_served: bool) -> Self {
         Self {
             sources,
             of: HashMap::new(),
             running: HashSet::new(),
             able: HashSet::new(),
+            is_served,
         }
     }
 
-    /// Whether `task` has a Play: the row of views offers its view.
-    pub fn is_offered(&self, task: &str) -> bool {
-        self.of.contains_key(task)
+    /// Whether tasks have a Play: the row of views and the header offer it from the first frame,
+    /// whatever is still being read, so that nothing appears or moves when the answer comes.
+    pub fn is_offered(&self) -> bool {
+        self.is_served
     }
 
     /// Whether the Play of `task` runs now.
@@ -71,7 +80,7 @@ impl Plays {
         self.able.contains(task)
     }
 
-    /// Drops the Plays of the lavori that no longer exist.
+    /// Drops the Plays of the tasks that no longer exist.
     pub fn retain(&mut self, exists: impl Fn(&str) -> bool) {
         self.of.retain(|task, _| exists(task));
         self.running.retain(|task| exists(task));
@@ -118,7 +127,7 @@ impl Desk {
 
     /// Whether `task` can play: in a box it cannot yet; on the Mac it can when its project names a
     /// run command. The projects are requested once when they were never read, and until they
-    /// answer nothing is known. A lavoro in a box asks for nothing.
+    /// answer nothing is known. A task in a box asks for nothing.
     fn play_availability(&mut self, task: &Task, cx: &mut Context<Self>) -> Option<Availability> {
         if task.place == Place::Box {
             return Some(Availability::InBox);
@@ -135,22 +144,26 @@ impl Desk {
         Some(Availability::of(task.place, run))
     }
 
-    /// The header's control of `task`'s Play, when the lavoro has one.
+    /// The header's control of `task`'s Play, when tasks have one: while the Play is not made (the
+    /// projects are being read) the same control stands there, disabled.
     pub(super) fn play_control(
         &mut self,
         task: &Task,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let play = self.play_of(task, window, cx)?;
-        let control = div()
-            .id("header-play")
-            .flex_none()
-            .child(play::header_control(&play, cx));
+        if !self.plays.is_offered() {
+            return None;
+        }
+        let control = div().id("header-play").flex_none();
+        let control = match self.play_of(task, window, cx) {
+            Some(play) => control.child(play::header_control(&play, cx)),
+            None => control.child(play::header_placeholder(cx)),
+        };
         Some(keep_click(control).into_any_element())
     }
 
-    /// The "Play" view of the right pane: the lavoro's Play, which reads its log when it comes on
+    /// The "Play" view of the right pane: the task's Play, which reads its log when it comes on
     /// screen.
     pub(super) fn play_view(
         &mut self,
@@ -175,9 +188,9 @@ impl Desk {
     }
 
     /// The room the Play control of `task` takes in the header: its widest word, and the room of
-    /// the port's link where the lavoro can play.
-    pub(super) fn play_width(&self, task: &str, window: &Window) -> f32 {
-        if !self.plays.is_offered(task) {
+    /// the port's link unless the task is in a box, which cannot play.
+    pub(super) fn play_width(&self, task: &Task, window: &Window) -> f32 {
+        if !self.plays.is_offered() {
             return 0.0;
         }
         let small =
@@ -185,15 +198,15 @@ impl Desk {
         let gap = f32::from(theme::GAP_WIDE);
         let control =
             play::widest_word(|word| small(word)) + f32::from(theme::CONTROL_PADDING_X) * 2.0 + gap;
-        let port = match self.plays.able.contains(task) {
-            true => small(play::PORT_ROOM) + gap,
-            false => 0.0,
+        let port = match task.place {
+            Place::Box => 0.0,
+            Place::Mac => small(play::PORT_ROOM) + gap,
         };
         control + port
     }
 
-    /// Answers "Start Play" and "Stop Play" of the menu bar for the lavoro on screen, wherever the
-    /// keyboard is. A lavoro that cannot play, or whose Play already stands there, is left alone.
+    /// Answers "Start Play" and "Stop Play" of the menu bar for the task on screen, wherever the
+    /// keyboard is. A task that cannot play, or whose Play already stands there, is left alone.
     pub(super) fn handle_play_actions(window: &Window, cx: &mut Context<Self>) {
         let handle = window.window_handle();
         let desk = cx.weak_entity();
@@ -212,7 +225,7 @@ impl Desk {
         app.on_action(move |_: &StopPlay, cx| press(false, cx));
     }
 
-    /// Starts (`runs`) or stops the Play of the lavoro on screen, when it does not stand there yet.
+    /// Starts (`runs`) or stops the Play of the task on screen, when it does not stand there yet.
     fn press_play(&mut self, runs: bool, cx: &mut Context<Self>) {
         let shown = self.shown(cx);
         let Some(play) = shown.and_then(|task| self.plays.of(&task).cloned()) else {
@@ -225,13 +238,13 @@ impl Desk {
         });
     }
 
-    /// A snapshot's script starts or stops the Play of the lavoro on screen.
+    /// A snapshot's script starts or stops the Play of the task on screen.
     #[cfg(feature = "snapshot")]
     pub fn drive_play(&mut self, verb: &str, cx: &mut Context<Self>) {
         self.press_play(verb == "start", cx);
     }
 
-    /// A snapshot's script shows a view of the right pane of the lavoro on screen.
+    /// A snapshot's script shows a view of the right pane of the task on screen.
     #[cfg(feature = "snapshot")]
     pub fn drive_pane(&mut self, view: &str, cx: &mut Context<Self>) {
         let shown = self.shown(cx).zip(super::right_pane::PaneView::named(view));

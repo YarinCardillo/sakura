@@ -29,12 +29,15 @@ struct FakeState {
     written: Vec<u8>,
     sizes: Vec<GridSize>,
     sink: Option<OutputSink>,
+    start_thread: Option<std::thread::ThreadId>,
     is_stuck: bool,
 }
 
 impl TerminalSource for FakeSource {
     fn start(&self, sink: OutputSink) {
-        self.state.lock().unwrap().sink = Some(sink);
+        let mut state = self.state.lock().unwrap();
+        state.start_thread = Some(std::thread::current().id());
+        state.sink = Some(sink);
     }
 
     fn write(&self, bytes: &[u8]) -> Result<(), SourceError> {
@@ -55,10 +58,35 @@ impl TerminalSource for FakeSource {
     }
 }
 
+#[gpui::test]
+fn startup_output_is_delivered_off_the_ui_thread(cx: &mut gpui::TestAppContext) {
+    use gpui::AppContext as _;
+
+    let source = FakeSource::default();
+    let _terminal = cx
+        .new(|cx| crate::terminal::Terminal::new(source.clone(), TerminalPalette::one_dark(0), cx));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let started = loop {
+        if let Some(thread) = source.state.lock().unwrap().start_thread {
+            break thread;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::yield_now();
+    };
+    assert_ne!(started, std::thread::current().id());
+}
+
 impl FakeSource {
     /// Plays output as if the child wrote it.
     fn output(&self, text: &str) {
-        let sink = self.state.lock().unwrap().sink.clone().expect("started");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let sink = loop {
+            if let Some(sink) = self.state.lock().unwrap().sink.clone() {
+                break sink;
+            }
+            assert!(Instant::now() < deadline, "source did not start");
+            std::thread::sleep(Duration::from_millis(1));
+        };
         sink.bytes(text.as_bytes());
     }
 

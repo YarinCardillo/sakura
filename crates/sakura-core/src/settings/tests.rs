@@ -418,3 +418,24 @@ async fn bad_arguments_never_reach_box_and_a_refusal_is_said_with_box_s_line() {
     let refusal = remove_project(&cli, "web").await.unwrap_err();
     assert!(refusal.details.unwrap().contains("while tasks use it"));
 }
+
+#[cfg(feature = "restate-engine")]
+#[cfg_attr(windows, ignore = "Unix shell fixture")]
+#[tokio::test]
+async fn the_runner_is_chosen_with_box_config_and_a_refusal_keeps_box_s_line() {
+    let (dir, cli) = rig(r#"echo "checks now run with the $4 runner""#);
+    set_runner(&cli, RunnerKind::Engine).await.unwrap();
+    set_runner(&cli, RunnerKind::Bash).await.unwrap();
+    assert_eq!(
+        calls(&dir),
+        [
+            "[config][set][RUNNER][engine]",
+            "[config][set][RUNNER][bash]"
+        ]
+    );
+    let (_dir, refusing) = rig(
+        r#"echo "box: a check runs or waits in the engine: let it end or cancel it (box cancel <task> <verb>), then choose the bash runner" >&2; exit 1"#,
+    );
+    let refusal = set_runner(&refusing, RunnerKind::Bash).await.unwrap_err();
+    assert!(refusal.details.unwrap().contains("a check runs or waits"));
+}

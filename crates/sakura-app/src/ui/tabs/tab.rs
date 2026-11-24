@@ -11,6 +11,7 @@ use super::strip::Strip;
 use crate::l10n::{tr, Key};
 use crate::theme::{self, Palette};
 use crate::ui::glyph::tab_mark;
+use crate::ui::tabs::model::{TabId, MASTER};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, Bounds, Entity, InteractiveElement as _, IntoElement, MouseButton,
@@ -20,7 +21,6 @@ use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::menu::{ContextMenuExt as _, PopupMenuItem};
 use gpui_component::{IconName, Sizable as _};
 use sakura_core::model::{self, StateId};
-use sakura_core::tabs::TabId;
 
 /// What closes a tab, in its menu.
 pub const CLOSE_TAB: Key = Key("tabs.close");
@@ -87,7 +87,9 @@ pub(super) fn tab(face: &TabFace, around: &Around) -> AnyElement {
 /// The fill an inactive tab takes under the pointer, and keeps while it is in the hand.
 fn hover_fill(face: &TabFace, palette: &Palette, group: SharedString) -> impl IntoElement {
     let fill = palette.hover;
+    let selector = format!("tab-hover-fill-{}", face.id.as_u64());
     div()
+        .debug_selector(move || selector)
         .absolute()
         .left_0()
         .right_0()
@@ -100,8 +102,10 @@ fn hover_fill(face: &TabFace, palette: &Palette, group: SharedString) -> impl In
         })
 }
 
-/// The tab's mark is its lavoro's state, the same mark the sidebar and the header show: filled on the
-/// selected tab, outlined on the others. A lavoro not read yet has the quiet ring of nothing claimed.
+/// The tab's mark: a lane's is its state, the same mark the sidebar and the header show, filled on the
+/// selected tab and outlined on the others (a task not read yet has the quiet ring of nothing claimed); a
+/// pinned page's is an icon that names the page, in the ink of the tab, and in the accent while it holds
+/// something for the person.
 fn mark(face: &TabFace, around: &Around) -> impl IntoElement {
     let state = face
         .state
@@ -110,15 +114,39 @@ fn mark(face: &TabFace, around: &Around) -> impl IntoElement {
         face.id.as_u64(),
         format!("state-tab-{}-{}", face.task, state.id.id()),
     );
-    let mark =
-        div()
-            .debug_selector(move || place)
-            .child(tab_mark(state, around.palette, face.is_active));
+    let drawn = match face.is_pinned {
+        true => page_icon(face, state, around.palette).into_any_element(),
+        false => tab_mark(state, around.palette, face.is_active),
+    };
+    let mark = div().debug_selector(move || place).child(drawn);
     div()
         .when(state.id == StateId::NeedsYou, |mark| {
             mark.debug_selector(move || format!("tab-needs-you-{id}"))
         })
         .child(mark)
+}
+
+/// The icon of a pinned page's tab: an inbox for Waiting, a conversation for the Master.
+fn page_icon(face: &TabFace, state: model::TaskState, palette: &Palette) -> impl IntoElement {
+    let (icon, name) = match face.task == MASTER {
+        true => (crate::icons::MASTER_PAGE, "master"),
+        false => (crate::icons::WAITING_PAGE, "waiting"),
+    };
+    let colour = match (state.id, face.is_active) {
+        (StateId::NeedsYou, _) => palette.attention,
+        (_, true) => palette.text,
+        (_, false) => palette.text_tertiary,
+    };
+    let id = face.id.as_u64();
+    div()
+        .debug_selector(move || format!("tab-page-icon-{name}-{id}"))
+        .size(theme::MARK_SIZE)
+        .flex_none()
+        .child(
+            gpui_component::Icon::new(icon)
+                .with_size(theme::MARK_SIZE)
+                .text_color(colour),
+        )
 }
 
 /// The close button: always on the active tab and on one in the hand, under the pointer on the others.

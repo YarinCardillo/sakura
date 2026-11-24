@@ -1,5 +1,5 @@
 //! The command palette in the desk's window, on the sample data: Cmd+K lists the commands for where the
-//! window is, and a command chosen is carried out on the lavoro it was listed for.
+//! window is, and a command chosen is carried out on the task it was listed for.
 
 use super::desk::Desk;
 use super::interaction_tests::{click, draw, open_with, pane_view, wait_for};
@@ -9,11 +9,11 @@ use crate::l10n::{self, Language};
 use gpui::{Entity, TestAppContext, VisualTestContext};
 use std::sync::Arc;
 
-/// A lavoro of the sample data with commits not taken, and one whose work was taken.
+/// A task of the sample data with commits not taken, and one whose work was taken.
 const UNTAKEN: &str = "sample-accent";
 const TAKEN: &str = "headings-26";
 
-/// The desk on the sample data, in English, on the lavoro with commits not taken.
+/// The desk on the sample data, in English, on the task with commits not taken.
 fn open(cx: &mut TestAppContext) -> (&mut VisualTestContext, Entity<Desk>, Arc<Recorder>) {
     l10n::set_for_test(Language::English);
     let (cx, desk, recorder) = open_with(cx, None);
@@ -29,9 +29,16 @@ fn press(cx: &mut VisualTestContext, keys: &str) {
     draw(cx);
 }
 
+fn focus_search(cx: &mut VisualTestContext) {
+    let panel = cx.debug_bounds("palette-panel").unwrap();
+    let search = gpui::point(panel.center().x, panel.top() + gpui::px(15.));
+    cx.simulate_click(search, gpui::Modifiers::none());
+}
+
 /// Opens the palette by its key, types `words` and chooses the command they leave first.
 fn choose(cx: &mut VisualTestContext, words: &str) {
     press(cx, "cmd-k");
+    focus_search(cx);
     cx.simulate_input(words);
     draw(cx);
     press(cx, "enter");
@@ -42,19 +49,20 @@ fn is_open(cx: &mut VisualTestContext, desk: &Entity<Desk>) -> bool {
 }
 
 #[gpui::test]
-fn cmd_k_opens_the_palette_with_the_caret_and_a_lavoro_chosen_is_shown(cx: &mut TestAppContext) {
+fn cmd_k_opens_the_palette_and_the_chosen_task_is_shown(cx: &mut TestAppContext) {
     let (cx, desk, _) = open(cx);
     assert!(!is_open(cx, &desk));
     press(cx, "cmd-k");
     assert!(is_open(cx, &desk));
     assert!(cx.debug_bounds("palette-panel").is_some());
+    focus_search(cx);
     cx.simulate_input("headings");
     draw(cx);
     let typed = desk.read_with(cx, |desk, cx| desk.palette.read(cx).query(cx));
     assert_eq!(
         typed.as_ref(),
         "headings",
-        "typing goes to its field without a click"
+        "typing goes to the activated field"
     );
     press(cx, "enter");
     assert!(!is_open(cx, &desk));

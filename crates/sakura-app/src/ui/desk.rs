@@ -1,17 +1,18 @@
 //! The root view: the sidebar on the canvas, the tab strip in the window strip and, fused with the tab shown,
-//! the inset panel with that lavoro's page. Selection and the view switch apply in the same frame as the
+//! the inset panel with that task's page. Selection and the view switch apply in the same frame as the
 //! click; nothing here waits on `box`.
 
+use super::agent_trail::AgentTrail;
 use super::breath::{BreathLayer, BreathMarks, Owner};
 use super::centre::CentreView;
 use super::changes::list::ChangesList;
 use super::changes::picker::ReviewToolbar;
 use super::console::rules::ConsoleKind;
-use super::console::{self, Consoles, LoginDone, TerminalEnded};
+use super::console::{self, At, BoxesReady, Consoles, LoginDone, TerminalEnded};
 use super::conversations::{self, Conversation};
 use super::desk_play::Plays;
 use super::files::{self, QuickOpen, QuickOpenEvent};
-use super::files_side::{FilesOpen, GraphOpen, Place};
+use super::files_side::{FilesOpen, GraphOpen};
 use super::header_view::HeaderView;
 use super::hold::HoldButton;
 use super::new_task::NewTaskOpen;
@@ -21,6 +22,7 @@ use super::palette::Palette;
 use super::project_setup::{ProjectSetup, SetupEvent};
 use super::publishing::Publishing;
 use super::right_pane::{self, PaneFacts, PaneView};
+use super::row_age::{RowAgeLayer, RowAges};
 use super::sidebar::SidebarView;
 use super::slide::Slide;
 use super::tabs::haptics::{self, Haptics};
@@ -38,6 +40,7 @@ use crate::l10n::{tr, Key};
 use crate::menus;
 use crate::prefs::Preferences;
 use crate::theme::{self, Theme};
+use crate::ui::tabs::model::{Placement, Tabs};
 use gpui::{
     div, AnyElement, AppContext as _, Context, Entity, IntoElement, ParentElement, Render,
     ScrollHandle, StyleRefinement, Styled, Subscription, WeakEntity, Window,
@@ -45,7 +48,6 @@ use gpui::{
 use gpui_base::ResizableState;
 use sakura_core::models::Task;
 use sakura_core::projects::NewLavoro;
-use sakura_core::tabs::{Placement, Tabs};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::time::Instant;
@@ -57,20 +59,20 @@ const READING_ALL: Key = Key("desk.reading_all");
 pub struct Desk {
     pub(super) facts: Entity<Facts>,
     pub(super) actions: Entity<Actions>,
-    /// The tabs in the window strip: one per open lavoro. The lavoro on screen is the one of the tab shown.
+    /// The tabs in the window strip: one per open task. The task on screen is the one of the tab shown.
     pub(super) strip: Entity<Strip>,
     /// Nothing was chosen yet, by the person or by the window: it opens on a task as soon as one can be
     /// chosen rightly (see [`super::opening`]).
     is_opening: bool,
-    /// The view of the right pane each lavoro shows; "Changes" until another was chosen.
+    /// The view of the right pane each task shows; "Changes" until another was chosen.
     pub(super) pane_views: HashMap<String, PaneView>,
     /// The views of the right pane as the preferences hold them.
     pub(super) pane_views_kept: HashMap<String, PaneView>,
     /// Where the right pane's row of views is scrolled to.
     views_scroll: right_pane::ViewsScroll,
-    /// The view of the centre each lavoro shows; the agent until its terminal was opened.
+    /// The view of the centre each task shows; the agent until its terminal was opened.
     pub(super) centre_views: HashMap<String, CentreView>,
-    /// The lavori whose terminal ended by itself, with its exit code, until the line that says so is
+    /// The tasks whose terminal ended by itself, with its exit code, until the line that says so is
     /// put away or the terminal opened again.
     pub(super) ended_terminals: HashMap<String, Option<i32>>,
     /// The Checks row whose log is open, as (task, verb).
@@ -82,18 +84,18 @@ pub struct Desk {
     pub(super) removing: Option<String>,
     /// "New task" while its sheet is open.
     pub(super) new_task: Option<NewTaskOpen>,
-    /// The projects a lavoro can be made in.
+    /// The projects a task can be made in.
     pub(super) projects: Entity<Projects>,
-    /// The Play of each open lavoro.
+    /// The Play of each open task.
     pub(super) plays: Plays,
-    /// The page that adds a project, and whether the person requested it while lavori are listed.
+    /// The page that adds a project, and whether the person requested it while tasks are listed.
     pub(super) setup: Entity<ProjectSetup>,
     pub(super) is_adding_project: bool,
-    /// The lavori requested from the sheet whose agent has not started yet, with what each is made
+    /// The tasks requested from the sheet whose agent has not started yet, with what each is made
     /// from and the account its project is told to use: what "Try again" asks for again.
     pub(super) creating: HashMap<String, (NewLavoro, Option<String>)>,
     pub(super) changes: Entity<Changes>,
-    /// The diffs of each lavoro looked at and the commit picker over them, kept so open files and scroll
+    /// The diffs of each task looked at and the commit picker over them, kept so open files and scroll
     /// survive a change of tab or of view.
     panes: HashMap<String, Entity<ChangesList>>,
     pickers: HashMap<String, Entity<ReviewToolbar>>,
@@ -104,6 +106,8 @@ pub struct Desk {
     pub(super) changes_slide: Slide,
     /// Paints every breathing half on its own tick, so a breath draws neither the sidebar nor the header.
     breath: Entity<BreathLayer>,
+    /// Paints the age on every row on its own timer, so a minute passing draws neither the sidebar nor the header.
+    pub(super) row_ages: Entity<RowAgeLayer>,
     /// How many times the window's frame was built: a test of the app at rest reads it.
     #[cfg(test)]
     draws: usize,
@@ -111,32 +115,45 @@ pub struct Desk {
     header: Entity<HeaderView>,
     /// The terminal of each task's Agente view, kept while the app runs.
     pub(super) consoles: Entity<Consoles>,
-    /// The conversation of each lavoro whose page was drawn, kept while the app runs.
+    /// What waits for `box up` to make the boxes ready.
+    pub(super) box_waits: super::desk_boxes::BoxWaits,
+    /// The conversation of each task whose page was drawn, kept while the app runs.
     pub(super) conversations: HashMap<String, Conversation>,
-    /// The files of each lavoro whose "Files" view was shown or whose agent was followed, and the
+    /// The files of each task whose "Files" view was shown or whose agent was followed, and the
     /// commits of each project whose "Git" view was shown.
     pub(super) files: HashMap<String, FilesOpen>,
     pub(super) graphs: HashMap<String, GraphOpen>,
-    /// Where each lavoro's agent is, from its conversation, and the lavori whose pane the person took
-    /// before their files were ever read.
-    pub(super) agent_places: HashMap<String, Place>,
+    /// Where each task's agent went, from its conversation and its patch, and the tasks whose pane
+    /// the person took before their files were ever read.
+    pub(super) trails: HashMap<String, AgentTrail>,
     pub(super) not_following: HashSet<String>,
     /// Quick open (Cmd+P), one per window.
     quick_open: Entity<QuickOpen>,
-    /// The trackpad's feedback when the hold that takes a lavoro's work completes.
+    /// The trackpad's feedback when the hold that takes a task's work completes.
     pub(super) haptics: Rc<dyn Haptics>,
     /// The command palette of this window, drawn over everything.
     pub(super) palette: Entity<Palette>,
     /// Where agents are started from, and the sessions kept for the conversations.
     pub(super) source: Source,
     pub(super) sessions: Sessions,
-    /// What is known of the publishing of each lavoro: the request sent, the pull request named.
+    /// What is known of the publishing of each task: the request sent, the pull request named.
     pub(super) publishing: HashMap<String, Publishing>,
-    /// What the system is told of the lavori, and what the Dock's badge counts.
+    /// What the system is told of the tasks, and what the Dock's badge counts.
     pub(super) notifying: Notifying,
     /// The desk itself, for what a view asks of it later.
     pub(super) me: WeakEntity<Desk>,
     _observers: Vec<Subscription>,
+}
+
+/// Whether an agent is at work or a verification runs: what the breath layer ticks for.
+fn is_working(facts: &Facts) -> bool {
+    let is_working = facts.rows().iter().any(|row| {
+        sakura_core::model::task_state(&row.task).id == sakura_core::model::StateId::Working
+    });
+    is_working
+        || facts
+            .runner()
+            .is_some_and(|runner| runner.current.is_some())
 }
 
 /// The entities a desk shows.
@@ -177,7 +194,7 @@ impl Desk {
         let strip = Self::strip_from(preferences, cx);
         observers.push(
             cx.subscribe_in(&strip, window, |desk, _, _: &StripEvent, window, cx| {
-                // Quick open lists the files of the lavoro it was opened for: it goes with that page.
+                // Quick open lists the files of the task it was opened for: it goes with that page.
                 desk.quick_open
                     .update(cx, |quick_open, cx| quick_open.close(window, cx));
                 desk.tab_changed(cx);
@@ -191,7 +208,10 @@ impl Desk {
         let shown = strip.read(cx).tabs().active().map(|tab| tab.task.clone());
         let (sidebar, header) = Self::child_views(&data, shown.clone(), cx);
         let (sidebar_slide, changes_slide) = Self::slides_from(preferences);
-        let breath = cx.new(|cx| BreathLayer::new(data.facts.clone(), cx));
+        let working = data.facts.clone();
+        let breath =
+            cx.new(|cx| BreathLayer::new(Box::new(move |cx| is_working(working.read(cx))), cx));
+        let row_ages = cx.new(|cx| RowAgeLayer::new(window, cx));
         let setup = cx.new(|_| ProjectSetup::new(data.source.clone(), data.actions.clone()));
         observers.push(cx.subscribe(&setup, |desk, _, event: &SetupEvent, cx| {
             desk.project_setup_ended(event, cx)
@@ -224,15 +244,17 @@ impl Desk {
             sidebar_slide,
             changes_slide,
             breath,
+            row_ages,
             #[cfg(test)]
             draws: 0,
             sidebar,
             header,
             consoles: data.consoles,
+            box_waits: Default::default(),
             conversations: HashMap::new(),
             files: HashMap::new(),
             graphs: HashMap::new(),
-            agent_places: HashMap::new(),
+            trails: HashMap::new(),
             not_following: HashSet::new(),
             quick_open,
             palette,
@@ -248,8 +270,8 @@ impl Desk {
         desk
     }
 
-    /// Quick open for this window: Cmd+P lists the files of the lavoro on screen, and a file picked opens
-    /// in that lavoro's "Files" view.
+    /// Quick open for this window: Cmd+P lists the files of the task on screen, and a file picked opens
+    /// in that task's "Files" view.
     fn quick_open_in(
         window: &mut Window,
         observers: &mut Vec<Subscription>,
@@ -267,8 +289,8 @@ impl Desk {
         quick_open
     }
 
-    /// The strip with the tabs the preferences kept (those of lavori that are gone close after the first
-    /// full read), or with the one lavoro a snapshot requested; its keys are bound here.
+    /// The strip with the tabs the preferences kept (those of tasks that are gone close after the first
+    /// full read), or with the one task a snapshot requested; its keys are bound here.
     fn strip_from(preferences: &Preferences, cx: &mut Context<Self>) -> Entity<Strip> {
         let stored = preferences.tabs.as_ref().and_then(Tabs::from_json);
         let mut tabs = stored.unwrap_or_default();
@@ -304,7 +326,7 @@ impl Desk {
                 cx.notify();
             }),
             cx.subscribe(&data.facts, |desk, facts, _: &StatusRead, cx| {
-                // A lavoro requested a moment ago may not be listed yet: it is not one that is gone.
+                // A task requested a moment ago may not be listed yet: it is not one that is gone.
                 let asked: Vec<String> = desk.creating.keys().cloned().collect();
                 let listed = facts.read(cx);
                 desk.forget_missing(|task| {
@@ -342,6 +364,11 @@ impl Desk {
             cx.subscribe(&data.consoles, |desk, _, ended: &TerminalEnded, cx| {
                 desk.terminal_ended(ended, cx)
             }),
+            cx.subscribe_in(
+                &data.consoles,
+                window,
+                |desk, _, ready: &BoxesReady, window, cx| desk.boxes_ready(ready, window, cx),
+            ),
             // The Mac's languages may have changed while the window was not the active one.
             cx.observe_window_activation(window, |desk, window, cx| {
                 if window.is_window_active() {
@@ -392,7 +419,7 @@ impl Desk {
         retain_tasks(&mut self.ended_terminals, String::as_str, &exists);
         retain_tasks(&mut self.conversations, String::as_str, &exists);
         retain_tasks(&mut self.files, String::as_str, &exists);
-        retain_tasks(&mut self.agent_places, String::as_str, &exists);
+        retain_tasks(&mut self.trails, String::as_str, &exists);
         retain_tasks(&mut self.publishing, String::as_str, &exists);
         self.plays.retain(&exists);
         self.not_following.retain(|task| exists(task));
@@ -423,7 +450,7 @@ impl Desk {
         }
     }
 
-    /// The lavoro on screen: the one of the tab shown.
+    /// The task on screen: the one of the tab shown.
     pub fn shown(&self, cx: &gpui::App) -> Option<String> {
         let tabs = self.strip.read(cx).tabs();
         tabs.active().map(|tab| tab.task.clone())
@@ -487,13 +514,31 @@ impl Desk {
         &self.consoles
     }
 
-    /// Shows the lavoro `name` in the tab on screen, or in the tab that already holds it.
+    /// Supplies a fixture conversation's live state for hidden snapshot journeys.
+    #[cfg(feature = "snapshot")]
+    pub fn drive_live(
+        &mut self,
+        task: &str,
+        live: sakura_core::model::Live,
+        waits: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if std::env::var_os(crate::data::source::FIXTURE_VAR).is_none() {
+            return eprintln!("sakura: scripted conversation states require fixture data");
+        }
+        self.facts.update(cx, |facts, cx| {
+            facts.set_live(task, live, cx);
+            facts.set_waiting(task, waits, cx);
+        });
+    }
+
+    /// Shows the task `name` in the tab on screen, or in the tab that already holds it.
     pub fn select(&mut self, name: String, cx: &mut Context<Self>) {
         self.is_opening = false;
         self.strip.update(cx, |strip, cx| strip.show(&name, cx));
     }
 
-    /// Opens the lavoro `name` in a tab of its own behind the one on screen (Cmd+click on its row).
+    /// Opens the task `name` in a tab of its own behind the one on screen (Cmd+click on its row).
     pub fn open_behind(&mut self, name: String, cx: &mut Context<Self>) {
         self.is_opening = false;
         self.strip
@@ -535,8 +580,8 @@ impl Desk {
         }
     }
 
-    /// After a full read closed the tabs of lavori that are gone: with no tab left, the window opens on
-    /// another lavoro as it does at launch.
+    /// After a full read closed the tabs of tasks that are gone: with no tab left, the window opens on
+    /// another task as it does at launch.
     fn reopen_if_gone(&mut self, cx: &mut Context<Self>) {
         if self.shown(cx).is_none() {
             self.is_opening = true;
@@ -600,18 +645,30 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let at = At::task(task, &kind);
         self.consoles
-            .update(cx, |consoles, cx| consoles.open(task, kind, window, cx));
+            .update(cx, |consoles, cx| consoles.open(at, kind, window, cx));
     }
 
-    /// Puts away the agent's console of `task`.
-    pub fn close_console(&mut self, task: &str, cx: &mut Context<Self>) {
-        self.consoles
-            .update(cx, |consoles, cx| consoles.close(task, cx));
+    /// Queues `verb` for `task` with the runner. A check of a task in a box waits for the boxes to be
+    /// ready first, and reads "Queued" meanwhile.
+    pub fn run_verify(
+        &mut self,
+        task: String,
+        verb: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let row = self.facts.read(cx).row(&task);
+        let is_in_box = row.is_some_and(|row| row.task.place == sakura_core::models::Place::Box);
+        match is_in_box {
+            true => self.check_with_boxes(task, verb, window, cx),
+            false => self.queue_check(task, verb, cx),
+        }
     }
 
-    /// Queues `verb` for `task` with the runner.
-    pub fn run_verify(&mut self, task: String, verb: String, cx: &mut Context<Self>) {
+    /// Asks the runner for `verb` of `task`.
+    pub(super) fn queue_check(&mut self, task: String, verb: String, cx: &mut Context<Self>) {
         self.actions
             .update(cx, |actions, cx| actions.verify(task, verb, cx));
     }
@@ -656,9 +713,15 @@ impl Desk {
     }
 
     /// The selected task's page, or what the panel says when no task is shown: the page that adds a
-    /// project while one is requested, the conversation of a lavoro requested a moment ago, or the
-    /// first page.
+    /// project while one is requested, the conversation of a task requested a moment ago, a sign-in
+    /// asked from there, or the first page.
     fn panel_content(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        // A sign-in asked while a project is being added shows over that page, which comes back
+        // when the sign-in is left.
+        let is_signing_in = self.consoles.read(cx).in_window().is_some();
+        if self.is_adding_project && is_signing_in {
+            return page::view(None, None, self.window_sign_in(cx));
+        }
         if self.is_adding_project {
             return page::view(None, None, self.setup.clone().into_any_element());
         }
@@ -683,8 +746,9 @@ impl Desk {
                 let conversation = self.conversation(&name, window, cx);
                 (None, conversation.into_any_element())
             }
+            (None, None) if is_signing_in => (None, self.window_sign_in(cx)),
             (None, None) if is_empty => (None, self.first_page(window, cx)),
-            (None, None) if is_ready => (None, panes::empty(tr(READING_ALL), cx)),
+            (None, None) if is_ready => (None, panes::no_task(tr(READING_ALL), cx)),
             (None, None) => (None, div().into_any_element()),
         };
         if shown_task.is_none() {
@@ -704,7 +768,7 @@ impl Desk {
 }
 
 impl Desk {
-    /// The page of a lavoro under its header: the centre beside the right pane.
+    /// The page of a task under its header: the centre beside the right pane.
     fn page_body(
         &mut self,
         task: &Task,
@@ -715,7 +779,7 @@ impl Desk {
         self.beside_the_pane(centre, task, false, window, cx)
     }
 
-    /// The page of a lavoro whose facts are being read: its changes are read on their own, so the right
+    /// The page of a task whose facts are being read: its changes are read on their own, so the right
     /// pane works; what needs the facts says they are being read.
     fn reading_body(
         &mut self,
@@ -727,7 +791,7 @@ impl Desk {
         self.beside_the_pane(centre, task, true, window, cx)
     }
 
-    /// The right pane of `task`: its row of views over the view this lavoro shows. This is the one place
+    /// The right pane of `task`: its row of views over the view this task shows. This is the one place
     /// where a view of the pane becomes its content: a new view is a variant of [`PaneView`] and an arm
     /// here.
     pub(super) fn right_pane(
@@ -749,7 +813,7 @@ impl Desk {
             PaneView::Git => self.git_view(task, cx),
             PaneView::Play => self.play_view(task, window, cx),
         };
-        let has_play = self.plays.is_offered(&task.name);
+        let has_play = self.plays.is_offered();
         let facts = PaneFacts {
             task,
             is_pending,
@@ -793,12 +857,13 @@ impl Desk {
             actions: self.actions.read(cx),
             open_verb: open_verb.map(|(_, verb)| verb.as_str()),
             log_scroll: &self.log_scroll,
+            box_waits: &self.box_waits,
         };
         verify::view(inputs, &Theme::palette(cx), cx)
     }
 
-    /// The agent's view of a lavoro: its conversation. An agent that was started in a terminal keeps
-    /// that terminal while it runs (one front end per lavoro at a time), and a sign-in asked from the
+    /// The agent's view of a task: its conversation. An agent that was started in a terminal keeps
+    /// that terminal while it runs (one front end per task at a time), and a sign-in asked from the
     /// conversation is shown here until it ends.
     pub(super) fn agent_side(
         &mut self,
@@ -814,21 +879,21 @@ impl Desk {
         if let (Some(console), Some(row)) = (self.consoles.read(cx).get(&task.name), row) {
             let can_open = self.consoles.read(cx).can_open();
             let palette = Theme::palette(cx);
-            let terminal = console::view::view(row, console, can_open, &palette, cx);
+            let terminal = console::view::view(Some(row), console, can_open, &palette, cx);
             return match console.kind() {
                 ConsoleKind::Agent => console::view::in_its_terminal(terminal, &palette),
-                ConsoleKind::Shell | ConsoleKind::Login(_) => terminal,
+                ConsoleKind::Shell | ConsoleKind::Login(_) | ConsoleKind::BoxUp => terminal,
             };
         }
-        // A lavoro requested with a first message shows that message while it is made.
+        // A task requested with a first message shows that message while it is made.
         let sentence = conversations::unavailable(task);
         if let Some(sentence) = sentence.filter(|_| !self.creating.contains_key(&task.name)) {
             return conversations::unavailable_view(sentence, &Theme::palette(cx));
         }
-        // The conversation shown is the one whose kept session is loaded: a lavoro only listed has no
+        // The conversation shown is the one whose kept session is loaded: a task only listed has no
         // conversation made, and starts nothing.
         let conversation = self.conversation(&task.name, window, cx);
-        // On the Mac the lavoro's project names its agent's account, and with it the kept session.
+        // On the Mac the task's project names its agent's account, and with it the kept session.
         if task.place == sakura_core::models::Place::Mac {
             self.projects
                 .update(cx, |projects, cx| projects.load_once(cx));
@@ -891,6 +956,7 @@ impl Render for Desk {
         if sidebar_share <= 0.0 {
             // A hidden sidebar draws no glyph: what it left for the breath layer is gone with it.
             BreathMarks::clear(Owner::Sidebar, cx);
+            RowAges::clear(cx);
         }
         let above = div()
             .flex_1()
@@ -913,6 +979,7 @@ impl Render for Desk {
             .child(self.quick_open.clone())
             .child(self.palette.clone())
             .child(self.breath.clone())
+            .child(self.row_ages.clone())
             .children(self.grid_overlay(window, cx))
             .children(crate::snapshot::frame_marker())
     }

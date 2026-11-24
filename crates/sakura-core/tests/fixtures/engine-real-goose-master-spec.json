@@ -1,0 +1,11 @@
+{
+  "acp": {
+    "argv": [],
+    "harness": "goose",
+    "protocol_version": 1,
+    "readiness": "unavailable",
+    "reason": "goose_account_connection_check_required",
+    "slot": "fixture-tab"
+  },
+  "argv": []
+}

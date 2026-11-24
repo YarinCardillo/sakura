@@ -1,0 +1,4 @@
+{
+  "decision": "ask",
+  "reason": "no deny rule of the master covers Bash"
+}

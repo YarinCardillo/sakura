@@ -1,0 +1,1 @@
+{"base": "59d0efb84433aefb94f33d66aaf4dce1c6176246", "gone": false, "files": [{"path": "src/upload/UploadRow.tsx", "status": "modified", "added": 7, "removed": 1}, {"path": "src/upload/uploadQueue.ts", "status": "modified", "added": 7, "removed": 2}, {"path": "tests/retry.spec.ts", "status": "added", "added": 6, "removed": 0}], "added": 20, "removed": 3}

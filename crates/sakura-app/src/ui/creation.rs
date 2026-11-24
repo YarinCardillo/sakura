@@ -1,10 +1,11 @@
-//! From the sentence to the agent: what the desk does when "New task" asks for a lavoro. The lavoro is
+//! From the sentence to the agent: what the desk does when "New task" asks for a task. The task is
 //! named from the sentence, `box new` is started, its tab opens at once with the person's message in the
 //! conversation, and the agent is started, with the sentence as its first prompt, when `box` says the
-//! lavoro is ready. Also here: what the panel shows when there is no lavoro at all, and the page that adds
-//! a project.
+//! task is ready. Also here: what the panel shows when there is no task at all, a sign-in asked from
+//! there, and the page that adds a project.
 
 use super::centred::centred;
+use super::console;
 use super::desk::Desk;
 use super::new_task::Asked;
 use super::panes;
@@ -13,7 +14,7 @@ use crate::data::actions::ActionKey;
 use crate::data::projects::Listed;
 use crate::l10n::{say, tr, Key};
 use crate::prefs::Preferences;
-use crate::theme::sheet;
+use crate::theme::{sheet, Theme};
 use gpui::{
     div, px, AnyElement, Context, InteractiveElement as _, IntoElement as _, ParentElement as _,
     Styled as _, Window,
@@ -23,14 +24,29 @@ use sakura_core::naming;
 use sakura_core::projects::NewLavoro;
 
 impl Desk {
-    /// Makes the lavoro `asked` for: it is named from the sentence, its creation starts, and its tab
-    /// opens now with the sentence as the person's first message.
+    /// Makes the task `asked` for: it is named from the sentence, its creation starts, and its tab
+    /// opens now with the sentence as the person's first message. A task in a box waits for the boxes
+    /// to be ready first.
     pub(super) fn begin_lavoro(
         &mut self,
         asked: Asked,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // The place chosen is the one this project's next task is offered first.
+        let (project, place) = (asked.project.clone(), asked.place.word().to_string());
+        Preferences::change(cx, move |kept| drop(kept.places.insert(project, place)));
+        match asked.place {
+            Place::Box => self.with_boxes(
+                Box::new(move |desk, window, cx| desk.make_lavoro(asked, window, cx)),
+                window,
+                cx,
+            ),
+            Place::Mac => self.make_lavoro(asked, window, cx),
+        }
+    }
+
+    fn make_lavoro(&mut self, asked: Asked, window: &mut Window, cx: &mut Context<Self>) {
         let name = self.name_for(&asked.text, cx);
         let account = self.account_to_set(&asked, cx);
         let (project, place) = (asked.project.clone(), asked.place);
@@ -55,7 +71,7 @@ impl Desk {
         self.select(name, cx);
     }
 
-    /// A name for the lavoro of `sentence` that no lavoro has, listed or requested.
+    /// A name for the task of `sentence` that no task has, listed or requested.
     fn name_for(&self, sentence: &str, cx: &Context<Self>) -> String {
         let facts = self.facts.read(cx);
         let listed = facts.rows().iter().map(|row| row.task.name.as_str());
@@ -65,8 +81,8 @@ impl Desk {
         naming::name_for(sentence, &taken)
     }
 
-    /// The account the project must be told to use before the lavoro is made: the one chosen for a
-    /// lavoro on the Mac, when it is not the project's own already. (In a box the account is given when
+    /// The account the project must be told to use before the task is made: the one chosen for a
+    /// task on the Mac, when it is not the project's own already. (In a box the account is given when
     /// the agent starts.)
     fn account_to_set(&self, asked: &Asked, cx: &Context<Self>) -> Option<String> {
         if asked.place != Place::Mac {
@@ -77,7 +93,7 @@ impl Desk {
         asked.account.clone().filter(|chosen| Some(chosen) != own)
     }
 
-    /// Asks again for the lavoro `task`, whose creation failed.
+    /// Asks again for the task `task`, whose creation failed.
     pub(super) fn retry_creation(&mut self, task: &str, _: &mut Window, cx: &mut Context<Self>) {
         let Some((lavoro, account)) = self.creating.get(task).cloned() else {
             return;
@@ -88,8 +104,8 @@ impl Desk {
         });
     }
 
-    /// Something was heard from `box`: every first message that waits for its lavoro goes on when the
-    /// lavoro is ready. A lavoro whose agent started, or that the person removed, waits no more.
+    /// Something was heard from `box`: every first message that waits for its task goes on when the
+    /// task is ready. A task whose agent started, or that the person removed, waits no more.
     pub(super) fn advance_creations(&mut self, cx: &mut Context<Self>) {
         let waiting: Vec<String> = self.creating.keys().cloned().collect();
         for name in waiting {
@@ -106,7 +122,7 @@ impl Desk {
         }
     }
 
-    /// Shows the page that adds a project, in the place of the lavoro shown.
+    /// Shows the page that adds a project, in the place of the task shown.
     pub(super) fn add_project(&mut self, cx: &mut Context<Self>) {
         self.is_adding_project = true;
         self.setup
@@ -125,7 +141,7 @@ impl Desk {
         cx.notify();
     }
 
-    /// The panel when there is no lavoro at all: with no project yet, the page that asks for the folder
+    /// The panel when there is no task at all: with no project yet, the page that asks for the folder
     /// of the first one; else the one field of "New task", in place and centred in the panel. A `box`
     /// that has no projects is said plainly.
     pub(super) fn first_page(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
@@ -150,5 +166,16 @@ impl Desk {
                 self.setup.clone().into_any_element()
             }
         }
+    }
+
+    /// The sign-in asked while no task was on screen, in the place of the first page or of the empty
+    /// centre: the login a task shows, with the same way to leave it. Nothing while there is none.
+    pub(super) fn window_sign_in(&self, cx: &Context<Self>) -> AnyElement {
+        let consoles = self.consoles.read(cx);
+        let palette = Theme::palette(cx);
+        let login = consoles
+            .in_window()
+            .map(|login| console::view::view(None, login, consoles.can_open(), &palette, cx));
+        login.unwrap_or_else(|| div().into_any_element())
     }
 }

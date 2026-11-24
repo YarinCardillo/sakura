@@ -1,8 +1,10 @@
 //! Help for tests that put a script in the place of `box`, in this crate and in the ones built on it.
 
+#[cfg(feature = "boxes")]
 use crate::box_cli::Timeouts;
 use std::path::Path;
 use std::process::Command;
+#[cfg(feature = "boxes")]
 use std::time::Duration;
 
 /// Writes `text` to `path` as an executable script, through a child process. A test binary runs many
@@ -26,6 +28,7 @@ pub fn write_script(path: &Path, text: &str) {
 
 /// Limits for tests that are not about a limit: long enough that only a hang reaches them, on a machine
 /// that runs every test at once. A test about a limit sets its own.
+#[cfg(feature = "boxes")]
 pub fn patient() -> Timeouts {
     let long = Duration::from_secs(180);
     Timeouts {

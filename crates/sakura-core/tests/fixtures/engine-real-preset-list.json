@@ -1,0 +1,42 @@
+[
+  {
+    "chosen": false,
+    "description": "One agent, no subagents, no reviewer or evaluator; contract and gates stay.",
+    "label": "Solo",
+    "legacy": false,
+    "name": "solo",
+    "usable": true
+  },
+  {
+    "chosen": true,
+    "description": "Planner, parallel builders and a blocking reviewer; no evaluator.",
+    "label": "Standard",
+    "legacy": false,
+    "name": "standard",
+    "usable": true
+  },
+  {
+    "chosen": false,
+    "description": "Standard plus an evaluator that proves each contract row with evidence.",
+    "label": "Verified",
+    "legacy": false,
+    "name": "verified",
+    "usable": true
+  },
+  {
+    "chosen": false,
+    "description": "Legacy name: the standard team with no reviewer and no evaluator.",
+    "label": "Vanilla",
+    "legacy": true,
+    "name": "vanilla",
+    "usable": true
+  },
+  {
+    "chosen": false,
+    "description": "Plan, build, one review of the whole branch, deliver: no plan or task reviews, no checks.",
+    "label": "Lean",
+    "legacy": false,
+    "name": "lean",
+    "usable": true
+  }
+]

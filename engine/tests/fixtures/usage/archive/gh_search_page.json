@@ -1,0 +1,21 @@
+{"data": {"search": {
+  "issueCount": 3,
+  "pageInfo": {"hasNextPage": false, "endCursor": "CUR1"},
+  "nodes": [
+    {"number": 11, "headRefName": "feature/x", "baseRefName": "main", "changedFiles": 4, "additions": 120,
+     "deletions": 30, "commits": {"totalCount": 3}, "createdAt": "2026-10-20T09:00:00Z",
+     "mergedAt": "2026-10-21T09:00:00Z", "closedAt": "2026-10-21T09:00:00Z", "isDraft": false,
+     "labels": {"nodes": [{"name": "zeta"}, {"name": "alpha"}]},
+     "timelineItems": {"nodes": []}},
+    {"number": 12, "headRefName": "feature/y", "baseRefName": "main", "changedFiles": 1, "additions": 5,
+     "deletions": 0, "commits": {"totalCount": 1}, "createdAt": "2026-10-22T09:00:00Z",
+     "mergedAt": null, "closedAt": null, "isDraft": false,
+     "labels": {"nodes": []},
+     "timelineItems": {"nodes": [{"createdAt": "2026-10-22T12:00:00Z"}]}},
+    {"number": 13, "headRefName": "feature/z", "baseRefName": "main", "changedFiles": 2, "additions": 9,
+     "deletions": 9, "commits": {"totalCount": 2}, "createdAt": "2026-10-23T09:00:00Z",
+     "mergedAt": null, "closedAt": null, "isDraft": true,
+     "labels": {"nodes": [{"name": "wip"}]},
+     "timelineItems": {"nodes": []}},
+    {}
+  ]}}}

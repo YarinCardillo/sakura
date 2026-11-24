@@ -164,3 +164,21 @@ fn the_badge_is_written_short() {
     assert_eq!(badge_label(100).as_deref(), Some("99+"));
     assert_eq!(badge_label(u32::MAX).as_deref(), Some("99+"));
 }
+
+#[test]
+fn work_to_review_is_counted_by_the_badge_and_told_only_when_it_follows_work() {
+    let mut notifier = seen(&[
+        lavoro("a", Stage::Working, ""),
+        lavoro("b", Stage::Quiet, ""),
+    ]);
+    let review = [
+        lavoro("a", Stage::Review, "head-1"),
+        lavoro("b", Stage::Review, "head-2"),
+    ];
+    let decision = notifier.observe(&review, false);
+    assert_eq!(decision.notes, [note(NoteKind::Finished, "a")]);
+    assert_eq!(
+        decision.badge, 2,
+        "a task that was not at work arrives silently"
+    );
+}

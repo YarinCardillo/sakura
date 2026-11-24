@@ -82,6 +82,7 @@ pub fn memory(machine: &Machine) -> Key {
 pub fn runner_status(runner: &RunnerState) -> Said {
     match (runner.state, &runner.current) {
         (RunnerPhase::Stopped, _) => Said::new("runner.stopped"),
+        (RunnerPhase::NotInstalled, _) => Said::new("runner.not_installed"),
         (RunnerPhase::Running, Some(run)) => Said::new("runner.running")
             .text("verb", &run.verb)
             .text("task", &run.task),
@@ -219,6 +220,10 @@ mod tests {
         assert_eq!(
             runner_status(&runner(RunnerPhase::Stopped, false, 2)),
             Said::new("runner.stopped")
+        );
+        assert_eq!(
+            runner_status(&runner(RunnerPhase::NotInstalled, false, 0)),
+            Said::new("runner.not_installed")
         );
     }
 

@@ -21,7 +21,7 @@ cmd_project() {
   esac
 }
 
-# ---- the options of add and set ---------------------------------------------------------------
+# The options of add and set.
 
 # Reads the options into FLAG_<KEY> variables (FLAG_REPO, FLAG_CHECKS and one per key of
 # PROJECT_VALUE_FLAGS); FLAGS_GIVEN lists the ones that were named.
@@ -106,7 +106,7 @@ project_tasks() {
   done
 }
 
-# ---- add, set, rm ------------------------------------------------------------------------------
+# Add, set, rm.
 
 cmd_project_add() {
   local name="${1:-}"
@@ -154,7 +154,7 @@ cmd_project_rm() {
   echo "project '$name' removed"
 }
 
-# ---- lists ----------------------------------------------------------------------------------------
+# Lists.
 
 # One element of box projects --json. A file that is refused is listed with the reason.
 project_json() {

@@ -143,7 +143,7 @@ impl Element for CodeLine {
         cx: &mut App,
     ) {
         if let Some(tone) = self.tone {
-            window.paint_quad(fill(bounds, tone.opacity(theme::DIFF_TINT_ALPHA)));
+            window.paint_quad(fill(bounds, super::line::tint(tone)));
             let bar = Bounds::new(
                 bounds.origin,
                 size(theme::DIFF_BAR_WIDTH, bounds.size.height),

@@ -1,0 +1,93 @@
+usage: sakura cockpit act [-h] [--text TEXT] [--model MODEL] [--role ROLE]
+                          [--step STEP] [--name NAME] [--from FROM]
+                          [--label LABEL] [--percent PERCENT] [--plan PLAN]
+                          [--since SINCE] [--verdict VERDICT] [--note NOTE]
+                          [--remember REMEMBER] [--choice CHOICE]
+                          [--folder FOLDER] [--level LEVEL] [--preset PRESET]
+                          [--rule RULE] [--value VALUE] [--accounts ACCOUNTS]
+                          [--device DEVICE] [--port PORT]
+                          [--provider PROVIDER] [--state STATE] [--op OP]
+                          [--choices CHOICES] [--until UNTIL]
+                          [--project PROJECT] [--title TITLE]
+                          [--definition DEFINITION] [--track TRACK]
+                          [--goal GOAL] [--summary SUMMARY] [--status STATUS]
+                          [--clear CLEAR] [--decision DECISION]
+                          [--answer ANSWER] [--task TASK]
+                          [--conversation CONVERSATION] [--startop STARTOP]
+                          [--on ON] [--kind KIND] [--address ADDRESS]
+                          [--at AT] [--lookback_hours LOOKBACK_HOURS]
+                          [--language LANGUAGE] [--account ACCOUNT]
+                          [--revision REVISION] [--candidate CANDIDATE]
+                          [--candidate_revision CANDIDATE_REVISION]
+                          [--confirm TOKEN] [--actor LOGIN]
+                          [--source {cli,app}] --json
+                          key target
+
+positional arguments:
+  key                   action key from the snapshot's actions list, or add-
+                        project
+  target                the id of an item, group, account, wait or project of
+                        the snapshot; for add-project, the folder to add
+
+options:
+  -h, --help            show this help message and exit
+  --text TEXT           input text
+  --model MODEL         input model
+  --role ROLE           input role
+  --step STEP           input step
+  --name NAME           input name
+  --from FROM           input from
+  --label LABEL         input label
+  --percent PERCENT     input percent
+  --plan PLAN           input plan
+  --since SINCE         input since
+  --verdict VERDICT     input verdict
+  --note NOTE           input note
+  --remember REMEMBER   input remember
+  --choice CHOICE       input choice
+  --folder FOLDER       input folder
+  --level LEVEL         input level
+  --preset PRESET       input preset
+  --rule RULE           input rule
+  --value VALUE         input value
+  --accounts ACCOUNTS   input accounts
+  --device DEVICE       input device
+  --port PORT           input port
+  --provider PROVIDER   input provider
+  --state STATE         input state
+  --op OP               input op
+  --choices CHOICES     input choices
+  --until UNTIL         input until
+  --project PROJECT     input project
+  --title TITLE         input title
+  --definition DEFINITION
+                        input definition
+  --track TRACK         input track
+  --goal GOAL           input goal
+  --summary SUMMARY     input summary
+  --status STATUS       input status
+  --clear CLEAR         input clear
+  --decision DECISION   input decision
+  --answer ANSWER       input answer
+  --task TASK           input task
+  --conversation CONVERSATION
+                        input conversation
+  --startop STARTOP     input startop
+  --on ON               input on
+  --kind KIND           input kind
+  --address ADDRESS     input address
+  --at AT               input at
+  --lookback_hours LOOKBACK_HOURS
+                        input lookback_hours
+  --language LANGUAGE   input language
+  --account ACCOUNT     input account
+  --revision REVISION   input revision
+  --candidate CANDIDATE
+                        input candidate
+  --candidate_revision CANDIDATE_REVISION
+                        input candidate_revision
+  --confirm TOKEN       the token a confirm result returned
+  --actor LOGIN         login written to the action log and the ledger
+  --source {cli,app}    where the person acts: a terminal (cli) or the Sakura
+                        window (app)
+  --json                print the result as JSON

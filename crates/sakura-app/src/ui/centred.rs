@@ -20,3 +20,10 @@ pub fn centred(content: impl IntoElement) -> Div {
 pub fn panel_offset(panel_left: Pixels) -> Pixels {
     panel_left / 2.
 }
+
+/// Where the top of an overlay with a list stands: the overlay at its tallest (`full_height`) is in the
+/// middle of the window's height, and a shorter list keeps that top, so nothing moves while the person
+/// types. A window too low for it keeps `margin` above.
+pub fn overlay_top(window_height: Pixels, full_height: Pixels, margin: Pixels) -> Pixels {
+    ((window_height - full_height) / 2.).max(margin)
+}

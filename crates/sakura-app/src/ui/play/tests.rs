@@ -33,6 +33,10 @@ struct Fake {
     was_started: Cell<bool>,
     /// A start fails, as when the command ends at once.
     is_failing: Cell<bool>,
+    /// A start is refused with this last line of `box`.
+    refusal: Cell<Option<&'static str>>,
+    /// The log cannot be read, with this last line of `box`.
+    log_refusal: Cell<Option<&'static str>>,
     /// `box` says the task is in a box.
     is_in_box: Cell<bool>,
     log: RefCell<String>,
@@ -109,6 +113,10 @@ impl PlaySource for Fake {
         if self.is_failing.get() && action == Action::Start {
             return self.answer(Err(failed()));
         }
+        if let Some(line) = self.refusal.get().filter(|_| action == Action::Start) {
+            let refused = sakura_core::box_cli::failure(Some(1), format!("{line}\n").as_bytes());
+            return self.answer(Err(refused));
+        }
         if let Some(runs) = runs {
             self.is_running.set(runs);
             self.was_started.set(self.was_started.get() || runs);
@@ -118,6 +126,10 @@ impl PlaySource for Fake {
 
     fn log(&self) -> Reading<Log> {
         self.asked.borrow_mut().push("log");
+        if let Some(line) = self.log_refusal.get() {
+            let refused = sakura_core::box_cli::failure(Some(1), format!("{line}\n").as_bytes());
+            return self.answer(Err(refused));
+        }
         self.answer(Ok(Log::of(&self.log.borrow())))
     }
 }
@@ -391,6 +403,56 @@ fn a_start_that_fails_is_said_in_place_and_is_not_asked_again(cx: &mut TestAppCo
     click(opened.cx, "play-control");
     assert!(opened.is_running());
     assert!(!is_there(opened.cx, "play-failed"));
+}
+
+/// The sentence the view says of the start that failed, as it is on screen.
+fn failure_said(opened: &mut Opened) -> String {
+    let said = opened
+        .play
+        .read_with(opened.cx, |play, _| play.failure_said());
+    said.expect("a failure is said").to_string()
+}
+
+#[gpui::test]
+fn a_start_the_service_refuses_says_its_reason_in_place_and_leads_to_the_cure(
+    cx: &mut TestAppContext,
+) {
+    let source = Rc::new(Fake::default());
+    let no_command = "box: the project of task 'headings-26' has no run command (box project set example-app --run '<command>')";
+    source.refusal.set(Some(no_command));
+    let mut opened = open(cx, source, Availability::Ready);
+    opened.show();
+    click(opened.cx, "play-control");
+    assert!(is_there(opened.cx, "play-failed"));
+    let known = crate::l10n::tr(crate::l10n::Key("box.failure.no_run_command"));
+    assert_eq!(failure_said(&mut opened), known, "not the general sentence");
+    click(opened.cx, "play-failure-cure");
+    assert_eq!(*opened.events.borrow(), [PlayEvent::ProjectSettingsAsked]);
+
+    // A reason the app has no sentence for is the service's own, said in place.
+    opened
+        .source
+        .refusal
+        .set(Some("box: port 56000 is taken by another program"));
+    click(opened.cx, "play-control");
+    assert_eq!(
+        failure_said(&mut opened),
+        "port 56000 is taken by another program"
+    );
+    // A log that cannot be read says the service's reason too, never the general sentence.
+    opened
+        .source
+        .log_refusal
+        .set(Some("box: the log of task 't' is gone"));
+    click(opened.cx, "play-refresh");
+    let log_said = opened
+        .play
+        .read_with(opened.cx, |play, _| play.log_failure_said());
+    assert_eq!(log_said.as_deref(), Some("the log of task 't' is gone"));
+    assert!(
+        !is_there(opened.cx, "play-failure-cure"),
+        "no cure the app knows"
+    );
 }
 
 #[gpui::test]

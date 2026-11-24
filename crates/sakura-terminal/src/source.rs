@@ -66,8 +66,7 @@ impl OutputSink {
 
 /// A pty a terminal reads from and writes to.
 ///
-/// `write`, `resize` and `close` are called from the terminal's writer thread, never from the UI thread, so
-/// they may block.
+/// The terminal calls sources from its worker threads so PTY I/O can block.
 pub trait TerminalSource: Send + Sync + 'static {
     /// Starts delivering output to `sink`. Called once, before any other method.
     fn start(&self, sink: OutputSink);
@@ -87,6 +86,7 @@ pub trait TerminalSource: Send + Sync + 'static {
 pub(crate) const MAX_QUEUED_BYTES: usize = 1024 * 1024;
 
 enum Command {
+    Start(OutputSink),
     Write(Vec<u8>),
     Resize(GridSize),
 }
@@ -116,7 +116,9 @@ impl WriterState {
         let mut queue = lock(&self.queue);
         loop {
             if let Some(command) = queue.commands.pop_front() {
-                self.is_writing.store(true, Ordering::Release);
+                if !matches!(command, Command::Start(_)) {
+                    self.is_writing.store(true, Ordering::Release);
+                }
                 return Some(command);
             }
             if queue.is_closed {
@@ -131,6 +133,7 @@ impl WriterState {
 
     fn run(&self, command: Command) {
         let (result, written) = match command {
+            Command::Start(sink) => return self.source.start(sink),
             Command::Write(bytes) => (self.source.write(&bytes), bytes.len()),
             Command::Resize(size) => (self.source.resize(size), 0),
         };
@@ -203,6 +206,13 @@ impl SourceWriter {
                 log::error!("terminal writer thread did not start: {error}");
                 Self { state: None }
             }
+        }
+    }
+
+    pub fn start(&self, sink: OutputSink) {
+        if let Some(state) = &self.state {
+            lock(&state.queue).commands.push_back(Command::Start(sink));
+            state.ready.notify_one();
         }
     }
 

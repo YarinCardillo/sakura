@@ -157,10 +157,8 @@ fn changed_checks(files: &[String]) -> Said {
     }
 }
 
-/// Why the result of `verb`, which passed, is not plain green: what `box` recorded against it, or else
-/// the first thing that must be known and was not recorded. `None` when everything that must be known is
-/// recorded and says the checks and the tests are the base's, and when the project names nothing to
-/// compare the commit with.
+/// Prefer recorded distrust to missing provenance. Return `None` when the base matches
+/// or the project names nothing to compare.
 pub fn distrust(verb: &str, result: &VerifyResult) -> Option<Distrust> {
     if has_nothing_to_compare(result) {
         return None;

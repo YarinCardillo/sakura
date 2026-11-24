@@ -15,7 +15,8 @@ pub fn empty(sentence: &'static str, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// The page when there is no task at all and none can be made: `sentence` says why.
+/// The panel with no task on it: none at all and none can be made, or none open while the tasks are
+/// read. `sentence` says which.
 pub fn no_task(sentence: impl Into<gpui::SharedString>, cx: &App) -> AnyElement {
     let palette = Theme::palette(cx);
     // The brand's mark, bare and still, over the sentence: the desk has nothing else to show.

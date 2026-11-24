@@ -96,6 +96,31 @@ impl SessionStore {
         }
     }
 
+    /// Forgets the session of `task` with `account` alone, with the refusals kept for it; the task's other
+    /// accounts keep theirs.
+    pub fn forget_account(&self, task: &str, account: &str) -> io::Result<()> {
+        let _changing = changing();
+        let mut sessions = self.read();
+        let Some(accounts) = sessions.get_mut(task).and_then(Value::as_object_mut) else {
+            return Ok(());
+        };
+        let Some(session) = accounts.remove(account) else {
+            return Ok(());
+        };
+        if accounts.is_empty() {
+            sessions.remove(task);
+        }
+        self.write(sessions)?;
+        let mut refusals = self.part(REFUSALS_KEY);
+        match session
+            .as_str()
+            .and_then(|session| refusals.remove(session))
+        {
+            Some(_) => self.write_part(REFUSALS_KEY, refusals),
+            None => Ok(()),
+        }
+    }
+
     /// Every refusal kept, as (session, the words of each of its refusals): read once when the app
     /// starts, as the sessions are.
     pub fn refusals(&self) -> Vec<(String, Vec<String>)> {
@@ -220,6 +245,17 @@ mod tests {
         assert_eq!(store.get("folders", "work").as_deref(), Some("sess-2"));
         assert_eq!(store.get("other", "personal").as_deref(), Some("sess-3"));
         assert_eq!(store.get("other", "work"), None);
+    }
+
+    #[test]
+    fn forget_account_takes_one_session_out_and_leaves_the_others_of_the_task() {
+        let (_folder, store) = store();
+        store.set("m1", "", "a").unwrap();
+        store.set("m1", "work@3", "b").unwrap();
+        store.forget_account("m1", "work@3").unwrap();
+        assert_eq!(store.get("m1", "work@3"), None);
+        assert_eq!(store.get("m1", "").as_deref(), Some("a"));
+        store.forget_account("m1", "never-kept").unwrap();
     }
 
     #[test]

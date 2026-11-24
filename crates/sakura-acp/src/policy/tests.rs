@@ -41,7 +41,11 @@ fn command(text: &str) -> ToolCallFields {
 }
 
 fn decide_on(tool: &ToolCallFields) -> Decision {
-    decide(tool, &options(), Path::new(WORKSPACE))
+    decide(tool, &options(), Path::new(WORKSPACE), Runs::InBox)
+}
+
+fn decide_on_the_mac(tool: &ToolCallFields) -> Decision {
+    decide(tool, &options(), Path::new(WORKSPACE), Runs::OnMac)
 }
 
 fn allowed() -> Decision {
@@ -84,6 +88,7 @@ fn decide_without_an_allow_once_option_asks_even_for_a_safe_call() {
         &call(ToolKind::Read, &["/work/demo/a"]),
         &options,
         Path::new(WORKSPACE),
+        Runs::InBox,
     );
     assert_eq!(decision, Decision::Ask(Reason::NoSingleUseOption));
 }
@@ -586,7 +591,7 @@ fn decide_depends_on_the_subject_alone() {
         };
         let subject = Subject::of(&tool);
         assert_eq!(Subject::of(&with_title), subject, "the title is not read");
-        let decision = decide_subject(&subject, &options(), Path::new(WORKSPACE));
+        let decision = decide_subject(&subject, &options(), Path::new(WORKSPACE), Runs::InBox);
         assert_eq!(decide_on(&tool), decision);
         assert_eq!(decide_on(&with_title), decision);
     }
@@ -623,6 +628,45 @@ fn with_input(kind: ToolKind, paths: &[&str], input: serde_json::Value) -> ToolC
     ToolCallFields {
         raw_input: Some(input),
         ..call(kind, paths)
+    }
+}
+
+#[test]
+fn a_named_file_tool_needs_typed_input_with_a_target() {
+    let disk = OnDisk::new();
+    let path = disk.inside("src/lib.rs");
+    for input in [
+        None,
+        Some(json!([])),
+        Some(json!({})),
+        Some(json!({
+            "file_path": path, "offset": "one"
+        })),
+    ] {
+        let tool = ToolCallFields {
+            name: Some("Read".into()),
+            raw_input: input,
+            ..call(ToolKind::Read, &[&path])
+        };
+        assert_eq!(disk.decide(&tool), Decision::Ask(Reason::UnknownField));
+    }
+}
+
+#[test]
+fn a_command_options_and_operands_must_match_its_grammar() {
+    for text in [
+        "git status --unknown-option",
+        "git status --release",
+        "ls -z",
+        "pwd extra",
+        "cp only-one-operand",
+        "rg --follow pattern src",
+    ] {
+        assert_eq!(
+            decide_on(&command(text)),
+            Decision::Ask(Reason::UnknownCommand),
+            "{text}"
+        );
     }
 }
 
@@ -765,4 +809,474 @@ fn decide_short_options_run_together_pass_only_as_switches_the_program_is_known_
         "grep -re pattern src",
         "git status -sb",
     ]);
+}
+
+/// A workspace on disk, beside a folder of the person's that the agent must not reach unasked.
+struct OnDisk {
+    _temp: tempfile::TempDir,
+    workspace: std::path::PathBuf,
+    secret: std::path::PathBuf,
+}
+
+impl OnDisk {
+    fn new() -> Self {
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path().join("task");
+        let secret = temp.path().join("person/.ssh");
+        std::fs::create_dir_all(workspace.join("src")).unwrap();
+        std::fs::create_dir_all(&secret).unwrap();
+        std::fs::write(secret.join("id_ed25519"), "key").unwrap();
+        std::fs::write(workspace.join("src/lib.rs"), "fn a() {}").unwrap();
+        Self {
+            _temp: temp,
+            workspace,
+            secret,
+        }
+    }
+
+    fn decide(&self, tool: &ToolCallFields) -> Decision {
+        decide(tool, &options(), &self.workspace, Runs::OnMac)
+    }
+
+    fn inside(&self, rest: &str) -> String {
+        self.workspace.join(rest).to_string_lossy().into_owned()
+    }
+}
+
+#[test]
+fn decide_a_path_through_a_link_inside_the_workspace_that_leads_out_is_outside() {
+    let disk = OnDisk::new();
+    std::os::unix::fs::symlink(&disk.secret, disk.workspace.join("notes")).unwrap();
+    let through = disk.inside("notes/id_ed25519");
+    for kind in [ToolKind::Read, ToolKind::Search, ToolKind::Edit] {
+        assert_eq!(
+            disk.decide(&call(kind, &[&through])),
+            Decision::Ask(Reason::OutsideWorkspace),
+            "{kind:?}"
+        );
+    }
+    let relative = call(ToolKind::Read, &["notes/id_ed25519"]);
+    assert_eq!(
+        disk.decide(&relative),
+        Decision::Ask(Reason::OutsideWorkspace)
+    );
+}
+
+#[test]
+fn decide_a_climb_out_of_a_link_inside_the_workspace_is_outside() {
+    let disk = OnDisk::new();
+    std::os::unix::fs::symlink(&disk.secret, disk.workspace.join("inside_link")).unwrap();
+    for path in [
+        disk.inside("inside_link/../.ssh/id_ed25519"),
+        disk.inside("inside_link/../not-yet-there"),
+        "inside_link/../.ssh/id_ed25519".to_string(),
+    ] {
+        let read = call(ToolKind::Read, &[&path]);
+        assert_eq!(
+            disk.decide(&read),
+            Decision::Ask(Reason::OutsideWorkspace),
+            "{path}"
+        );
+    }
+    let climb_in_a_folder = call(ToolKind::Read, &[&disk.inside("src/../src/lib.rs")]);
+    assert_eq!(disk.decide(&climb_in_a_folder), allowed());
+}
+
+#[test]
+fn decide_a_link_inside_the_workspace_to_a_file_not_yet_there_outside_is_outside() {
+    let disk = OnDisk::new();
+    let target = disk.secret.join("authorized_keys");
+    std::os::unix::fs::symlink(target, disk.workspace.join("keys")).unwrap();
+    let edit = call(ToolKind::Edit, &[&disk.inside("keys")]);
+    assert_eq!(disk.decide(&edit), Decision::Ask(Reason::OutsideWorkspace));
+}
+
+#[test]
+fn decide_paths_on_disk_inside_the_workspace_are_allowed_new_files_included() {
+    let disk = OnDisk::new();
+    std::os::unix::fs::symlink("lib.rs", disk.workspace.join("src/alias.rs")).unwrap();
+    for path in ["src/lib.rs", "src/alias.rs", "src/new/file.rs", "README.md"] {
+        let read = call(ToolKind::Read, &[&disk.inside(path)]);
+        assert_eq!(disk.decide(&read), allowed(), "{path}");
+    }
+}
+
+#[test]
+fn decide_a_search_whose_pattern_names_a_place_outside_the_workspace_asks() {
+    for pattern in [
+        "/home/person/.ssh/*",
+        "~/.ssh/*",
+        "../other/**",
+        "src/../../x/*",
+        "{/etc,src}/**",
+        "src/{..,x}/**",
+        "src/a..b/../../x",
+        "src/x~/*",
+        "\\/etc/*",
+        "src/[.][.]/x",
+        "@(/etc)/*",
+        "!(src)/**",
+        "src/+(a|b)/*",
+    ] {
+        let tool = ToolCallFields {
+            raw_input: Some(json!({ "pattern": pattern })),
+            ..call(ToolKind::Search, &[])
+        };
+        assert!(matches!(decide_on(&tool), Decision::Ask(_)), "{pattern}");
+    }
+    let inside = ToolCallFields {
+        raw_input: Some(
+            json!({ "pattern": "src/**/*.rs", "glob": "*.rs", "-l": true, "-c": false }),
+        ),
+        ..call(ToolKind::Search, &[])
+    };
+    assert_eq!(decide_on(&inside), allowed());
+    let plain = ToolCallFields {
+        raw_input: Some(json!({ "pattern": "docs/my notes/*_v-2.?d" })),
+        ..call(ToolKind::Search, &[])
+    };
+    assert_eq!(decide_on(&plain), allowed());
+}
+
+/// A search by the agent's tool `name` with `input` as its raw input.
+fn search(name: &str, input: serde_json::Value) -> ToolCallFields {
+    ToolCallFields {
+        name: Some(name.to_string()),
+        raw_input: Some(input),
+        ..call(ToolKind::Search, &[])
+    }
+}
+
+#[test]
+fn decide_a_grep_s_regular_expression_is_over_contents_and_never_judged_as_a_path() {
+    for regex in [
+        r"fn \w+\(.*\) \{",
+        r"\.\./\.\.",
+        "^/etc/(passwd|shadow)",
+        "~[a-z]{2,}",
+    ] {
+        for input in [
+            json!({ "pattern": regex, "-n": true, "-o": true, "output_mode": "content" }),
+            json!({ "pattern": regex, "path": "/work/demo/src", "glob": "*.rs" }),
+        ] {
+            assert_eq!(decide_on(&search("Grep", input)), allowed(), "{regex}");
+        }
+    }
+}
+
+#[test]
+fn decide_a_grep_whose_path_or_glob_leads_out_asks() {
+    for input in [
+        json!({ "pattern": "key", "path": "/home/person/.ssh" }),
+        json!({ "pattern": "key", "path": "../other" }),
+        json!({ "pattern": "key", "glob": "{/etc,src}/**" }),
+        json!({ "pattern": "key", "glob": "../**" }),
+    ] {
+        assert!(
+            matches!(decide_on(&search("Grep", input.clone())), Decision::Ask(_)),
+            "{input}"
+        );
+    }
+}
+
+#[test]
+fn decide_a_glob_s_pattern_is_a_pattern_of_paths() {
+    for pattern in ["/home/person/.ssh/*", "src/{..,x}/**", r"\/etc/*"] {
+        let glob = search("Glob", json!({ "pattern": pattern }));
+        assert!(matches!(decide_on(&glob), Decision::Ask(_)), "{pattern}");
+    }
+    let inside = search(
+        "Glob",
+        json!({ "pattern": "src/**/*.rs", "path": "/work/demo" }),
+    );
+    assert_eq!(decide_on(&inside), allowed());
+}
+
+#[test]
+fn decide_a_read_with_the_fields_of_claude_code_s_read_is_allowed_inside() {
+    let tool = ToolCallFields {
+        name: Some("Read".to_string()),
+        raw_input: Some(json!({
+            "file_path": "/work/demo/src/lib.rs",
+            "offset": 1,
+            "limit": 20,
+            "allow_large": true
+        })),
+        ..call(ToolKind::Read, &["/work/demo/src/lib.rs"])
+    };
+    assert_eq!(decide_on(&tool), allowed());
+}
+
+#[test]
+fn decide_on_the_mac_every_command_asks_the_known_ones_included() {
+    let disk = OnDisk::new();
+    std::os::unix::fs::symlink(&disk.secret, disk.workspace.join("notes")).unwrap();
+    for text in [
+        "npm run test",
+        "make",
+        "cargo test",
+        "cat notes/id_ed25519",
+        "git checkout other",
+        "mv src elsewhere",
+        "ls",
+    ] {
+        assert_eq!(decide_on(&command(text)), allowed(), "in a box: {text}");
+        assert_eq!(
+            disk.decide(&command(text)),
+            Decision::Ask(Reason::CommandOnMac),
+            "on the Mac: {text}"
+        );
+    }
+}
+
+#[test]
+fn decide_on_the_mac_a_command_that_reaches_out_says_so() {
+    let curl = command("curl https://example.com");
+    assert_eq!(decide_on_the_mac(&curl), Decision::Ask(Reason::Network));
+    let up = command("cat ../secret");
+    assert_eq!(
+        decide_on_the_mac(&up),
+        Decision::Ask(Reason::OutsideWorkspace)
+    );
+}
+
+#[test]
+fn decide_on_the_mac_a_workspace_that_cannot_be_found_on_disk_asks() {
+    let read = call(ToolKind::Read, &["/work/demo/src/lib.rs"]);
+    assert_eq!(
+        decide_on(&read),
+        allowed(),
+        "in a box the path is judged by its text"
+    );
+    assert_eq!(
+        decide_on_the_mac(&read),
+        Decision::Ask(Reason::OutsideWorkspace)
+    );
+}
+
+/// The race of the review: `dir/file` is judged while `dir` is a folder, then `dir` is replaced by a link
+/// that leads out before the tool opens the file. On the Mac the agent cannot make that swap unasked.
+#[test]
+fn decide_on_the_mac_what_could_swap_a_part_of_a_judged_path_asks() {
+    let disk = OnDisk::new();
+    std::fs::create_dir_all(disk.workspace.join("dir")).unwrap();
+    std::fs::write(disk.workspace.join("dir/file"), "x").unwrap();
+    let read = call(ToolKind::Read, &[&disk.inside("dir/file")]);
+    assert_eq!(disk.decide(&read), allowed());
+    let swap = call(
+        ToolKind::Move,
+        &[&disk.inside("dir"), &disk.inside("elsewhere")],
+    );
+    assert_eq!(disk.decide(&swap), Decision::Ask(Reason::MoveOnMac));
+    let in_a_box = call(ToolKind::Move, &["/work/demo/dir", "/work/demo/elsewhere"]);
+    assert_eq!(decide_on(&in_a_box), allowed());
+    for text in [
+        "mv dir elsewhere",
+        "ln -s /Users dir",
+        "git checkout other",
+        "rm -r dir",
+    ] {
+        let decision = disk.decide(&command(text));
+        assert!(matches!(decision, Decision::Ask(_)), "{text}");
+    }
+}
+
+/// The review's hard link: `alias.txt` in the workspace is a second name of a file of the person's, so
+/// its path is inside on disk while an edit through it changes the file outside.
+#[test]
+fn decide_on_the_mac_a_file_with_a_second_name_asks() {
+    let disk = OnDisk::new();
+    let alias = disk.workspace.join("alias.txt");
+    std::fs::hard_link(disk.secret.join("id_ed25519"), &alias).unwrap();
+    std::os::unix::fs::symlink("alias.txt", disk.workspace.join("pointer")).unwrap();
+    for kind in [ToolKind::Read, ToolKind::Edit, ToolKind::Delete] {
+        for path in [disk.inside("alias.txt"), disk.inside("pointer")] {
+            let decision = disk.decide(&call(kind, &[&path]));
+            assert_eq!(
+                decision,
+                Decision::Ask(Reason::LinkedFile),
+                "{kind:?} {path}"
+            );
+        }
+    }
+    let edit = json!({ "file_path": "alias.txt", "old_string": "key", "new_string": "lock" });
+    let by_claude = with_input(ToolKind::Edit, &[], edit);
+    assert_eq!(disk.decide(&by_claude), Decision::Ask(Reason::LinkedFile));
+    let one_name = call(ToolKind::Edit, &[&disk.inside("src/lib.rs")]);
+    assert_eq!(disk.decide(&one_name), allowed());
+    let folder = call(ToolKind::Search, &[&disk.inside("src")]);
+    assert_eq!(disk.decide(&folder), allowed());
+}
+
+/// A search by the tool `name` at `paths` with `input` as its raw input.
+fn search_at(name: &str, paths: &[&str], input: serde_json::Value) -> ToolCallFields {
+    ToolCallFields {
+        name: Some(name.to_string()),
+        ..with_input(ToolKind::Search, paths, input)
+    }
+}
+
+/// A write to git's metadata prepares a command the person runs later (`core.fsmonitor`, a hook, the
+/// worktree's `.git` pointer), so on the Mac it asks, however the path names it.
+#[test]
+fn decide_on_the_mac_a_write_to_git_metadata_asks_through_every_alias() {
+    let disk = OnDisk::new();
+    let git = disk.workspace.join("vendor/lib/.git");
+    std::fs::create_dir_all(git.join("hooks")).unwrap();
+    std::fs::create_dir_all(git.join("info")).unwrap();
+    std::fs::write(git.join("config"), "[core]\n").unwrap();
+    std::fs::write(disk.workspace.join(".git"), "gitdir: /elsewhere\n").unwrap();
+    std::os::unix::fs::symlink("vendor/lib/.git/config", disk.workspace.join("settings")).unwrap();
+    std::os::unix::fs::symlink("vendor/lib/.git", disk.workspace.join("meta")).unwrap();
+    for path in [
+        ".git",
+        "vendor/lib/.git/config",
+        "vendor/lib/.git/hooks/pre-commit",
+        "vendor/lib/.git/info/attributes",
+        "vendor/lib/.GIT/config",
+        "vendor/lib/.Git/hooks/post-checkout",
+        "vendor/lib/.g\u{200c}it/config",
+        "settings",
+        "meta/config",
+    ] {
+        for kind in [ToolKind::Edit, ToolKind::Delete] {
+            let decision = disk.decide(&call(kind, &[&disk.inside(path)]));
+            assert_eq!(
+                decision,
+                Decision::Ask(Reason::GitMetadata),
+                "{kind:?} {path}"
+            );
+        }
+    }
+    let by_claude = json!({ "file_path": ".git", "content": "gitdir: /tmp/evil\n" });
+    let write = with_input(ToolKind::Edit, &[], by_claude);
+    assert_eq!(disk.decide(&write), Decision::Ask(Reason::GitMetadata));
+    let read = call(ToolKind::Read, &[&disk.inside("vendor/lib/.git/config")]);
+    assert_eq!(
+        disk.decide(&read),
+        allowed(),
+        "reading git's metadata runs nothing"
+    );
+    let ordinary = call(ToolKind::Edit, &[&disk.inside(".gitignore")]);
+    assert_eq!(disk.decide(&ordinary), allowed());
+    let in_a_box = call(ToolKind::Edit, &["/work/demo/.git/config"]);
+    assert_eq!(decide_on(&in_a_box), allowed());
+}
+
+/// Names are compared as the Mac's disks fold them, failing closed: a spelling of `.git` or HEAD with
+/// characters that fold or combine away is the name itself.
+#[test]
+fn decide_on_the_mac_git_metadata_spelled_with_other_characters_asks() {
+    let disk = OnDisk::new();
+    std::fs::create_dir_all(disk.workspace.join("half/refs")).unwrap();
+    for path in [
+        "lib/.G\u{130}T/config",
+        "lib/.g\u{131}t/config",
+        "lib/.gi\u{74}\u{301}/config",
+        "half/HE\u{301}AD",
+    ] {
+        let decision = disk.decide(&call(ToolKind::Edit, &[&disk.inside(path)]));
+        assert_eq!(decision, Decision::Ask(Reason::GitMetadata), "{path}");
+    }
+}
+
+/// In a folder git reads as a git dir every write is metadata, not only the files it is known to run
+/// (config.worktree, info/, modules/), and so is any write into the common folder a git dir's
+/// `commondir` names, or a folder shaped like one (objects beside refs).
+#[test]
+fn decide_on_the_mac_any_write_in_a_git_dir_or_its_common_folder_asks() {
+    let disk = OnDisk::new();
+    let at = |rest: &str| disk.workspace.join(rest);
+    std::fs::create_dir_all(at("vendor/bare/objects")).unwrap();
+    std::fs::write(at("vendor/bare/HEAD"), "ref: refs/heads/main\n").unwrap();
+    std::fs::create_dir_all(at("wt")).unwrap();
+    std::fs::write(at("wt/HEAD"), "ref: refs/heads/main\n").unwrap();
+    std::fs::write(at("wt/commondir"), "../store\n").unwrap();
+    std::fs::create_dir_all(at("store/objects")).unwrap();
+    std::fs::write(at(".git"), "gitdir: wt\n").unwrap();
+    std::fs::create_dir_all(at("common/objects")).unwrap();
+    std::fs::create_dir_all(at("common/refs")).unwrap();
+    for path in [
+        "vendor/bare/config.worktree",
+        "vendor/bare/info/exclude",
+        "vendor/bare/modules/x/config",
+        "store/config",
+        "store/hooks/pre-commit",
+        "common/config",
+    ] {
+        let decision = disk.decide(&call(ToolKind::Edit, &[&disk.inside(path)]));
+        assert_eq!(decision, Decision::Ask(Reason::GitMetadata), "{path}");
+    }
+    for path in ["src/refs/x.ts", "docs/objects/a.md"] {
+        let decision = disk.decide(&call(ToolKind::Edit, &[&disk.inside(path)]));
+        assert_eq!(decision, allowed(), "{path}");
+    }
+}
+
+/// git finds a repository in any folder shaped like one (HEAD beside objects, refs or a commondir), with
+/// no part named `.git`, and runs its config when the person works there: on the Mac a write that makes
+/// or changes such a folder's metadata asks, and so does one into the folder a `.git` pointer names.
+#[test]
+fn decide_on_the_mac_a_write_to_a_folder_git_reads_as_a_repository_asks() {
+    let disk = OnDisk::new();
+    let at = |rest: &str| disk.workspace.join(rest);
+    std::fs::create_dir_all(at("vendor/bare/objects")).unwrap();
+    std::fs::write(at("vendor/bare/HEAD"), "ref: refs/heads/main\n").unwrap();
+    std::fs::create_dir_all(at("half/refs")).unwrap();
+    std::fs::create_dir_all(at("linked")).unwrap();
+    std::fs::write(at("linked/HEAD"), "ref: refs/heads/main\n").unwrap();
+    std::fs::write(at("linked/commondir"), "../..\n").unwrap();
+    std::fs::create_dir_all(at("meta/worktree")).unwrap();
+    std::fs::write(at(".git"), "gitdir: meta/worktree\n").unwrap();
+    for path in [
+        "vendor/bare/config",
+        "vendor/bare/CONFIG",
+        "vendor/bare/hooks/post-checkout",
+        "vendor/bare/refs/heads/main",
+        "vendor/bare/packed-refs",
+        "vendor/bare/worktrees/x/HEAD",
+        "half/HEAD",
+        "linked/config",
+        "meta/worktree/config",
+        "meta/worktree/anything",
+    ] {
+        let decision = disk.decide(&call(ToolKind::Edit, &[&disk.inside(path)]));
+        assert_eq!(decision, Decision::Ask(Reason::GitMetadata), "{path}");
+    }
+    for path in [
+        "src/hooks/use_thing.ts",
+        "docs/config",
+        "app/config/db.yml",
+        "fresh/HEAD",
+    ] {
+        let decision = disk.decide(&call(ToolKind::Edit, &[&disk.inside(path)]));
+        assert_eq!(decision, allowed(), "{path}");
+    }
+}
+
+/// Decides on `tool` for `disk` in a thread of its own; nothing when no decision came within five
+/// seconds (the decision hung).
+fn decide_within_seconds(disk: &OnDisk, tool: ToolCallFields) -> Option<Decision> {
+    let workspace = disk.workspace.clone();
+    let (sent, received) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let decision = decide(&tool, &options(), &workspace, Runs::OnMac);
+        sent.send(decision).ok();
+    });
+    received
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .ok()
+}
+
+/// The review's pipe: a `.ignore` that is a pipe nobody writes to must not hold the decision.
+#[test]
+fn decide_on_the_mac_a_rule_file_that_is_a_pipe_does_not_hang_the_search() {
+    let disk = OnDisk::new();
+    nix::unistd::mkfifo(
+        disk.inside(".ignore").as_str(),
+        nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR,
+    )
+    .unwrap();
+    let grep = search_at("Grep", &[], json!({ "pattern": "fn" }));
+    assert_eq!(decide_within_seconds(&disk, grep), Some(allowed()));
 }

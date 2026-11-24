@@ -1,7 +1,7 @@
 //! Projects: what is worked on. A project is a repository on the service's host, an optional subfolder,
-//! a base branch, where its lavori live by default and with which account. Nobody edits a file to work on
+//! a base branch, where its tasks live by default and with which account. Nobody edits a file to work on
 //! another folder: the window asks the person for one, shows what `box project detect` proposes, and adds
-//! the project once with `box project add`. A new lavoro names a project.
+//! the project once with `box project add`. A new task names a project.
 
 use crate::box_cli::Limit;
 use crate::error::{BridgeResult, ErrorCode};
@@ -15,16 +15,16 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct Project {
     pub name: String,
-    /// The branch its lavori start from when none is named.
+    /// The branch its tasks start from when none is named.
     #[serde(default)]
     pub base: Option<String>,
-    /// Where its lavori live when the person does not say.
+    /// Where its tasks live when the person does not say.
     #[serde(default, rename = "where")]
     pub place: Place,
     /// The account its agents start with when none is named.
     #[serde(default)]
     pub account: Option<String>,
-    /// The command Play runs in its lavori; none when the project names none.
+    /// The command Play runs in its tasks; none when the project names none.
     #[serde(default)]
     pub run: Option<String>,
     /// Why `box` cannot use it, in `box`'s own words (data).
@@ -81,7 +81,7 @@ pub struct ProposedPattern {
     pub reason: String,
 }
 
-/// The branches of a project's repository a lavoro can start from, most recently committed first.
+/// The branches of a project's repository a task can start from, most recently committed first.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Branches {
     /// The project's base branch.
@@ -163,7 +163,7 @@ impl NewProject {
     }
 }
 
-/// A lavoro to create: its project, and what the person chose instead of the project's own.
+/// A task to create: its project, and what the person chose instead of the project's own.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewLavoro {
     pub project: String,
@@ -225,7 +225,7 @@ impl Core {
         self.cli().run_text(&args, Limit::Action).await.map(drop)
     }
 
-    /// `box project set <project> --account <account>`: the account new lavori of the project start with.
+    /// `box project set <project> --account <account>`: the account new tasks of the project start with.
     pub async fn project_set_account(&self, project: &str, account: &str) -> BridgeResult<()> {
         let project = validate::project(project)?;
         let account = validate::account(account)?;
@@ -233,7 +233,7 @@ impl Core {
         self.cli().run_text(&args, Limit::Action).await.map(drop)
     }
 
-    /// `box branches <project> --json`: the branches a lavoro of the project can start from.
+    /// `box branches <project> --json`: the branches a task of the project can start from.
     pub async fn branches(&self, project: &str) -> BridgeResult<Branches> {
         let project = validate::project(project)?;
         self.cli()

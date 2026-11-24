@@ -6,15 +6,19 @@
 
 use super::controls::{self, Choice, Loaded, OnPress, Segment, Sent};
 use super::source::SettingsSource;
+use crate::icons;
 use crate::l10n::{tr, tr_with, Key};
 use crate::theme::settings as sizes;
 use crate::theme::{self, Palette, Theme};
+use crate::ui::chrome::text;
+use crate::ui::enter::is_composing;
 use gpui::{
     div, AnyElement, AppContext as _, Context, Entity, EventEmitter, Focusable as _,
     InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
     StatefulInteractiveElement as _, Styled as _, Subscription, Window,
 };
 use gpui_component::input::{InputEvent, InputState, Textarea, TextareaState};
+use gpui_component::{Icon, Sizable as _};
 use sakura_core::error::{BridgeError, BridgeResult};
 use sakura_core::models::{Account, Place};
 use sakura_core::publish;
@@ -430,11 +434,11 @@ impl ProjectForm {
     }
 
     fn place_group(&self, palette: &Palette, cx: &Context<Self>) -> AnyElement {
-        let folder = match self.project.subdir.as_str() {
-            "" => self.project.repo.clone(),
-            subdir => format!("{}/{subdir}", self.project.repo),
-        };
-        let folder = controls::quiet(folder, palette);
+        // A long path is cut at the width of a field; it never leaves its row.
+        let folder = text(sizes::SETTING_TEXT, palette.text_tertiary)
+            .max_w(sizes::FIELD_WIDTH)
+            .truncate()
+            .child(super::project_folder(&self.project));
         let place = |id, label, place: Place| Segment {
             id,
             label: tr(label).into(),
@@ -647,7 +651,7 @@ impl ProjectForm {
         let verb = controls::field(&self.fields.new_verb, sizes::FIELD_SHORT_WIDTH, palette);
         let new = div()
             .debug_selector(|| "settings-row-new-check".into())
-            .px(sizes::SETTING_ROW_PADDING_X)
+            .py(theme::GAP)
             .flex()
             .flex_col()
             .child(
@@ -661,10 +665,11 @@ impl ProjectForm {
                     .child(new),
             )
             .children(match self.sent.get(&Row::NewCheck) {
-                Some(Sent::Failed(error)) => {
-                    let failed = controls::failed("settings-row-new-check-failed", error, palette);
-                    Some(div().pb(theme::GAP).child(failed))
-                }
+                Some(Sent::Failed(error)) => Some(controls::failed(
+                    "settings-row-new-check-failed",
+                    error,
+                    palette,
+                )),
                 _ => None,
             });
         let rows = checks.chain([new.into_any_element()]).collect();
@@ -751,13 +756,18 @@ impl Render for ProjectForm {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = Theme::palette(cx);
         let back = cx.listener(|_, _: &gpui::ClickEvent, _, cx| cx.emit(FormEvent::Back));
+        let chevron = Icon::new(icons::BACK).with_size(theme::MARK_SIZE);
         let back = div()
             .id("settings-project-back")
             .debug_selector(|| "settings-project-back".into())
+            .flex()
+            .items_center()
+            .gap(theme::GAP_TIGHT)
             .text_size(theme::TEXT_SMALL)
             .text_color(palette.text_secondary)
             .hover(move |style| style.text_color(palette.text))
             .on_click(back)
+            .child(chevron)
             .child(tr(Key("settings.projects.back")));
         let groups = vec![
             self.place_group(&palette, cx),
@@ -768,7 +778,6 @@ impl Render for ProjectForm {
         ];
         div()
             .w_full()
-            .max_w(sizes::PAGE_MAX_WIDTH)
             .flex()
             .flex_col()
             .gap(theme::GAP)
@@ -803,8 +812,10 @@ fn left_or_entered(
     cx.subscribe_in(
         input,
         window,
-        move |form, _, event: &InputEvent, window, cx| {
-            if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. }) {
+        move |form, input, event: &InputEvent, window, cx| {
+            let is_entered =
+                matches!(event, InputEvent::PressEnter { .. }) && !is_composing(input, window, cx);
+            if is_entered || matches!(event, InputEvent::Blur) {
                 form.commit(&row, window, cx);
             }
         },

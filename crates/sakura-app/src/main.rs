@@ -1,18 +1,33 @@
 //! Sakura desk: watch and steer coding agents in their agentbox workspaces.
 
+#[cfg(all(feature = "snapshot", not(debug_assertions)))]
+compile_error!("the `snapshot` feature (scripted steps that approve and clean up without a person) is for debug builds only; a release build must not enable it");
+
+mod agent_log;
 mod data;
-#[cfg(feature = "snapshot")]
+#[cfg(all(feature = "snapshot", feature = "boxes"))]
 mod drive;
+mod drive_guard;
+#[cfg(feature = "snapshot")]
+mod drive_input;
+#[cfg(all(feature = "snapshot", not(feature = "boxes")))]
+mod engine_drive;
 mod fonts;
 mod icons;
 mod l10n;
 mod language;
 mod menus;
+mod panic_log;
 mod prefs;
+#[cfg(all(target_os = "macos", not(feature = "boxes")))]
+mod reduce_motion;
 mod snapshot;
+#[cfg_attr(not(feature = "boxes"), allow(dead_code))]
 mod theme;
 mod theme_brand;
+mod theme_contrast;
 mod ui;
+mod updates;
 mod window;
 
 use std::sync::Arc;
@@ -23,6 +38,10 @@ rust_i18n::i18n!("locales", fallback = "en");
 const RUNTIME_THREADS: usize = 2;
 
 fn main() {
+    if let Some(home) = std::env::var_os("HOME") {
+        panic_log::install(panic_log::log_folder(std::path::Path::new(&home)));
+    }
+    drive_guard::enforce();
     let launched = std::time::Instant::now();
     // Before any thread starts: the data folder exists and every `box` this process starts is given it.
     if let Err(error) = sakura_core::platform::prepare_data_home() {
@@ -38,18 +57,28 @@ fn main() {
         Err(error) => return eprintln!("sakura: cannot start the runtime: {error}"),
     };
     let application = gpui_platform::application().with_assets(icons::Assets);
+    #[cfg(target_os = "macos")]
+    let application = if window::can_activate() {
+        application
+    } else {
+        application.with_windowing(gpui::WindowingRequest::Headless)
+    };
     // Closing the window does not quit Sakura; opening it again (the Dock icon, a second launch) always
     // brings a window back.
     let reopened = runtime.clone();
     application.on_reopen(move |cx| window::reopen(reopened.clone(), cx));
     application.run(move |cx| {
         gpui_component::init(cx);
+        #[cfg(all(target_os = "macos", not(feature = "boxes")))]
+        reduce_motion::install(cx);
         // The name the system shows beside what the app tells it (its notifications).
         cx.set_app_identity(window::APP_ID, window::APP_NAME);
         fonts::register(cx);
         menus::install(cx);
         ui::brand::install(cx);
         ui::keyboard::install(cx);
+        #[cfg(not(feature = "boxes"))]
+        ui::inbox::install_keys(cx);
         window::open(launched, runtime, cx);
     });
 }

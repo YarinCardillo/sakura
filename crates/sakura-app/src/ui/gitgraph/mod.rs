@@ -1,7 +1,8 @@
 //! The "Git" view of the right pane: the commits of a project as a graph, the base branch and every
 //! task's branch as lanes. One row a commit: its place in the lanes, its subject, the task whose branch
 //! ends there with the task's state, and how long ago it was written. The rows are virtualised and
-//! nothing is drawn at rest; the graph is read from `box graph` when the view is made and when
+//! nothing is drawn at rest; the graph is read in-process (`box graph` for a repository that reader does
+//! not read) when the view is made and when
 //! [`GitGraph::refresh`] is called, never on a timer.
 //!
 //! Entry point, one [`GitGraph`] per project shown:
@@ -18,10 +19,12 @@ mod rows;
 #[cfg(test)]
 mod tests;
 
-use crate::ui::files::{on_runtime, Reading};
+use crate::ui::files::{joined, on_runtime, Reading};
+use crate::ui::patience::Patience;
 use gpui::{AnyElement, App, Context, EventEmitter, Task, UniformListScrollHandle};
 use sakura_core::box_cli::BoxCli;
-use sakura_core::error::BridgeResult;
+use sakura_core::direct::Readers;
+use sakura_core::error::{BridgeResult, ErrorCode};
 use sakura_core::graph::{self, Age, Graph, Layout};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -42,6 +45,30 @@ pub fn box_graph(cli: BoxCli, project: impl Into<String>, runtime: Arc<Runtime>)
         let (cli, project) = (cli.clone(), project.clone());
         on_runtime(&runtime, async move {
             graph::read_graph(&cli, &project, None).await
+        })
+    })
+}
+
+/// The graph of `project`, read in-process on `runtime`'s blocking threads; with `box graph` over `cli`
+/// when a repository is in a form that reader does not read.
+pub fn direct_graph(
+    readers: Arc<Readers>,
+    cli: BoxCli,
+    project: impl Into<String>,
+    runtime: Arc<Runtime>,
+) -> ReadGraph {
+    let project = project.into();
+    Rc::new(move || {
+        let (readers, cli, project) = (readers.clone(), cli.clone(), project.clone());
+        on_runtime(&runtime, async move {
+            let of = project.clone();
+            let direct = tokio::task::spawn_blocking(move || readers.graph(&of, None)).await;
+            match direct.unwrap_or_else(|error| Err(joined(error))) {
+                Err(error) if error.code == ErrorCode::Unsupported => {
+                    graph::read_graph(&cli, &project, None).await
+                }
+                answer => answer,
+            }
         })
     })
 }
@@ -95,6 +122,8 @@ pub struct GitGraph {
     picked: Option<String>,
     scroll: UniformListScrollHandle,
     reading: Option<Task<()>>,
+    /// When the graph began to be read: its line shows only for a slow read.
+    patience: Patience,
 }
 
 impl EventEmitter<GitGraphEvent> for GitGraph {}
@@ -109,6 +138,7 @@ impl GitGraph {
             picked: None,
             scroll: UniformListScrollHandle::default(),
             reading: None,
+            patience: Patience::default(),
         };
         graph.refresh(cx);
         graph
@@ -133,7 +163,7 @@ impl GitGraph {
         cx.notify();
     }
 
-    /// The lavoro the commit `sha` belongs to; none for a commit of the base branch or one not shown.
+    /// The task the commit `sha` belongs to; none for a commit of the base branch or one not shown.
     pub fn lavoro_of(&self, sha: &str) -> Option<String> {
         let Shown::Graph(drawn) = &self.shown else {
             return None;

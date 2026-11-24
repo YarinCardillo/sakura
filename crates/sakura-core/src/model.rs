@@ -3,6 +3,7 @@
 //! result reads, and the figures for durations and ages. No I/O, no clock: the caller passes
 //! the time when one is needed.
 
+mod age;
 mod format;
 mod header;
 mod remove;
@@ -11,6 +12,7 @@ mod take;
 mod trust;
 mod verify;
 
+pub use age::{task_age, TaskAge};
 pub use format::{
     duration, facts_age, is_load_high, is_memory_critical, load, memory, runner_status,
     runner_waiting, FRESH_FACTS_SECONDS,
@@ -20,7 +22,7 @@ pub use remove::{remove_rule, RemoveRule};
 pub use result::{result_view, ResultView};
 pub use take::{take_details, take_rule, TakeRule};
 pub use trust::{distrust, tests_word, touched_sentence, Distrust, Missing, Reserve};
-pub use verify::{short_sha, verify_rows, VerifyRow, VerifyState, SHORT_SHA};
+pub use verify::{discarded_said, short_sha, verify_rows, VerifyRow, VerifyState, SHORT_SHA};
 
 use crate::models::{AgentPhase, Task};
 use crate::said::Key;
@@ -34,32 +36,25 @@ pub fn required_verbs(task: &Task) -> &[String] {
 /// The sidebar's groups, in the order the sidebar shows them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Group {
-    /// The agent waits for the person: a question, a permission.
+    /// The person must answer the agent or review work and results.
     ServeTe,
     /// An agent is running.
     AlLavoro,
     /// The workspace is being created, or the agent is starting.
     InPreparazione,
-    /// To look at: the agent exited, nothing is running, the work changed after a take, or the workspace
-    /// cannot be read.
-    DaGuardare,
-    /// Nothing runs and nothing is left to look at: the agent answered and stands by.
+    /// Nothing to look at: the agent answered without work, or nothing was started.
     InAttesa,
-    /// Nothing was ever started on it.
-    DaAvviare,
     /// Taken, with nothing new since.
     Presi,
 }
 
 impl Group {
     /// All groups in sidebar order.
-    pub const ALL: [Group; 7] = [
+    pub const ALL: [Group; 5] = [
         Group::ServeTe,
         Group::AlLavoro,
         Group::InPreparazione,
-        Group::DaGuardare,
         Group::InAttesa,
-        Group::DaAvviare,
         Group::Presi,
     ];
 
@@ -69,9 +64,7 @@ impl Group {
             Group::ServeTe => "group.needs_you",
             Group::AlLavoro => "group.working",
             Group::InPreparazione => "group.preparing",
-            Group::DaGuardare => "group.review",
             Group::InAttesa => "group.idle",
-            Group::DaAvviare => "group.not_started",
             Group::Presi => "group.taken",
         })
     }
@@ -82,38 +75,18 @@ impl Group {
             Group::ServeTe => "needs-you",
             Group::AlLavoro => "working",
             Group::InPreparazione => "preparing",
-            Group::DaGuardare => "review",
             Group::InAttesa => "idle",
-            Group::DaAvviare => "not-started",
             Group::Presi => "taken",
         }
     }
 }
 
-/// Which group a task belongs to by the facts alone (the window lists it by the state it shows, see
-/// `group_tasks`). The rules, first match wins:
-///
-/// 1. Being prepared (`preparing` set and not failed): Al lavoro.
-/// 2. Preparation failed, or the workspace is unreadable: Da guardare.
-/// 3. An agent container is running: Al lavoro (even if the task was taken before).
-/// 4. Taken, HEAD is the taken commit and nothing is uncommitted: Taken.
-/// 5. Everything else (agent exited, no agent and never taken, taken with new commits or uncommitted files
-///    since): Da guardare.
+/// The sidebar group implied by the task facts, before a conversation supplies live state.
 pub fn group_of(task: &Task) -> Group {
-    if is_preparing(task) || (is_agent_running(task) && is_settled(task)) {
-        return Group::AlLavoro;
-    }
-    if !is_settled(task) {
-        return Group::DaGuardare;
-    }
-    if is_taken_unchanged(task) {
-        Group::Presi
-    } else {
-        Group::DaGuardare
-    }
+    shown_group(task, false, Live::Unknown)
 }
 
-/// Splits tasks into the three groups, in sidebar order. `waits` says whether a task's agent waits for the
+/// Splits tasks into the five groups, in sidebar order. `waits` says whether a task's agent waits for the
 /// person: those are listed with the ones to look at, before the others; the input order is kept otherwise.
 pub fn group_tasks<'a>(
     tasks: &'a [Task],
@@ -156,7 +129,7 @@ pub enum Tone {
 /// The state of a task as the window names it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StateId {
-    /// The lavoro's agent asked the person something and stands still until it is answered.
+    /// The task's agent asked the person something and stands still until it is answered.
     NeedsYou,
     Preparing,
     /// Nothing to look at yet: no commit ahead, nothing uncommitted, no agent at work.
@@ -191,14 +164,14 @@ impl StateId {
     }
 }
 
-/// What the lavoro's conversation in the window says of its agent. For a lavoro on the Mac the service
+/// What the task's conversation in the window says of its agent. For a task on the Mac the service
 /// knows nothing of the agent (it runs under the window), so this is the only source of "working".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Live {
     /// No conversation was held in this window.
     #[default]
     Unknown,
-    /// The lavoro is being prepared: its agent cannot start yet.
+    /// The task is being prepared: its agent cannot start yet.
     Starting,
     /// A turn is running.
     Working,
@@ -236,36 +209,31 @@ pub struct TaskState {
 /// The state of a task. Verified needs every required verb passed on HEAD with commits ahead and nothing
 /// uncommitted; Failed means one of them failed on HEAD. A result for an older commit is never green.
 pub fn task_state(task: &Task) -> TaskState {
-    let id = match group_of(task) {
+    let id = match () {
         _ if is_preparing(task) => StateId::Preparing,
         _ if is_creation_failed(task) => StateId::CreationFailed,
         _ if !task.readable => StateId::Unreadable,
-        Group::AlLavoro => StateId::Working,
-        Group::Presi => StateId::Taken,
-        Group::DaGuardare
-        | Group::InAttesa
-        | Group::DaAvviare
-        | Group::ServeTe
-        | Group::InPreparazione => review_state(task),
+        _ if is_agent_running(task) => StateId::Working,
+        _ if is_taken_unchanged(task) => StateId::Taken,
+        _ => review_state(task),
     };
     state_for(id)
 }
 
 /// The group the window lists `task` under, from the state it shows: what needs the person, what is at
-/// work, what stands by with nothing to look at, what was taken. A lavoro whose agent answered and left
+/// work, what stands by with nothing to look at, what was taken. A task whose agent answered and left
 /// nothing to review is not among the ones to review.
 fn shown_group(task: &Task, waits_for_person: bool, live: Live) -> Group {
     match shown_state_live(task, waits_for_person, live).id {
-        StateId::NeedsYou => Group::ServeTe,
         StateId::Preparing => Group::InPreparazione,
-        StateId::ToReview
+        StateId::NeedsYou
+        | StateId::ToReview
         | StateId::Verified
         | StateId::Failed
         | StateId::CreationFailed
-        | StateId::Unreadable => Group::DaGuardare,
+        | StateId::Unreadable => Group::ServeTe,
         StateId::Working => Group::AlLavoro,
-        StateId::Idle => Group::InAttesa,
-        StateId::NotStarted => Group::DaAvviare,
+        StateId::Idle | StateId::NotStarted => Group::InAttesa,
         StateId::Taken => Group::Presi,
     }
 }
@@ -292,14 +260,9 @@ pub fn state_for(id: StateId) -> TaskState {
     }
 }
 
-/// Whether `task` needs attention (the only meaning of the accent), by the state the window
-/// shows: its agent asked something or ended badly, it stopped with work to look at, or a result arrived
-/// for HEAD. A lavoro that is empty, idle, unreadable, being prepared, at work or taken is not one.
+/// Whether the task belongs to Needs you, including results and workspace failures to review.
 pub fn is_attention(task: &Task, waits_for_person: bool, live: Live) -> bool {
-    matches!(
-        shown_state_live(task, waits_for_person, live).id,
-        StateId::NeedsYou | StateId::ToReview | StateId::Verified | StateId::Failed
-    )
+    shown_group(task, waits_for_person, live) == Group::ServeTe
 }
 
 /// Ready to start when there is no work at all; else Failed when a required verb failed on HEAD; Verified
@@ -333,11 +296,6 @@ fn is_preparing(task: &Task) -> bool {
 
 fn is_creation_failed(task: &Task) -> bool {
     task.preparing.as_ref().is_some_and(|p| p.failed)
-}
-
-/// Readable and not touched by a creation job: the facts describe a real workspace.
-fn is_settled(task: &Task) -> bool {
-    task.readable && task.preparing.is_none()
 }
 
 fn is_agent_running(task: &Task) -> bool {
@@ -375,25 +333,91 @@ mod tests {
     }
 
     #[test]
-    fn unreadable_workspace_is_da_guardare_and_illeggibile() {
+    fn merged_sidebar_has_five_groups_in_action_order() {
+        assert_eq!(
+            Group::ALL.as_slice(),
+            &[
+                Group::ServeTe,
+                Group::AlLavoro,
+                Group::InPreparazione,
+                Group::InAttesa,
+                Group::Presi
+            ]
+        );
+    }
+
+    #[test]
+    fn merged_results_need_the_person_without_losing_their_tones() {
+        let mut verified = exited("verified");
+        passed_result(&mut verified, "test");
+        passed_result(&mut verified, "rules");
+        let mut failed = exited("failed");
+        failed_result(&mut failed, "test");
+        let mut unreadable = readable("unreadable");
+        unreadable.readable = false;
+        let tasks = [
+            exited("review"),
+            verified,
+            failed,
+            preparing("creation", true),
+            unreadable,
+        ];
+        let states = [
+            StateId::ToReview,
+            StateId::Verified,
+            StateId::Failed,
+            StateId::CreationFailed,
+            StateId::Unreadable,
+        ];
+        let tones = [
+            Tone::Attention,
+            Tone::Passed,
+            Tone::Failed,
+            Tone::Failed,
+            Tone::Warning,
+        ];
+        for ((task, id), tone) in tasks.iter().zip(states).zip(tones) {
+            assert_eq!(shown_state_live(task, false, Live::Unknown), state_for(id));
+            assert_eq!(state_for(id).tone, tone);
+            assert_eq!(group_seen(task, false, Live::Unknown), Group::ServeTe);
+            assert!(is_attention(task, false, Live::Unknown));
+        }
+    }
+
+    #[test]
+    fn merged_idle_includes_never_started_and_answered_without_work() {
+        let task = untouched("empty");
+        assert_eq!(group_seen(&task, false, Live::Unknown), Group::InAttesa);
+        assert_eq!(group_seen(&task, false, Live::Answered), Group::InAttesa);
+        assert_eq!(group_of(&task), Group::InAttesa);
+        assert_eq!(task_state(&task).id, StateId::NotStarted);
+        assert_eq!(
+            shown_state_live(&task, false, Live::Answered).id,
+            StateId::Idle
+        );
+        assert!(!is_attention(&task, false, Live::Answered));
+    }
+
+    #[test]
+    fn unreadable_workspace_is_needs_you_and_illeggibile() {
         let mut task = readable("rotta");
         task.readable = false;
-        assert_eq!(group_of(&task), Group::DaGuardare);
+        assert_eq!(group_of(&task), Group::ServeTe);
         assert_eq!(task_state(&task).id, StateId::Unreadable);
         assert_eq!(task_state(&task).tone, Tone::Warning);
     }
 
     #[test]
-    fn task_being_prepared_is_al_lavoro_and_in_preparazione() {
+    fn task_being_prepared_is_in_the_preparing_group() {
         let task = preparing("new", false);
-        assert_eq!(group_of(&task), Group::AlLavoro);
+        assert_eq!(group_of(&task), Group::InPreparazione);
         assert_eq!(task_state(&task).word, Key("state.preparing"));
     }
 
     #[test]
-    fn failed_preparation_is_da_guardare_with_a_failed_tone() {
+    fn failed_preparation_is_needs_you_with_a_failed_tone() {
         let task = preparing("new", true);
-        assert_eq!(group_of(&task), Group::DaGuardare);
+        assert_eq!(group_of(&task), Group::ServeTe);
         assert_eq!(task_state(&task).id, StateId::CreationFailed);
         assert_eq!(task_state(&task).tone, Tone::Failed);
     }
@@ -409,16 +433,16 @@ mod tests {
     }
 
     #[test]
-    fn exited_agent_is_da_guardare() {
+    fn exited_agent_is_needs_you() {
         let task = exited("m1");
-        assert_eq!(group_of(&task), Group::DaGuardare);
+        assert_eq!(group_of(&task), Group::ServeTe);
         assert_eq!(task_state(&task).tone, Tone::Attention);
     }
 
     #[test]
-    fn no_agent_and_never_taken_is_da_guardare() {
+    fn no_agent_and_never_taken_is_needs_you() {
         let task = readable("m1");
-        assert_eq!(group_of(&task), Group::DaGuardare);
+        assert_eq!(group_of(&task), Group::ServeTe);
         assert_eq!(task_state(&task).word, Key("state.to_review"));
     }
 
@@ -433,19 +457,19 @@ mod tests {
     }
 
     #[test]
-    fn taken_with_new_commits_since_is_da_guardare() {
+    fn taken_with_new_commits_since_is_needs_you() {
         let mut task = readable("m1");
         taken_at(&mut task, SHA_OLD);
-        assert_eq!(group_of(&task), Group::DaGuardare);
+        assert_eq!(group_of(&task), Group::ServeTe);
     }
 
     #[test]
-    fn taken_with_uncommitted_files_since_is_da_guardare() {
+    fn taken_with_uncommitted_files_since_is_needs_you() {
         let mut task = readable("m1");
         let head = task.head.clone().unwrap();
         taken_at(&mut task, &head);
         task.dirty_files = Some(1);
-        assert_eq!(group_of(&task), Group::DaGuardare);
+        assert_eq!(group_of(&task), Group::ServeTe);
     }
 
     #[test]
@@ -510,15 +534,15 @@ mod tests {
     }
 
     #[test]
-    fn empty_task_stays_in_da_guardare_without_being_an_attention_item() {
+    fn empty_task_is_idle_without_being_an_attention_item() {
         let mut task = readable("m1");
         task.ahead = Some(0);
-        assert_eq!(group_of(&task), Group::DaGuardare);
+        assert_eq!(group_of(&task), Group::InAttesa);
         assert!(!is_attention(&task, false, Live::Unknown));
     }
 
     #[test]
-    fn empty_task_with_a_result_on_head_is_still_ready_to_start() {
+    fn empty_task_with_a_result_on_head_is_still_not_started() {
         let mut task = readable("m1");
         task.ahead = Some(0);
         failed_result(&mut task, "test");
@@ -555,13 +579,11 @@ mod tests {
     }
 
     #[test]
-    fn running_unreadable_preparing_and_taken_tasks_are_not_attention_items() {
-        let mut unreadable = readable("rotta");
-        unreadable.readable = false;
+    fn running_preparing_and_taken_tasks_are_not_attention_items() {
         let mut taken = exited("preso");
         let head = taken.head.clone().unwrap();
         taken_at(&mut taken, &head);
-        for task in [running("m1"), unreadable, preparing("new", false), taken] {
+        for task in [running("m1"), preparing("new", false), taken] {
             assert!(!is_attention(&task, false, Live::Unknown), "{}", task.name);
         }
     }
@@ -616,12 +638,10 @@ mod tests {
         assert_eq!(
             names,
             vec![
-                (Group::ServeTe, vec![]),
+                (Group::ServeTe, vec!["b", "a"]),
                 (Group::AlLavoro, vec!["c"]),
                 (Group::InPreparazione, vec![]),
-                (Group::DaGuardare, vec!["b", "a"]),
                 (Group::InAttesa, vec![]),
-                (Group::DaAvviare, vec![]),
                 (Group::Presi, vec![]),
             ]
         );
@@ -636,10 +656,7 @@ mod tests {
             let (_, members) = groups.iter().find(|(id, _)| *id == group).expect("group");
             members.iter().map(|t| t.name.as_str()).collect()
         };
-        assert_eq!(
-            names(Group::DaGuardare),
-            vec!["sample-accent", "broken-check"]
-        );
+        assert_eq!(names(Group::ServeTe), vec!["sample-accent", "broken-check"]);
         assert_eq!(names(Group::AlLavoro), vec!["sample-folders"]);
         assert!(names(Group::InAttesa).is_empty());
         assert_eq!(names(Group::Presi), vec!["headings-26"]);
@@ -659,7 +676,7 @@ mod tests {
     }
 
     #[test]
-    fn a_task_whose_agent_waits_is_listed_in_a_group_of_its_own_before_every_other() {
+    fn a_waiting_agent_and_work_to_review_share_the_first_group() {
         let tasks = vec![exited("done"), running("asks"), running("works")];
         let groups = group_tasks(&tasks, &|task| (task.name == "asks", Live::Unknown));
         let names = |group: Group| -> Vec<&str> {
@@ -671,12 +688,11 @@ mod tests {
             Group::ServeTe,
             "what needs the person comes first"
         );
-        assert_eq!(names(Group::ServeTe), ["asks"]);
-        assert_eq!(names(Group::DaGuardare), ["done"]);
+        assert_eq!(names(Group::ServeTe), ["asks", "done"]);
         assert_eq!(names(Group::AlLavoro), ["works"]);
     }
 
-    /// A lavoro on the Mac as the service describes it: no agent it knows of, nothing changed yet.
+    /// A task on the Mac as the service describes it: no agent it knows of, nothing changed yet.
     fn untouched(name: &str) -> Task {
         let mut task = readable(name);
         (task.ahead, task.dirty_files) = (Some(0), Some(0));
@@ -713,7 +729,7 @@ mod tests {
             "being prepared is not at work yet: the group says what the state says"
         );
         assert_eq!(group_seen(&task, true, Live::Working), Group::ServeTe);
-        assert_eq!(group_seen(&task, false, Live::Stopped), Group::DaGuardare);
+        assert_eq!(group_seen(&task, false, Live::Stopped), Group::ServeTe);
         assert_eq!(
             group_seen(&task, false, Live::Answered),
             Group::InAttesa,
@@ -721,15 +737,12 @@ mod tests {
         );
         assert_eq!(
             group_seen(&task, false, Live::Unknown),
-            Group::DaAvviare,
-            "nothing was started: apart from the ones whose agent answered"
+            Group::InAttesa,
+            "nothing was started: with the ones whose agent answered without work"
         );
         let mut changed = untouched("m2");
         changed.dirty_files = Some(2);
-        assert_eq!(
-            group_seen(&changed, false, Live::Answered),
-            Group::DaGuardare
-        );
+        assert_eq!(group_seen(&changed, false, Live::Answered), Group::ServeTe);
         assert_eq!(
             group_seen(&changed, false, Live::Working),
             Group::AlLavoro,

@@ -6,7 +6,7 @@
 use super::login::{LoginFailure, LoginPhase};
 use super::rules::is_agent_running;
 use super::rules::ConsoleKind;
-use super::{Console, ConsoleState};
+use super::{At, Console, ConsoleState};
 use crate::data::facts::Row;
 use crate::l10n::{say, tr, tr_with, Key};
 use crate::theme::{self, Palette};
@@ -29,31 +29,36 @@ pub const OPENING: Key = Key("console.opening");
 /// What opens a console that ended once more.
 const OPEN_AGAIN: Key = Key("console.open_again");
 
-/// `task`'s console as its pane shows it; `row` is the task's facts. Without `box` (`can_open` false) a
-/// refusal offers no "Try again": it would only refuse again.
+/// A console as its place shows it: `row` is the facts of the task whose centre it is in, none in the
+/// window's own centre. Without `box` (`can_open` false) a refusal offers no "Try again": it would only
+/// refuse again.
 pub fn view(
-    row: &Row,
+    row: Option<&Row>,
     console: &Console,
     can_open: bool,
     palette: &Palette,
     cx: &Context<Desk>,
 ) -> AnyElement {
-    let task = row.task.name.as_str();
+    let at = row.map_or(At::Window, |row| At::task(&row.task.name, console.kind()));
     let refused = |reason: &Failure| {
         let retry =
-            can_open.then(|| next_button(Again(tr(Key("common.retry"))), task, console.kind(), cx));
+            can_open.then(|| next_button(Again(tr(Key("common.retry"))), &at, console.kind(), cx));
         refused(reason, retry, palette)
     };
     if let ConsoleKind::Login(_) = console.kind() {
-        if let Some(login) = login_view(task, console, palette, cx) {
+        if let Some(login) = login_view(&at, console, palette, cx) {
             return login;
         }
+    }
+    if let Some(making) = boxes_view(&at, console, palette, cx) {
+        return making;
     }
     match (console.state(), console.view()) {
         (ConsoleState::Opening, _) => opening(palette),
         (ConsoleState::Live, Some(view)) => terminal(view),
-        (ConsoleState::Ended { code, at }, Some(view)) => {
-            let is_detached = is_agent_running(&row.task) && row.fetched_at > *at;
+        (ConsoleState::Ended { code, at: ended_at }, Some(view)) => {
+            let is_detached =
+                row.is_some_and(|row| is_agent_running(&row.task) && row.fetched_at > *ended_at);
             let (sentence, action) = ended(console.kind(), *code, is_detached);
             div()
                 .size_full()
@@ -62,7 +67,7 @@ pub fn view(
                 .child(div().flex_1().min_h_0().child(terminal(view)))
                 .child(strip(
                     sentence,
-                    [next_button(action, task, console.kind(), cx).into_any_element()],
+                    [next_button(action, &at, console.kind(), cx).into_any_element()],
                     palette,
                 ))
                 .into_any_element()
@@ -99,6 +104,7 @@ fn ended(kind: &ConsoleKind, code: Option<i32>, is_detached: bool) -> (SharedStr
             tr(super::login::NO_REASON).into(),
             Again(tr(Key("common.retry"))),
         ),
+        ConsoleKind::BoxUp => (tr(BOXES_FAILED).into(), Again(tr(Key("common.retry")))),
     }
 }
 
@@ -114,7 +120,7 @@ fn ended_sentence(code: Option<i32>) -> SharedString {
     }
 }
 
-/// The terminal of an agent that was started in it, under one line that says so: a lavoro has one front
+/// The terminal of an agent that was started in it, under one line that says so: a task has one front
 /// end at a time, and the conversation opens when this agent stops.
 pub fn in_its_terminal(terminal: AnyElement, palette: &Palette) -> AnyElement {
     let line = text(theme::TEXT_SMALL, palette.text_tertiary)
@@ -143,7 +149,8 @@ pub fn terminal_ended(
     let (again, put_away) = (task.to_string(), task.to_string());
     let open = Button::new("terminal-open-again")
         .debug_selector(|| "terminal-open-again".into())
-        .custom(secondary_variant(cx));
+        .custom(secondary_variant(cx))
+        .bg(crate::theme::Theme::palette(cx).fill);
     let open = control(open, tr(OPEN_AGAIN), &[tr(OPEN_AGAIN)])
         .on_click(cx.listener(move |desk, _, window, cx| desk.toggle_terminal(&again, window, cx)));
     let close = Button::new("terminal-ended-close")
@@ -230,7 +237,7 @@ fn refused(reason: &Failure, retry: Option<impl IntoElement>, palette: &Palette)
 /// A login as its pane shows it: what is happening over the terminal, or why it failed over what it
 /// printed. `None` for a login that could not start at all, which reads like any refusal.
 fn login_view(
-    task: &str,
+    at: &At,
     console: &Console,
     palette: &Palette,
     cx: &Context<Desk>,
@@ -241,14 +248,14 @@ fn login_view(
         ConsoleState::Live => LoginPhase::SigningIn,
         ConsoleState::Checking { .. } => LoginPhase::Checking,
         ConsoleState::LoginFailed { failure, .. } => {
-            return Some(login_failed(failure, task, console, palette, cx));
+            return Some(login_failed(failure, at, console, palette, cx));
         }
         ConsoleState::Ended { .. } | ConsoleState::Failed { .. } => return None,
     };
     let can_cancel = phase != LoginPhase::Checking;
-    let cancel = can_cancel.then(|| login_button(LoginAction::Cancel, task, console.kind(), cx));
+    let cancel = can_cancel.then(|| login_button(LoginAction::Cancel, at, console.kind(), cx));
     let reopen = (phase == LoginPhase::InBrowser)
-        .then(|| login_button(LoginAction::Reopen, task, console.kind(), cx));
+        .then(|| login_button(LoginAction::Reopen, at, console.kind(), cx));
     let header = login_bar(palette)
         .child(sentence_cell(phase.sentence().into(), palette))
         .children(reopen)
@@ -259,7 +266,7 @@ fn login_view(
 /// Why the login failed, "Try again" and "Cancel", then what the terminal printed as details.
 fn login_failed(
     failure: &LoginFailure,
-    task: &str,
+    at: &At,
     console: &Console,
     palette: &Palette,
     cx: &Context<Desk>,
@@ -271,8 +278,8 @@ fn login_failed(
     let header = login_bar(palette)
         .debug_selector(|| "login-failed".into())
         .child(sentence)
-        .child(login_button(LoginAction::Retry, task, console.kind(), cx))
-        .child(login_button(LoginAction::Cancel, task, console.kind(), cx));
+        .child(login_button(LoginAction::Retry, at, console.kind(), cx))
+        .child(login_button(LoginAction::Cancel, at, console.kind(), cx));
     let details = text(theme::TEXT_LABEL, palette.text_tertiary)
         .debug_selector(|| "login-details".into())
         .flex_none()
@@ -296,6 +303,73 @@ fn over_terminal(top: AnyElement, console: &Console, palette: &Palette) -> AnyEl
         .child(top)
         .child(div().flex_1().min_h_0().child(below))
         .into_any_element()
+}
+
+/// What `box up` says over its terminal while it runs: what is happening, and that the first time takes
+/// several minutes.
+const BOXES_PREPARING: Key = Key("boxes.preparing");
+/// What it says when it failed, over the last lines it printed.
+const BOXES_FAILED: Key = Key("boxes.failed");
+
+/// `box up` as its place shows it: one plain line over its terminal with "Cancel" while it runs; once it
+/// failed, why over what it printed, with "Try again" and "Cancel". `None` for any other console, and
+/// for one that could not start, which reads like any refusal.
+fn boxes_view(
+    at: &At,
+    console: &Console,
+    palette: &Palette,
+    cx: &Context<Desk>,
+) -> Option<AnyElement> {
+    if *console.kind() != ConsoleKind::BoxUp {
+        return None;
+    }
+    let (selector, sentence, can_retry) = match console.state() {
+        ConsoleState::Opening | ConsoleState::Live => ("boxes-preparing", BOXES_PREPARING, false),
+        ConsoleState::Ended { .. } => ("boxes-failed", BOXES_FAILED, true),
+        _ => return None,
+    };
+    let retry = can_retry.then(|| boxes_button(BoxesAction::Retry, at, cx));
+    // The whole line, on as many lines as the place needs: how long it takes is part of it.
+    let said = text(theme::TEXT_SMALL, palette.text_secondary)
+        .flex_1()
+        .min_w_0()
+        .py(theme::GAP)
+        .child(tr(sentence));
+    let header = login_bar(palette)
+        .debug_selector(move || selector.into())
+        .child(said)
+        .children(retry)
+        .child(boxes_button(BoxesAction::Cancel, at, cx));
+    Some(over_terminal(header.into_any_element(), console, palette))
+}
+
+/// What a button over `box up` does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BoxesAction {
+    /// Runs `box up` again; what waited for the boxes still waits.
+    Retry,
+    /// Puts it away, and what waited for the boxes with it.
+    Cancel,
+}
+
+fn boxes_button(action: BoxesAction, at: &At, cx: &Context<Desk>) -> impl IntoElement {
+    let at = at.clone();
+    let (id, label) = match action {
+        BoxesAction::Retry => ("boxes-retry", tr(Key("common.retry"))),
+        BoxesAction::Cancel => ("boxes-cancel", tr(Key("common.cancel"))),
+    };
+    let button = Button::new(id)
+        .debug_selector(move || id.into())
+        .custom(secondary_variant(cx))
+        .bg(crate::theme::Theme::palette(cx).fill);
+    control(button, label, &[label]).on_click(cx.listener(
+        move |desk, _, window, cx| match action {
+            BoxesAction::Retry => desk.consoles.update(cx, |consoles, cx| {
+                consoles.open(at.clone(), ConsoleKind::BoxUp, window, cx)
+            }),
+            BoxesAction::Cancel => desk.cancel_boxes(&at, cx),
+        },
+    ))
 }
 
 /// The row over a login's terminal.
@@ -332,11 +406,11 @@ enum LoginAction {
 
 fn login_button(
     action: LoginAction,
-    task: &str,
+    at: &At,
     kind: &ConsoleKind,
     cx: &Context<Desk>,
 ) -> impl IntoElement {
-    let (task, kind) = (task.to_string(), kind.clone());
+    let (at, kind) = (at.clone(), kind.clone());
     let (id, label) = match action {
         LoginAction::Retry => ("login-retry", tr(Key("common.retry"))),
         LoginAction::Cancel => ("login-cancel", tr(Key("common.cancel"))),
@@ -344,31 +418,28 @@ fn login_button(
     };
     let button = Button::new(id)
         .debug_selector(move || id.into())
-        .custom(secondary_variant(cx));
+        .custom(secondary_variant(cx))
+        .bg(crate::theme::Theme::palette(cx).fill);
     control(button, label, &[label]).on_click(cx.listener(move |desk, _, window, cx| {
-        match action {
-            LoginAction::Retry => desk.open_console(&task, kind.clone(), window, cx),
-            LoginAction::Cancel => desk.close_console(&task, cx),
-            LoginAction::Reopen => desk
-                .consoles
-                .update(cx, |consoles, cx| consoles.reopen_sign_in(&task, cx)),
-        }
+        desk.consoles.update(cx, |consoles, cx| match action {
+            LoginAction::Retry => consoles.open(at.clone(), kind.clone(), window, cx),
+            LoginAction::Cancel => consoles.close(&at, cx),
+            LoginAction::Reopen => consoles.reopen_sign_in(&at, cx),
+        })
     }))
 }
 
-fn next_button(
-    again: Again,
-    task: &str,
-    kind: &ConsoleKind,
-    cx: &Context<Desk>,
-) -> impl IntoElement {
-    let (task, kind) = (task.to_string(), kind.clone());
+fn next_button(again: Again, at: &At, kind: &ConsoleKind, cx: &Context<Desk>) -> impl IntoElement {
+    let (at, kind) = (at.clone(), kind.clone());
     let button = Button::new("console-next")
         .debug_selector(|| "console-next".into())
-        .custom(secondary_variant(cx));
-    control(button, again.0, &[again.0]).on_click(
-        cx.listener(move |desk, _, window, cx| desk.open_console(&task, kind.clone(), window, cx)),
-    )
+        .custom(secondary_variant(cx))
+        .bg(crate::theme::Theme::palette(cx).fill);
+    control(button, again.0, &[again.0]).on_click(cx.listener(move |desk, _, window, cx| {
+        desk.consoles.update(cx, |consoles, cx| {
+            consoles.open(at.clone(), kind.clone(), window, cx)
+        })
+    }))
 }
 
 #[cfg(test)]
@@ -379,7 +450,7 @@ mod tests {
     fn an_ended_agent_offers_to_attach_again_and_says_whether_it_still_works() {
         crate::l10n::set_for_test(crate::l10n::Language::Italian);
         let (sentence, next) = ended(&ConsoleKind::Agent, Some(0), true);
-        assert_eq!(sentence, "Staccato dall'agente, che continua a lavorare.");
+        assert_eq!(sentence, "Staccato dall'agente, che resta in esecuzione.");
         assert_eq!(next, Again("Riattacca"));
         let (sentence, _) = ended(&ConsoleKind::Agent, Some(0), false);
         assert_eq!(sentence, "Il collegamento all'agente si è chiuso.");
@@ -390,7 +461,10 @@ mod tests {
         crate::l10n::set_for_test(crate::l10n::Language::Italian);
         let line = "box: no agent is running for task 'm2'";
         let refusal = sakura_core::box_words::said(line);
-        assert_eq!(say(&refusal.said), "Nessun agente al lavoro qui.");
+        assert_eq!(
+            say(&refusal.said),
+            "Nessun agente in esecuzione in questo lavoro."
+        );
         assert_eq!(refusal.details.as_deref(), Some(line));
     }
 

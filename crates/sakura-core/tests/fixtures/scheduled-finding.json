@@ -1,0 +1,27 @@
+{
+  "api": 1,
+  "waits": [{
+    "id": "finding",
+    "kind": "proposal",
+    "source": "scheduled",
+    "section": "triage",
+    "repo": "",
+    "project": "",
+    "task": "",
+    "title": "Review an article",
+    "proposal": {
+      "op": "finding-op",
+      "project": null,
+      "preset": null,
+      "account": null,
+      "title": "Review an article",
+      "origin": {
+        "task_id": "morning-summary",
+        "title": "Morning summary",
+        "at": "2026-11-23T07:30:00Z",
+        "source": "News feed"
+      },
+      "run_id": "saved-run"
+    }
+  }]
+}

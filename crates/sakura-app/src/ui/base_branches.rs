@@ -1,14 +1,14 @@
 //! What the base chooser of "New task" offers: the repository's own branches first, and apart from them
-//! the branches other lavori work on, each under its lavoro's name. A lavoro's branch is one of the
+//! the branches other tasks work on, each under its task's name. A task's branch is one of the
 //! repository's too, but it is someone's work in progress and not a line to start from by habit: mixed
 //! with the others it reads as noise.
 
-/// The branches a new lavoro can start from.
+/// The branches a new task can start from.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Offered {
     /// The repository's own branches, the project's base first.
     pub own: Vec<String>,
-    /// The branches other lavori work on, with the lavoro's name: `(branch, lavoro)`.
+    /// The branches other tasks work on, with the task's name: `(branch, lavoro)`.
     pub from_tasks: Vec<(String, String)>,
 }
 

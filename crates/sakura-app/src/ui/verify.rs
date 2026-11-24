@@ -5,6 +5,7 @@
 //! that is not HEAD says so). A row opens to the tail of its log, read when opened and shown from its end.
 
 use super::breath::{Breath, Owner};
+pub use super::chrome::secondary_variant;
 use super::chrome::{control, failure_sentence, mono, tabular, text};
 use super::desk::Desk;
 use super::glyph::{glyph, tone_colour, Shape};
@@ -16,7 +17,7 @@ use gpui::{
     div, px, AnyElement, Context, Div, InteractiveElement as _, IntoElement, ParentElement,
     ScrollHandle, SharedString, Stateful, StatefulInteractiveElement as _, Styled,
 };
-use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
+use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::Disableable as _;
 use sakura_core::display;
 use sakura_core::model::{self, VerifyRow, VerifyState};
@@ -45,6 +46,8 @@ pub struct VerifyInputs<'a> {
     pub actions: &'a Actions,
     pub open_verb: Option<&'a str>,
     pub log_scroll: &'a ScrollHandle,
+    /// The checks that wait for the boxes to be ready: they read "Queued".
+    pub box_waits: &'a super::desk_boxes::BoxWaits,
 }
 
 /// The Checks view for one task.
@@ -124,17 +127,18 @@ pub fn shown_sha(
     }
 }
 
-/// A request `box` accepted shows as queued until a runner state read after it arrives.
+/// A check asked with "Run" (`is_asked`) shows as queued at once, before `box` answers; a request `box`
+/// accepted stays queued until a runner state read after it arrives.
 pub fn shown_state(
     state: VerifyState,
+    is_asked: bool,
     queued_at: Option<Instant>,
     status_started_at: Option<Instant>,
 ) -> VerifyState {
     let is_newer = |queued: Instant| status_started_at.is_none_or(|read| queued > read);
+    let is_queued = is_asked || queued_at.is_some_and(is_newer);
     match state {
-        VerifyState::Result(_) if queued_at.is_some_and(is_newer) => {
-            VerifyState::InCoda { position: 0 }
-        }
+        VerifyState::Result(_) if is_queued => VerifyState::InCoda { position: 0 },
         other => other,
     }
 }
@@ -151,11 +155,16 @@ fn verify_row(
 ) -> AnyElement {
     let task = inputs.task.name.clone();
     let queued_at = inputs.actions.queued_at(&task, &row.verb);
-    let state = shown_state(row.state, queued_at, inputs.facts.status_started_at());
     let key = ActionKey::Verify {
         task,
         verb: row.verb.clone(),
     };
+    let state = shown_state(
+        row.state,
+        is_asked(inputs, &row.verb),
+        queued_at,
+        inputs.facts.status_started_at(),
+    );
     let cancel_key = ActionKey::cancel(&inputs.task.name, &row.verb);
     let failed = [&key, &cancel_key]
         .into_iter()
@@ -182,6 +191,7 @@ fn verify_row(
         .child(name)
         .child(state_line(state, palette, Breath::of(Owner::Page, cx)))
         .children(facts_line(inputs, &row, state, palette))
+        .children(discarded_note(&row, palette))
         .children(touched_note(&row, palette))
         .children(place_note(&row, palette))
         .children(error)
@@ -295,6 +305,19 @@ fn touched_note(row: &VerifyRow, palette: &Palette) -> Option<impl IntoElement> 
     )
 }
 
+/// Why `box` set the last result aside, when it did: one plain sentence under the result, so a result
+/// that does not count is never read as a failure with its reason only in the log.
+fn discarded_note(row: &VerifyRow, palette: &Palette) -> Option<impl IntoElement> {
+    row.discarded.as_ref().map(|sentence| {
+        text(theme::TEXT_LABEL, palette.text_secondary)
+            .debug_selector(|| "verify-discarded".into())
+            .pl(theme::ICON_SIZE + theme::GAP_SMALL)
+            .pt(theme::GAP_TIGHT)
+            .line_height(px(theme::VERIFY_NOTE_LINE_HEIGHT))
+            .child(say(sentence))
+    })
+}
+
 /// Where the last result ran, when that was the task's own folder on the Mac: one plain sentence under
 /// the result, since such a check is not isolated from the agent.
 fn place_note(row: &VerifyRow, palette: &Palette) -> Option<impl IntoElement> {
@@ -334,7 +357,9 @@ fn row_button(
     let is_waiting = matches!(state, VerifyState::InCorso | VerifyState::InCoda { .. });
     let key = ActionKey::cancel(&inputs.task.name, verb);
     let is_cancelling = inputs.actions.is_running(&key);
-    if is_cancelling || (is_waiting && inputs.actions.can_cancel()) {
+    // A Run on its way keeps its button in place: a second press is not a cancel.
+    let can_cancel = is_waiting && inputs.actions.can_cancel() && !is_asked(inputs, verb);
+    if is_cancelling || can_cancel {
         cancel_button(&inputs.task.name, verb, is_cancelling, cx).into_any_element()
     } else {
         run_button(inputs, verb, state, cx).into_any_element()
@@ -352,7 +377,8 @@ fn cancel_button(
     let selector = format!("cancel-{verb}");
     let button = Button::new(SharedString::from(format!("cancel-{verb}")))
         .debug_selector(move || selector)
-        .custom(secondary_variant(cx));
+        .custom(secondary_variant(cx))
+        .bg(crate::theme::Theme::palette(cx).fill);
     let shown = if is_cancelling {
         tr(Key("verify.cancelling"))
     } else {
@@ -376,7 +402,8 @@ fn queue_notice(
     let (said, details) = inputs.actions.queue_stalled()?;
     let retry = Button::new("verify-queue-retry")
         .debug_selector(|| "verify-queue-retry".into())
-        .custom(secondary_variant(cx));
+        .custom(secondary_variant(cx))
+        .bg(crate::theme::Theme::palette(cx).fill);
     let retry = control(retry, tr(RETRY), &[tr(RETRY)])
         .on_click(cx.listener(|desk, _, _, cx| desk.retry_queue(cx)));
     let sentence = failure_sentence("verify-queue-notice", say(said), details)
@@ -396,6 +423,16 @@ fn queue_notice(
     Some(notice.into_any_element())
 }
 
+/// Whether "Run" was pressed for `verb` and the runner does not have the check yet: its request is
+/// on its way to the service, or waits for the boxes.
+fn is_asked(inputs: &VerifyInputs, verb: &str) -> bool {
+    let key = ActionKey::Verify {
+        task: inputs.task.name.clone(),
+        verb: verb.to_string(),
+    };
+    inputs.actions.is_running(&key) || inputs.box_waits.has_check(&inputs.task.name, verb)
+}
+
 /// "Run": pending word at once, off while the runner already has the verb.
 fn run_button(
     inputs: &VerifyInputs,
@@ -404,17 +441,14 @@ fn run_button(
     cx: &Context<Desk>,
 ) -> impl IntoElement {
     let task = inputs.task.name.clone();
-    let key = ActionKey::Verify {
-        task: task.clone(),
-        verb: verb.to_string(),
-    };
-    let is_pending = inputs.actions.is_running(&key);
+    let is_pending = is_asked(inputs, verb);
     let is_waiting = matches!(state, VerifyState::InCorso | VerifyState::InCoda { .. });
     let verb = verb.to_string();
     let selector = format!("run-{verb}");
     let button = Button::new(SharedString::from(format!("run-{verb}")))
         .debug_selector(move || selector)
-        .custom(secondary_variant(cx));
+        .custom(secondary_variant(cx))
+        .bg(crate::theme::Theme::palette(cx).fill);
     let shown = if is_pending {
         tr(Key("verify.queueing"))
     } else {
@@ -422,20 +456,10 @@ fn run_button(
     };
     control(button, shown, &ROW_WORDS.map(tr))
         .disabled(is_waiting || !inputs.task.readable)
-        .on_click(cx.listener(move |desk, _, _, cx| {
+        .on_click(cx.listener(move |desk, _, window, cx| {
             cx.stop_propagation();
-            desk.run_verify(task.clone(), verb.clone(), cx);
+            desk.run_verify(task.clone(), verb.clone(), window, cx);
         }))
-}
-
-/// The secondary button: a filled box a step above its surface, never an outline.
-pub fn secondary_variant(cx: &gpui::App) -> ButtonCustomVariant {
-    let palette = crate::theme::Theme::palette(cx);
-    ButtonCustomVariant::new(cx)
-        .color(palette.fill)
-        .foreground(palette.text)
-        .hover(palette.fill_hover)
-        .active(palette.fill_hover)
 }
 
 fn log_panel(inputs: &VerifyInputs, verb: &str, palette: &Palette) -> AnyElement {
@@ -516,16 +540,33 @@ mod tests {
         let read = Instant::now();
         let queued = read + Duration::from_secs(1);
         assert_eq!(
-            shown_state(old, Some(queued), Some(read)),
+            shown_state(old, false, Some(queued), Some(read)),
             VerifyState::InCoda { position: 0 }
         );
         assert_eq!(
-            shown_state(old, Some(queued), None),
+            shown_state(old, false, Some(queued), None),
             VerifyState::InCoda { position: 0 }
         );
         let newer_read = queued + Duration::from_secs(1);
-        assert_eq!(shown_state(old, Some(queued), Some(newer_read)), old);
-        assert_eq!(shown_state(old, None, Some(read)), old);
+        assert_eq!(shown_state(old, false, Some(queued), Some(newer_read)), old);
+        assert_eq!(shown_state(old, false, None, Some(read)), old);
+    }
+
+    #[test]
+    fn a_run_the_service_has_not_answered_yet_reads_queued_at_once() {
+        let queued = VerifyState::InCoda { position: 0 };
+        for before in [
+            VerifyState::Result(ResultView::Passato),
+            VerifyState::Result(ResultView::MaiEseguito),
+        ] {
+            assert_eq!(shown_state(before, true, None, None), queued);
+        }
+        let running = VerifyState::InCorso;
+        assert_eq!(
+            shown_state(running, true, None, None),
+            running,
+            "the runner's own state wins"
+        );
     }
 
     fn result_row(sha: &str, is_head: bool) -> VerifyRow {
@@ -538,6 +579,7 @@ mod tests {
             tests: None,
             tests_touched: None,
             ran_on_mac: false,
+            discarded: None,
         }
     }
 
@@ -571,6 +613,6 @@ mod tests {
     fn the_runner_state_wins_over_a_local_request() {
         let running = VerifyState::InCorso;
         let now = Instant::now();
-        assert_eq!(shown_state(running, Some(now), None), running);
+        assert_eq!(shown_state(running, false, Some(now), None), running);
     }
 }

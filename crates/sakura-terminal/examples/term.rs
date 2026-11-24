@@ -1,6 +1,6 @@
 //! One window with a terminal running a command in a local pty.
 //!
-//! `cargo run -p sakura-terminal --example term -- [command [args...]]` (default: the login shell).
+//! `cargo run -p sakura-terminal --features local-pty --example term -- [command [args...]]` (default: the login shell).
 //!
 //! Environment:
 //! - `SAKURA_NO_ACTIVATE=1`: do not bring the app to the front at launch.

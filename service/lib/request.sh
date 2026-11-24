@@ -98,7 +98,7 @@ set_request_state() {
   mv "$tmp" "$file"
 }
 
-# ---- intake: drop directories to queue --------------------------------------------------
+# Intake: drop directories to queue.
 
 # Turns the drop files of every task into queued requests.
 ingest_drops() {
@@ -108,7 +108,7 @@ ingest_drops() {
     task="$(basename "$dir")"
     is_valid_task_name "$task" || continue
     [ -f "$TASKS_DIR/$task.env" ] && ! task_is_retiring "$task" || continue
-    # A lavoro on the Mac has no drop directory; one made by hand is not read.
+    # A task on the Mac has no drop directory; one made by hand is not read.
     ! task_is_on_mac "$task" || continue
     ingest_task_drops "$task"
   done
@@ -303,7 +303,7 @@ find_queued() {
   return 0
 }
 
-# ---- cancel -----------------------------------------------------------------------------
+# Cancel.
 
 # Adds the host-written line "cancelled=1" to a queue file, atomically. The runner keeps it
 # when it rewrites the state, so a cancel survives a runner restart. Call it with the queue
@@ -324,7 +324,7 @@ cancel_requested() {
   request_is_cancelled "$(queue_file "$1")"
 }
 
-# ---- state transitions (queue lock held) --------------------------------------------------
+# State transitions (queue lock held).
 
 # Queued to running. Fails when the request was cancelled or already left the queue.
 claim_request_locked() {
@@ -380,7 +380,7 @@ write_cancelled_result() {
   write_result "$1" "$2" "$3" "$4" "$CANCELLED_EXIT_CODE" "$6" 0 "$5" false false true
 }
 
-# ---- results ----------------------------------------------------------------------------
+# Results.
 
 # write_result <task> <id> <verb> <sha> <exit_code> <seconds> <peak_bytes> <started> <timed_out> <oom_killed> [cancelled] [extra fields as a JSON object]
 # Every field is produced by the runner (validated names, numbers, timestamps). "where" is the

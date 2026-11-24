@@ -4,6 +4,8 @@
 
 use crate::ui::files::{on_runtime, Reading};
 use sakura_core::box_cli::{BoxCli, Limit};
+#[cfg(feature = "restate-engine")]
+use sakura_core::models::RunnerKind;
 use sakura_core::models::{Account, BoxStatus};
 use sakura_core::settings::detect::{self, Addition, Detected};
 use sakura_core::settings::{self, Branches, Change, Listed};
@@ -18,6 +20,9 @@ pub trait SettingsSource {
     /// `box status --json`: the runner and the agents, for "Machine".
     fn status(&self) -> Reading<BoxStatus>;
     fn set(&self, project: &str, change: Change) -> Reading<()>;
+    /// `box config set RUNNER`: which runner runs the checks.
+    #[cfg(feature = "restate-engine")]
+    fn set_runner(&self, runner: RunnerKind) -> Reading<()>;
     fn detect(&self, folder: &str) -> Reading<Detected>;
     fn add(&self, addition: Addition) -> Reading<()>;
     fn remove(&self, project: &str) -> Reading<()>;
@@ -71,6 +76,14 @@ impl SettingsSource for BoxSettings {
         let (cli, project) = (self.cli.clone(), project.to_string());
         on_runtime(&self.runtime, async move {
             settings::set_project(&cli, &project, &change).await
+        })
+    }
+
+    #[cfg(feature = "restate-engine")]
+    fn set_runner(&self, runner: RunnerKind) -> Reading<()> {
+        let cli = self.cli.clone();
+        on_runtime(&self.runtime, async move {
+            settings::set_runner(&cli, runner).await
         })
     }
 

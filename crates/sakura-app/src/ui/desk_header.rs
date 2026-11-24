@@ -1,6 +1,6 @@
 //! The desk's side of the task header: what it has room for, the switch between the centre's views, its
 //! actions at the right (the branch, which a press copies, "Stop" while an agent started in a terminal
-//! runs, "Take" with its hold only for a lavoro in a box with something to take, the overflow last), the notice under it, and the actions the menu runs (stop the agent, open or
+//! runs, "Take" with its hold only for a task in a box with something to take, the overflow last), the notice under it, and the actions the menu runs (stop the agent, open or
 //! close a terminal, remove the task with its confirmation). The conversation is started by writing to
 //! it: the header has no start action.
 
@@ -87,7 +87,7 @@ impl Desk {
         actions
     }
 
-    /// The lavoro's branch, quiet: a press copies it. Under the pointer, the base it starts from.
+    /// The task's branch, quiet: a press copies it. Under the pointer, the base it starts from.
     fn branch_action(&self, task: &Task, cx: &Context<Self>) -> Option<AnyElement> {
         let branch = task.branch.clone()?;
         let palette = Theme::palette(cx);
@@ -107,7 +107,6 @@ impl Desk {
             .text_size(theme::TEXT_SMALL)
             .font_weight(theme::WEIGHT_MEDIUM)
             .text_color(palette.text_secondary)
-            .cursor_pointer()
             .hover(move |style| style.bg(fill).text_color(ink))
             .child(div().truncate().child(display::label(&branch)))
             .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
@@ -117,7 +116,7 @@ impl Desk {
         Some(keep_click(chip).into_any_element())
     }
 
-    /// "Take" for a lavoro in a box with something to take, or the removal waiting for its hold.
+    /// "Take" for a task in a box with something to take, or the removal waiting for its hold.
     fn take_action(&mut self, task: &Task, cx: &mut Context<Self>) -> Vec<AnyElement> {
         if self.removing.as_deref() == Some(task.name.as_str()) {
             return self.remove_confirmation(task, cx);
@@ -131,7 +130,7 @@ impl Desk {
         take.into_iter().collect()
     }
 
-    /// The overflow: what else can be done with the lavoro.
+    /// The overflow: what else can be done with the task.
     fn overflow(&self, task: &Task, cx: &mut Context<Self>) -> AnyElement {
         let facts = MenuFacts {
             is_agent_running: is_agent_running(task),
@@ -244,7 +243,7 @@ impl Desk {
         };
         // The overflow's icon ends on the inset: only its icon and the bleed before it take room.
         let publish = self.publish_width(task, window);
-        let play = self.play_width(&task.name, window);
+        let play = self.play_width(task, window);
         let overflow = f32::from(theme::ICON_SIZE + theme::CONTROL_BLEED + theme::GAP_WIDE);
         branch + agent + play + publish + take + overflow
     }
@@ -398,7 +397,7 @@ fn relabel(
     });
 }
 
-/// Whether "Take" belongs to `task`'s header at all: a lavoro in a box is taken into the person's
+/// Whether "Take" belongs to `task`'s header at all: a task in a box is taken into the person's
 /// repository; one on the Mac is already a branch of it.
 fn has_take(task: &Task) -> bool {
     task.place == Place::Box

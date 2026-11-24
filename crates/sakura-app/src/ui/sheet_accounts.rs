@@ -1,4 +1,4 @@
-//! The accounts "New task" offers for the place chosen, and why a lavoro cannot be requested with the
+//! The accounts "New task" offers for the place chosen, and why a task cannot be requested with the
 //! one chosen. On the Mac only the logins that are there are offered. For the boxes every account is,
 //! the ones not signed in saying so: a list is never empty while there is an account to name.
 
@@ -33,8 +33,8 @@ pub fn offered(accounts: &[Account], place: Place) -> Vec<Offer> {
     }
 }
 
-/// Why a lavoro in `place` cannot be requested with the account `chosen` among `offers`; nothing when
-/// it can. A lavoro on the Mac starts as the person: no account stops it.
+/// Why a task in `place` cannot be requested with the account `chosen` among `offers`; nothing when
+/// it can. A task on the Mac starts as the person: no account stops it.
 pub fn blocker(offers: &[Offer], place: Place, chosen: Option<&str>) -> Option<Key> {
     if place == Place::Mac {
         return None;

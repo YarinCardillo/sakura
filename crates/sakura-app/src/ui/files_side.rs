@@ -1,13 +1,14 @@
-//! What the desk holds of a lavoro's files and of a project's commits: the "Files" and "Git" views of
+//! What the desk holds of a task's files and of a project's commits: the "Files" and "Git" views of
 //! the right pane, quick open, "Follow the agent" and "Ask the agent". Everything is read through `box`
 //! (`box tree`, `file`, `search`, `graph`) and only when a view is on screen: a view that is not shown is
-//! marked as out of date when the lavoro changes and read again when it is shown, never on a timer.
+//! marked as out of date when the task changes and read again when it is shown, never on a timer.
 
+use super::agent_trail::{AgentTrail, Place};
 use super::centre::CentreView;
 use super::conversations::Conversation;
 use super::desk::Desk;
 use super::files::{
-    BoxSource, FilesEvent, FilesPane, QuickOpenEvent, Source as FilesSource, Target,
+    BoxSource, DirectSource, FilesEvent, FilesPane, QuickOpenEvent, Source as FilesSource, Target,
 };
 use super::gitgraph::{self, GitGraph, GitGraphEvent, LaneMark};
 use super::glyph::state_glyph;
@@ -23,58 +24,54 @@ use gpui::{
 };
 use sakura_acp::model::ToolKind;
 use sakura_acp::thread::{EntryKind, Thread};
-use sakura_core::model;
+use sakura_core::files::workspace_relative;
+use sakura_core::model::{self, Live};
 use sakura_core::models::Task;
 use sakura_core::patch::Patch;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 
-/// Where an agent is: the file of its latest tool call, as the call names it, and the line.
-pub(super) type Place = (String, Option<u32>);
-
-/// The files of one lavoro, once its "Files" view was shown or its agent was followed.
+/// The files of one task, once its "Files" view was shown or its agent was followed.
 pub(super) struct FilesOpen {
     pub(super) pane: Entity<FilesPane>,
-    /// The patch its gutter was given: the lavoro's whole patch against its base.
+    /// The patch its gutter was given: the task's whole patch against its base.
     patch: Option<Arc<Patch>>,
-    /// When the facts last said the lavoro's workspace may have changed, as of the last read here.
+    /// When the facts last said the task's workspace may have changed, as of the last read here.
     work_read_at: Option<Instant>,
-    /// The lavoro changed while the view was not on screen: it is read again when it is shown.
+    /// The task changed while the view was not on screen: it is read again when it is shown.
     is_stale: bool,
     /// The agent's place the pane was last told of.
     told: Option<Place>,
     _watch: Subscription,
 }
 
-/// The commits of one project, once a "Git" view of one of its lavori was shown.
+/// The commits of one project, once a "Git" view of one of its tasks was shown.
 pub(super) struct GraphOpen {
     view: Entity<GitGraph>,
-    /// The project's lavori and when each one's workspace was last said to change, as of the last read.
+    /// The project's tasks and when each one's workspace was last said to change, as of the last read.
     seen: Vec<(String, Instant)>,
     is_stale: bool,
     _watch: Subscription,
 }
 
-/// The file and line of the agent's latest tool call that names a place. A search names where it looks
-/// (often a folder), not a file the agent is at: it moves nothing. Neither does a call of a conversation
-/// shown again from before: it says where the agent had been, not where it goes now.
-fn agent_place(thread: &Thread) -> Option<Place> {
-    let calls = thread
-        .entries()
-        .iter()
-        .rev()
-        .filter_map(|entry| match &entry.kind {
-            EntryKind::Tool(call) if call.kind != ToolKind::Search && !entry.is_replayed => {
-                call.locations.last()
-            }
-            _ => None,
-        });
-    let at = calls.into_iter().next()?;
-    Some((at.path.clone(), at.line))
+/// The agent's latest tool call that names a place: its entry in the conversation, and the file and line
+/// it names. A search names where it looks (often a folder), not a file the agent is at: it moves
+/// nothing. Neither does a call of a conversation shown again from before: it says where the agent had
+/// been, not where it goes now.
+fn agent_call(thread: &Thread) -> Option<(usize, Place)> {
+    let entries = thread.entries().iter().enumerate().rev();
+    let mut calls = entries.filter_map(|(index, entry)| match &entry.kind {
+        EntryKind::Tool(call) if call.kind != ToolKind::Search && !entry.is_replayed => {
+            let at = call.locations.last()?;
+            Some((index, (at.path.clone(), at.line)))
+        }
+        _ => None,
+    });
+    calls.next()
 }
 
-/// The lavori of `project` and when each one's workspace was last said to change.
+/// The tasks of `project` and when each one's workspace was last said to change.
 fn project_work(facts: &Facts, project: &str) -> Vec<(String, Instant)> {
     let rows = facts
         .rows()
@@ -104,7 +101,7 @@ impl Desk {
         pane.into_any_element()
     }
 
-    /// The files of the lavoro `name`, made now when they are first needed: their root is read then.
+    /// The files of the task `name`, made now when they are first needed: their root is read then.
     pub(super) fn files_of(
         &mut self,
         name: &str,
@@ -115,9 +112,9 @@ impl Desk {
             return Some(open.pane.clone());
         }
         let source = self.files_source(name)?;
+        let workspace = self.workspace_of(name, cx)?;
         let row = self.facts.read(cx).row(name)?;
         let work_read_at = (!row.is_pending).then_some(row.work_read_at);
-        let workspace = row.task.place.workspace(name, row.task.folder.as_deref());
         let pane = cx.new(|cx| FilesPane::new(source, workspace, window, cx));
         if self.not_following.remove(name) {
             pane.update(cx, |pane, cx| pane.set_following(false, window, cx));
@@ -143,11 +140,22 @@ impl Desk {
         Some(pane)
     }
 
-    /// Where the files of the lavoro `name` are read from; nothing on the sample data.
+    /// The folder the agent of the task `name` works in: the places it names are under it.
+    fn workspace_of(&self, name: &str, cx: &App) -> Option<String> {
+        let task = &self.facts.read(cx).row(name)?.task;
+        Some(task.place.workspace(name, task.folder.as_deref()))
+    }
+
+    /// Where the files of the task `name` are read from: in-process, through `box` for what that
+    /// reader does not read; nothing on the sample data.
     fn files_source(&self, name: &str) -> Option<Rc<dyn FilesSource>> {
         let cli = self.source.cli()?.clone();
         let runtime = self.source.runtime().clone();
-        Some(Rc::new(BoxSource::new(cli, name, runtime)))
+        let service = BoxSource::new(cli, name, runtime);
+        Some(match self.source.readers() {
+            Some(readers) => Rc::new(DirectSource::new(readers.clone(), service)),
+            None => Rc::new(service),
+        })
     }
 
     fn on_files_event(
@@ -171,7 +179,7 @@ impl Desk {
         }
     }
 
-    /// The facts changed: the files and the graphs whose lavori changed are out of date. They are read
+    /// The facts changed: the files and the graphs whose tasks changed are out of date. They are read
     /// again when their view is drawn; the window is drawn again by whoever watches the facts.
     pub(super) fn files_follow_facts(&mut self, cx: &mut Context<Self>) {
         let facts = self.facts.read(cx);
@@ -192,8 +200,15 @@ impl Desk {
         }
     }
 
-    /// The changes of a lavoro were read: the gutter of its open file takes the lavoro's whole patch.
+    /// The changes of a task were read: the gutter of its open file takes the task's whole patch, and
+    /// the agent of the task on screen may have gone where it changed a file no tool call named.
     pub(super) fn patches_moved(&mut self, cx: &mut Context<Self>) {
+        self.gutters_moved(cx);
+        self.agent_changed_files(cx);
+    }
+
+    /// The gutter of each open file takes its task's whole patch.
+    fn gutters_moved(&mut self, cx: &mut Context<Self>) {
         let changes = self.changes.read(cx);
         let mut moved = Vec::new();
         for (name, open) in &mut self.files {
@@ -217,20 +232,60 @@ impl Desk {
         }
     }
 
-    /// The conversation of `task` was drawn again: when its agent is at another place, the page is
-    /// drawn again so the right pane can follow.
-    pub(super) fn agent_moved(&mut self, task: &str, cx: &mut Context<Self>) {
-        let place = self
-            .conversations
-            .get(task)
-            .and_then(|kept: &Conversation| agent_place(kept.view.read(cx).thread()));
-        let Some(place) = place else {
+    /// The patch of the task on screen was read: where it changed since the patch before, while its
+    /// agent works, is where the agent went (see [`AgentTrail::saw_patch`]).
+    fn agent_changed_files(&mut self, cx: &mut Context<Self>) {
+        let Some(task) = self.shown(cx) else {
             return;
         };
-        if self.agent_places.get(task) != Some(&place) {
-            self.agent_places.insert(task.to_string(), place);
-            cx.notify();
+        let changes = self.changes.read(cx);
+        let read = changes
+            .task(&task)
+            .filter(|read| *read.scope() == Scope::All);
+        let Some((patch, started)) =
+            read.and_then(|read| Some((read.patch()?, read.patch_started()?)))
+        else {
+            return;
+        };
+        let patch = patch.clone();
+        let is_working = self.facts.read(cx).live(&task) == Live::Working;
+        let trail = self.trails.entry(task.clone()).or_default();
+        if trail.saw_patch(&patch, started, is_working) {
+            self.agent_went(&task, cx);
         }
+    }
+
+    /// The conversation of `task` was drawn again: a located tool call not seen before is where its agent
+    /// went.
+    pub(super) fn agent_moved(&mut self, task: &str, cx: &mut Context<Self>) {
+        let call = self
+            .conversations
+            .get(task)
+            .and_then(|kept: &Conversation| agent_call(kept.view.read(cx).thread()));
+        let Some((entry, place)) = call else {
+            return;
+        };
+        let workspace = self.workspace_of(task, cx);
+        let file = workspace.and_then(|root| workspace_relative(&root, &place.0));
+        let trail = self.trails.entry(task.to_string()).or_default();
+        if trail.saw_call(entry, place, file, Instant::now()) {
+            self.agent_went(task, cx);
+        }
+    }
+
+    /// The turn of `task`'s agent is running: what changes in its files from now is its work.
+    pub(super) fn agent_worked(&mut self, task: &str) {
+        self.trails.entry(task.to_string()).or_default().worked();
+    }
+
+    /// The agent of `task` went to another place: the page is drawn again so the right pane can follow,
+    /// and while it follows, a hidden pane comes back for the task on screen.
+    fn agent_went(&mut self, task: &str, cx: &mut Context<Self>) {
+        let is_on_screen = self.shown(cx).as_deref() == Some(task);
+        if is_on_screen && self.is_following(task, cx) && !self.changes_slide.is_shown() {
+            self.toggle_changes(cx);
+        }
+        cx.notify();
     }
 
     /// Before the right pane of `task` is drawn: while it follows the agent and the agent is at a place
@@ -241,7 +296,7 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(place) = self.agent_places.get(task).cloned() else {
+        let Some(place) = self.trails.get(task).and_then(AgentTrail::place).cloned() else {
             return;
         };
         let told = self.files.get(task).and_then(|open| open.told.clone());
@@ -268,7 +323,7 @@ impl Desk {
         }
     }
 
-    /// Whether the lavoro on screen is followed, for the status bar; none while no lavoro is shown or
+    /// Whether the task on screen is followed, for the status bar; none while no task is shown or
     /// its files cannot be read (the sample data).
     pub(super) fn follow_item(&self, cx: &App) -> Option<bool> {
         let task = self.shown(cx)?;
@@ -308,18 +363,19 @@ impl Desk {
         }
     }
 
-    /// The lavoro on screen and its files, for quick open; none with no lavoro or on the sample data.
+    /// The task on screen and its files, for quick open; none with no task or on the sample data.
     pub(super) fn quick_open_target(&self, cx: &App) -> Option<Target> {
         let task = self.shown(cx)?;
         let source = self.files_source(&task)?;
         Some(Target {
             task,
+            tab: None,
             source,
             panel_left: self.panel_left_now(),
         })
     }
 
-    /// A file was picked in quick open: it opens in the "Files" view of the lavoro quick open was opened
+    /// A file was picked in quick open: it opens in the "Files" view of the task quick open was opened
     /// for.
     pub(super) fn file_picked(
         &mut self,
@@ -327,7 +383,7 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let QuickOpenEvent::Picked { task, path } = event;
+        let QuickOpenEvent::Picked { task, path, .. } = event;
         let Some(pane) = self.files_of(task, window, cx) else {
             return;
         };
@@ -355,7 +411,11 @@ impl Desk {
             return Some(open.view.clone());
         }
         let cli = self.source.cli()?.clone();
-        let read = gitgraph::box_graph(cli, project, self.source.runtime().clone());
+        let runtime = self.source.runtime().clone();
+        let read = match self.source.readers() {
+            Some(readers) => gitgraph::direct_graph(readers.clone(), cli, project, runtime),
+            None => gitgraph::box_graph(cli, project, runtime),
+        };
         let mark = self.lane_mark();
         let view = cx.new(|cx| GitGraph::new(read, mark, cx));
         let watch = cx.subscribe(&view, |desk, graph, event: &GitGraphEvent, cx| {
@@ -373,7 +433,7 @@ impl Desk {
         Some(view)
     }
 
-    /// Draws a lavoro's state on its lane, with the mark the sidebar gives it.
+    /// Draws a task's state on its lane, with the mark the sidebar gives it.
     fn lane_mark(&self) -> LaneMark {
         let facts = self.facts.clone();
         Rc::new(move |task, cx| {
@@ -386,7 +446,7 @@ impl Desk {
         })
     }
 
-    /// A commit of the graph was pressed: its diff is shown in "Changes" of the lavoro it belongs to.
+    /// A commit of the graph was pressed: its diff is shown in "Changes" of the task it belongs to.
     /// A commit of the base branch belongs to none and `box` gives no diff of it: nothing happens.
     fn show_commit(&mut self, sha: &str, lavoro: Option<String>, cx: &mut Context<Self>) {
         let Some(task) = lavoro else {
@@ -423,21 +483,19 @@ mod tests {
     }
 
     #[test]
-    fn agent_place_is_where_the_agent_went_now_not_where_a_replayed_conversation_had_been() {
+    fn agent_call_is_where_the_agent_went_now_not_where_a_replayed_conversation_had_been() {
         let mut thread = Thread::default();
         thread.apply(ThreadEvent::ReplayStarted);
         thread.apply(call_at("src/first.rs"));
         thread.apply(ThreadEvent::ReplayFinished);
         assert_eq!(
-            agent_place(&thread),
+            agent_call(&thread),
             None,
             "a conversation shown again moves nothing"
         );
         thread.apply(ThreadEvent::Prompted("again".into()));
         thread.apply(call_at("src/adesso.rs"));
-        assert_eq!(
-            agent_place(&thread),
-            Some(("src/adesso.rs".to_string(), Some(3)))
-        );
+        let place = agent_call(&thread).map(|(_, place)| place);
+        assert_eq!(place, Some(("src/adesso.rs".to_string(), Some(3))));
     }
 }

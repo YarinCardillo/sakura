@@ -2,15 +2,19 @@
 //! shut down) while a turn may be running, until the caller stops or the agent closes its output.
 
 use super::process::AgentLines;
-use super::shared::Shared;
+use super::shared::{request_failed, timed_out, Shared};
 use super::{AgentConfig, AgentEvent, Command, Deadlines, LoopEnd};
+use crate::attachment::Attachment;
 use crate::convert;
+use crate::model::SessionChoices;
 use crate::thread::{Problem, ProblemKind, ThreadEvent};
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::v1::schema::{
-    CancelNotification, ClientCapabilities, ContentBlock, FileSystemCapabilities, Implementation,
-    InitializeRequest, ListSessionsRequest, LoadSessionRequest, NewSessionRequest, PromptRequest,
-    PromptResponse, RequestPermissionRequest, SessionNotification, TextContent,
+    CancelNotification, ClientCapabilities, CloseSessionRequest, ContentBlock,
+    FileSystemCapabilities, Implementation, InitializeRequest, ListSessionsRequest,
+    LoadSessionRequest, McpServer, Meta, NewSessionRequest, PromptRequest, PromptResponse,
+    RequestPermissionRequest, SessionNotification, SetSessionConfigOptionRequest,
+    SetSessionModeRequest, TextContent,
 };
 use agent_client_protocol::v1::ConnectionTo;
 use agent_client_protocol::{Agent as AgentRole, Client, Error, ErrorCode};
@@ -25,6 +29,25 @@ use tokio::time::Instant;
 const CLIENT_NAME: &str = "sakura-desk";
 /// Pages of `session/list` read while looking for the stored session.
 const MAX_LIST_PAGES: usize = 20;
+/// Ask Claude for permission on these tools. Offline tests cannot establish
+/// whether the real agent honors the wildcard for other tools.
+const ASKED_TOOLS: [&str; 15] = [
+    "*",
+    "Bash",
+    "Edit",
+    "Write",
+    "MultiEdit",
+    "NotebookEdit",
+    "WebFetch",
+    "WebSearch",
+    "Read",
+    "Glob",
+    "Grep",
+    "LSP",
+    "Agent",
+    "Task",
+    "Skill",
+];
 /// How often a running turn is checked for a stall, at most.
 const STALL_CHECK: Duration = Duration::from_secs(1);
 /// A stalled turn is noticed within this share of its limit.
@@ -61,6 +84,7 @@ struct Settling {
 struct Capabilities {
     can_load: bool,
     can_list: bool,
+    can_close: bool,
 }
 
 /// Connects to the agent over `lines` and runs the session loop to its end. Once the loop has ended, the
@@ -143,7 +167,13 @@ struct Session {
     turn: Option<Turn>,
     settling: Option<Settling>,
     /// The prompt sent while a timed-out turn settles: it goes out when the agent has confirmed.
-    waiting_prompt: Option<String>,
+    waiting_prompt: Option<Prompt>,
+}
+
+/// A prompt as the person wrote it.
+struct Prompt {
+    text: String,
+    attachments: Vec<Attachment>,
 }
 
 impl Session {
@@ -187,9 +217,11 @@ impl Session {
         let sent = self.connection.send_request(request).block_task();
         let response = within(self.deadlines().request, "initialize", sent).await?;
         let agent = response.agent_capabilities;
+        let support = convert::prompt_support(&agent.prompt_capabilities);
         self.capabilities = Capabilities {
             can_load: agent.load_session,
             can_list: agent.session_capabilities.list.is_some(),
+            can_close: agent.session_capabilities.close.is_some(),
         };
         let info = response.agent_info;
         let (name, version) = info
@@ -198,24 +230,32 @@ impl Session {
         self.shared
             .emit(AgentEvent::Connected { name, version })
             .await;
+        self.shared.emit(AgentEvent::Supports(support)).await;
         Ok(())
     }
 
     async fn obey(&mut self, command: Command) {
         match command {
-            Command::Open { stored } => self.open(stored).await,
-            Command::Prompt(text) => self.prompt(text).await,
+            Command::Open {
+                stored,
+                allows_replacement,
+            } => self.open(stored, allows_replacement).await,
+            Command::Prompt { text, attachments } => {
+                self.prompt(Prompt { text, attachments }).await
+            }
+            Command::SetMode(mode) => self.set_mode(mode).await,
+            Command::SetOption { config_id, value } => self.set_option(config_id, value).await,
             Command::Cancel => self.cancel().await,
             Command::Answer { request, option_id } => self.shared.answer(request, &option_id).await,
             Command::Shutdown => {}
         }
     }
 
-    /// Opens the stored session when the agent still has it, a new one otherwise.
-    async fn open(&mut self, stored: Option<String>) {
+    async fn open(&mut self, stored: Option<String>, allows_replacement: bool) {
+        self.close_open_session().await;
         let outcome = match stored {
-            Some(stored) if self.capabilities.can_load => self.load_or_new(stored).await,
-            _ => self.new_session().await,
+            Some(stored) => self.load(stored, allows_replacement).await,
+            None => self.new_session().await,
         };
         match outcome {
             Ok(event) => self.shared.emit(event).await,
@@ -228,18 +268,33 @@ impl Session {
         }
     }
 
-    async fn load_or_new(&mut self, stored: String) -> Result<AgentEvent, Problem> {
-        if !self.is_listed(&stored).await? {
-            return self.new_session().await;
+    async fn load(
+        &mut self,
+        stored: String,
+        allows_replacement: bool,
+    ) -> Result<AgentEvent, Problem> {
+        if !self.capabilities.can_load && !allows_replacement {
+            return Err(Problem {
+                kind: ProblemKind::RequestFailed,
+                detail: String::new(),
+            });
         }
+        if !self.capabilities.can_load || !self.is_listed(&stored).await? {
+            return self.session_unavailable(stored, allows_replacement).await;
+        }
+        let servers = self.mcp_servers()?;
         self.shared.set_session(Some(stored.clone()));
         self.shared.emit_thread(ThreadEvent::ReplayStarted).await;
-        let request = LoadSessionRequest::new(stored.clone(), self.config.workspace.clone());
+        let request = LoadSessionRequest::new(stored.clone(), self.config.workspace.clone())
+            .mcp_servers(servers)
+            .meta(self.session_meta());
         let sent = self.connection.send_request(request).block_task();
         let loaded = within(self.deadlines().load, "session/load", sent).await;
         match loaded {
-            Ok(_) => {
+            Ok(response) => {
                 self.shared.emit_thread(ThreadEvent::ReplayFinished).await;
+                let choices = convert::choices(response.modes, response.config_options);
+                self.start_in_mode(&stored, choices, false).await?;
                 Ok(AgentEvent::SessionOpened {
                     session_id: stored,
                     is_loaded: true,
@@ -251,10 +306,24 @@ impl Session {
                 self.shared.emit_thread(ThreadEvent::ReplayStarted).await;
                 self.shared.emit_thread(ThreadEvent::ReplayFinished).await;
                 match problem.kind {
-                    ProblemKind::RequestFailed => self.new_session().await,
+                    ProblemKind::SessionMissing => {
+                        self.session_unavailable(stored, allows_replacement).await
+                    }
                     _ => Err(problem),
                 }
             }
+        }
+    }
+
+    async fn session_unavailable(
+        &mut self,
+        session_id: String,
+        allows_replacement: bool,
+    ) -> Result<AgentEvent, Problem> {
+        if allows_replacement {
+            self.new_session().await
+        } else {
+            Ok(AgentEvent::SessionUnavailable { session_id })
         }
     }
 
@@ -284,26 +353,235 @@ impl Session {
             }
             cursor = page.next_cursor;
             if cursor.is_none() {
-                break;
+                return Ok(false);
             }
         }
-        Ok(false)
+        Ok(true)
     }
 
     async fn new_session(&mut self) -> Result<AgentEvent, Problem> {
-        let request = NewSessionRequest::new(self.config.workspace.clone());
+        let request = NewSessionRequest::new(self.config.workspace.clone())
+            .mcp_servers(self.mcp_servers()?)
+            .meta(self.session_meta());
         let sent = self.connection.send_request(request).block_task();
         let response = within(self.deadlines().request, "session/new", sent).await?;
         let session_id = response.session_id.0.to_string();
+        // The session is heard from now on (the agent sends its commands as soon as it answers); no
+        // prompt can reach it before it is in its mode, as the loop opens it before it reads one.
         self.shared.set_session(Some(session_id.clone()));
+        let choices = convert::choices(response.modes, response.config_options);
+        self.start_in_mode(&session_id, choices, true).await?;
         Ok(AgentEvent::SessionOpened {
             session_id,
             is_loaded: false,
         })
     }
 
+    /// The `_meta` a session is opened with: the setup's own when it has one, else (when the agent must
+    /// ask before what leaves the workspace) the Claude agent's own options, an explicit ask rule for
+    /// each tool of [`ASKED_TOOLS`], which its own settings and modes cannot pass over, and no skipping of
+    /// questions. Another agent ignores them.
+    fn session_meta(&self) -> Option<Meta> {
+        if let Some(setup) = &self.config.session.meta {
+            return setup.as_object().cloned();
+        }
+        if !self.config.asks_beyond_workspace {
+            return None;
+        }
+        let options = serde_json::json!({
+            "allowDangerouslySkipPermissions": false,
+            "settings": { "permissions": { "ask": ASKED_TOOLS } },
+        });
+        let mut meta = Meta::new();
+        meta.insert(
+            "claudeCode".into(),
+            serde_json::json!({ "options": options }),
+        );
+        Some(meta)
+    }
+
+    /// The setup's MCP servers in the protocol's types; one that does not fit is a failed request, not a
+    /// session started without it.
+    fn mcp_servers(&self) -> Result<Vec<McpServer>, Problem> {
+        let read = |server: &serde_json::Value| serde_json::from_value::<McpServer>(server.clone());
+        let servers = self.config.session.mcp_servers.iter().map(read);
+        servers.collect::<Result<_, _>>().map_err(|error| {
+            request_failed(
+                "session/new",
+                &format!("an MCP server is not readable: {error}"),
+            )
+        })
+    }
+
+    /// Puts the session in its start mode and tells the window what it lets the person pick, the mode
+    /// being the one it was put in.
+    async fn start_in_mode(
+        &mut self,
+        session: &str,
+        mut choices: SessionChoices,
+        is_new: bool,
+    ) -> Result<(), Problem> {
+        self.set_start_model(session, &mut choices).await;
+        self.set_start_effort(session, &mut choices).await;
+        if let Err(problem) = self.check_start_choices(&choices, is_new) {
+            self.shared.set_session(None);
+            self.close_session(session.to_string()).await;
+            return Err(problem);
+        }
+        self.set_start_mode(session).await?;
+        let setup = &self.config.session;
+        if let Some(mode) = &setup.start_mode {
+            choices
+                .modes
+                .get_or_insert_with(Default::default)
+                .current
+                .clone_from(mode);
+        }
+        if setup.requires_start_choices {
+            choices.uses_session_effort = Some(
+                setup
+                    .meta
+                    .as_ref()
+                    .is_none_or(|meta| meta.pointer("/claudeCode/options/effort").is_none()),
+            );
+            if let Some(effort) = &setup.start_effort {
+                choices
+                    .efforts
+                    .get_or_insert_with(|| crate::model::Selector {
+                        current: effort.clone(),
+                        ..Default::default()
+                    });
+            }
+        }
+        if choices != SessionChoices::default() {
+            self.shared.emit(AgentEvent::Choices(choices)).await;
+        }
+        Ok(())
+    }
+
+    fn check_start_choices(&self, choices: &SessionChoices, is_new: bool) -> Result<(), Problem> {
+        let setup = &self.config.session;
+        if !setup.requires_start_choices {
+            return Ok(());
+        }
+        let model = setup.start_model.as_ref().filter(|_| is_new);
+        for (name, wanted, reported) in [
+            ("model", model, &choices.models),
+            ("effort", setup.start_effort.as_ref(), &choices.efforts),
+        ] {
+            let (Some(wanted), Some(reported)) = (wanted, reported) else {
+                continue;
+            };
+            if !reported
+                .matching(wanted)
+                .is_some_and(|choice| choice.id == reported.current)
+            {
+                return Err(request_failed(
+                    "session/set_config_option",
+                    &format!(
+                        "Requested {name} {wanted}, but the session reported {}.",
+                        reported.current
+                    ),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Puts the session in the setup's start mode, before the first prompt. A session that cannot be put
+    /// there is forgotten at once, whatever becomes of its closing, and closed when the agent can: it would
+    /// run in a mode nobody chose (the person's own, which may skip every question).
+    async fn set_start_mode(&mut self, session: &str) -> Result<(), Problem> {
+        let Some(mode) = self.config.session.start_mode.clone() else {
+            return Ok(());
+        };
+        let request = SetSessionModeRequest::new(session.to_string(), mode);
+        let sent = self.connection.send_request(request).block_task();
+        let set = within(self.deadlines().request, "session/set_mode", sent).await;
+        if let Err(problem) = set {
+            self.shared.set_session(None);
+            self.close_session(session.to_string()).await;
+            return Err(problem);
+        }
+        Ok(())
+    }
+
+    /// Puts the session on the setup's start model when it offers one that matches, before the first prompt:
+    /// the adapter starts on its own first model whatever `session/new` requested. `choices` ends saying the
+    /// model the session is on; one the agent refuses is left, and said, with the session on its own.
+    async fn set_start_model(&mut self, session: &str, choices: &mut SessionChoices) {
+        let Some(wanted) = self.config.session.start_model.clone() else {
+            return;
+        };
+        let Some(models) = &choices.models else {
+            return;
+        };
+        let found = models.matching(&wanted).map(|choice| choice.id.clone());
+        let (Some(config_id), Some(found)) = (models.config_id.clone(), found) else {
+            return;
+        };
+        if found == models.current {
+            return;
+        }
+        let request =
+            SetSessionConfigOptionRequest::new(session.to_string(), config_id, found.as_str());
+        let sent = self.connection.send_request(request).block_task();
+        match within(self.deadlines().request, "session/set_config_option", sent).await {
+            Ok(response) => choices.merge(convert::choices(None, Some(response.config_options))),
+            Err(problem) => eprintln!("sakura: the start model {wanted} was not set: {problem:?}"),
+        }
+    }
+
+    /// Puts the session on the setup's start effort when the session offers it, before the first prompt; an
+    /// effort the session does not offer is left, and the session stays on its own.
+    async fn set_start_effort(&mut self, session: &str, choices: &mut SessionChoices) {
+        let Some(wanted) = self.config.session.start_effort.clone() else {
+            return;
+        };
+        let Some(efforts) = &choices.efforts else {
+            return;
+        };
+        let found = efforts.matching(&wanted).map(|choice| choice.id.clone());
+        let (Some(config_id), Some(found)) = (efforts.config_id.clone(), found) else {
+            return;
+        };
+        if found == efforts.current {
+            return;
+        }
+        let request =
+            SetSessionConfigOptionRequest::new(session.to_string(), config_id, found.as_str());
+        let sent = self.connection.send_request(request).block_task();
+        match within(self.deadlines().request, "session/set_config_option", sent).await {
+            Ok(response) => choices.merge(convert::choices(None, Some(response.config_options))),
+            Err(problem) => eprintln!("sakura: the start effort {wanted} was not set: {problem:?}"),
+        }
+    }
+
+    /// Forgets the open session and closes it.
+    async fn close_open_session(&mut self) {
+        if let Some(session) = self.shared.session() {
+            self.shared.set_session(None);
+            self.close_session(session).await;
+        }
+    }
+
+    /// Closes `session`, when the setup asks for sessions to be closed and the agent can: the adapter keeps
+    /// a session's child processes until it is.
+    async fn close_session(&mut self, session: String) {
+        if !(self.config.session.closes_sessions && self.capabilities.can_close) {
+            return;
+        }
+        let sent = self
+            .connection
+            .send_request(CloseSessionRequest::new(session))
+            .block_task();
+        if let Err(problem) = within(self.deadlines().shutdown, "session/close", sent).await {
+            eprintln!("sakura: a session was not closed: {problem:?}");
+        }
+    }
+
     /// Starts a turn. The loop goes on reading commands while it runs.
-    async fn prompt(&mut self, text: String) {
+    async fn prompt(&mut self, prompt: Prompt) {
         let Some(session) = self.shared.session() else {
             return self
                 .fail(request_failed("session/prompt", "no session is open"))
@@ -314,13 +592,16 @@ impl Session {
         }
         if self.settling.is_some() {
             // The agent has not confirmed that the timed-out turn stopped: the prompt waits for that.
-            self.waiting_prompt = Some(text);
+            self.waiting_prompt = Some(prompt);
             return;
         }
-        let block = ContentBlock::Text(TextContent::new(text));
+        let blocks = match content_blocks(prompt) {
+            Ok(blocks) => blocks,
+            Err(problem) => return self.fail(problem).await,
+        };
         let sent = self
             .connection
-            .send_request(PromptRequest::new(session, vec![block]));
+            .send_request(PromptRequest::new(session, blocks));
         self.shared.touch();
         self.shared.open_turn();
         let cancelled = Arc::new(Notify::new());
@@ -334,6 +615,44 @@ impl Session {
             end: Box::pin(end),
             cancelled,
         });
+    }
+
+    /// `session/set_mode`: the window is told which mode the session is in now.
+    async fn set_mode(&mut self, mode: String) {
+        let Some(session) = self.shared.session() else {
+            return;
+        };
+        let request = SetSessionModeRequest::new(session, mode.clone());
+        let sent = self.connection.send_request(request).block_task();
+        match within(self.deadlines().request, "session/set_mode", sent).await {
+            Ok(_) => self.shared.emit(AgentEvent::ModeChanged(mode)).await,
+            Err(problem) => self.fail_unless_gone(problem).await,
+        }
+    }
+
+    /// `session/set_config_option`: the answer carries every option as it stands now.
+    async fn set_option(&mut self, config_id: String, value: String) {
+        let Some(session) = self.shared.session() else {
+            return;
+        };
+        let request =
+            SetSessionConfigOptionRequest::new(session, config_id.clone(), value.as_str());
+        let sent = self.connection.send_request(request).block_task();
+        match within(self.deadlines().request, "session/set_config_option", sent).await {
+            Ok(response) => {
+                let mut choices = convert::choices(None, Some(response.config_options));
+                if self.config.session.requires_start_choices
+                    && choices.efforts.as_ref().is_some_and(|effort| {
+                        effort.config_id.as_deref() == Some(config_id.as_str())
+                            && effort.current == value
+                    })
+                {
+                    choices.uses_session_effort = Some(value == "default");
+                }
+                self.shared.emit(AgentEvent::Choices(choices)).await;
+            }
+            Err(problem) => self.fail_unless_gone(problem).await,
+        }
     }
 
     /// `session/cancel`: the agent is told, every open question is answered "cancelled", and the turn's
@@ -397,8 +716,8 @@ impl Session {
             return Some(LoopEnd::Failed(timed_out("session/cancel")));
         }
         self.shared.set_settling(false);
-        if let Some(text) = self.waiting_prompt.take() {
-            self.prompt(text).await;
+        if let Some(prompt) = self.waiting_prompt.take() {
+            self.prompt(prompt).await;
         }
         None
     }
@@ -410,7 +729,15 @@ impl Session {
             self.send_cancel();
             self.shared.close_turn().await;
         }
+        self.close_open_session().await;
         LoopEnd::Shutdown
+    }
+
+    /// A request failed: said in the conversation, unless the agent is gone, which the loop reports itself.
+    async fn fail_unless_gone(&mut self, problem: Problem) {
+        if problem.kind != ProblemKind::Died {
+            self.fail(problem).await;
+        }
     }
 
     async fn fail(&mut self, problem: Problem) {
@@ -420,6 +747,21 @@ impl Session {
     fn deadlines(&self) -> Deadlines {
         self.config.deadlines
     }
+}
+
+/// The prompt as content blocks: its text, then each attachment.
+fn content_blocks(prompt: Prompt) -> Result<Vec<ContentBlock>, Problem> {
+    let mut blocks = vec![ContentBlock::Text(TextContent::new(prompt.text))];
+    for attachment in &prompt.attachments {
+        let block = serde_json::from_value(attachment.block()).map_err(|error| {
+            request_failed(
+                "session/prompt",
+                &format!("an attachment is not readable: {error}"),
+            )
+        })?;
+        blocks.push(block);
+    }
+    Ok(blocks)
 }
 
 /// The answer to a request, or the problem when it fails or passes `limit`. Giving up on a request drops
@@ -501,25 +843,13 @@ fn problem_of(method: &str, error: &Error) -> Problem {
         ProblemKind::Died
     } else if error.code == ErrorCode::AUTH_REQUIRED {
         ProblemKind::AuthRequired
+    } else if method == "session/load" && error.code == ErrorCode::RESOURCE_NOT_FOUND {
+        ProblemKind::SessionMissing
     } else {
         return request_failed(method, &error.message);
     };
     Problem {
         kind,
         detail: String::new(),
-    }
-}
-
-fn request_failed(method: &str, message: &str) -> Problem {
-    Problem {
-        kind: ProblemKind::RequestFailed,
-        detail: format!("{method}: {message}"),
-    }
-}
-
-fn timed_out(method: &str) -> Problem {
-    Problem {
-        kind: ProblemKind::TimedOut,
-        detail: method.to_string(),
     }
 }

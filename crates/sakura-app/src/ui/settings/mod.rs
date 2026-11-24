@@ -1,6 +1,9 @@
-//! Settings, in its own window: a list of sections at the left, the section at the right, the
-//! window's title the section's name. A change applies at once; there is no Save. Where a change
-//! needs the service, the row says it is being applied and says a failure in place.
+//! Settings, in its own window, built on the kit's settings component: at the left a search field
+//! over the sections, at the right the section as rows (a title, the sentence that says what the
+//! setting changes, its control), the window's title the section's name. A search lists only the
+//! sections that hold what it finds and shows only those rows; emptied, it shows again the section
+//! that was open. A change applies at once; there is no Save. Where a change needs the service, the
+//! row says it is being applied and says a failure in place.
 //!
 //! Everything is read through a [`SettingsSource`]: the projects when the window opens, the
 //! accounts and the machine when their section is first shown, and again only when the person
@@ -11,36 +14,38 @@
 
 mod add_project;
 mod controls;
+#[cfg(feature = "restate-engine")]
+mod engine;
+mod frame;
 pub mod host;
 mod project_form;
+mod rows;
 mod sections;
 mod source;
+mod updates;
 
 pub use source::{BoxSettings, SettingsSource};
 
 use crate::l10n::{self, tr, Key, Language, LanguageChoice};
 use crate::theme::settings as sizes;
-use crate::theme::{self, Palette, Theme};
-use crate::ui::brand;
 use add_project::{AddEvent, AddProject};
 use controls::{Loaded, OnPress};
-use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, size, AnyElement, AnyWindowHandle, App, AppContext as _, Bounds, Context, Entity,
-    EventEmitter, Global, InteractiveElement as _, IntoElement, ParentElement as _,
-    PathPromptOptions, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _,
-    Styled as _, Subscription, Task, TitlebarOptions, WeakEntity, Window, WindowBounds,
-    WindowHandle, WindowOptions,
+    size, AnyWindowHandle, App, AppContext as _, Bounds, Context, Entity, EventEmitter, Global,
+    PathPromptOptions, SharedString, Subscription, Task, TitlebarOptions, WeakEntity, Window,
+    WindowBounds, WindowHandle, WindowOptions,
 };
-use gpui_component::input::TextareaState;
+use gpui_component::input::{InputEvent, InputState, TextareaState};
 use gpui_component::Root;
 use project_form::{FormEvent, ProjectForm};
 use sakura_core::error::{BridgeError, BridgeResult};
+#[cfg(feature = "restate-engine")]
+use sakura_core::models::RunnerKind;
 use sakura_core::models::{Account, BoxStatus};
 use sakura_core::settings::{Listed, Project};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 /// One keyboard shortcut, as the app names it: the menu it is in and what it does (both already in
@@ -68,7 +73,7 @@ pub enum ThemeChoice {
 /// turned off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Notify {
-    /// A lavoro starts to need the person.
+    /// A task starts to need the person.
     pub needs_you: bool,
     /// An agent that was at work ended.
     pub finished: bool,
@@ -113,6 +118,25 @@ pub fn system_folder_picker() -> FolderPicker {
             folders.into_iter().next()
         })
     })
+}
+
+/// Where a project is, as the person reads it: its repository and the folder in it, the home folder
+/// written as `~`.
+fn project_folder(project: &Project) -> String {
+    let folder = match project.subdir.as_str() {
+        "" => project.repo.clone(),
+        subdir => format!("{}/{subdir}", project.repo),
+    };
+    home_as_tilde(Path::new(&folder))
+}
+
+/// A folder as the person reads it: one under the home folder is written from `~`.
+fn home_as_tilde(folder: &Path) -> String {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    match home.and_then(|home| folder.strip_prefix(home).ok().map(Path::to_path_buf)) {
+        Some(rest) => format!("~/{}", rest.display()),
+        None => folder.display().to_string(),
+    }
 }
 
 /// What Settings is given by the app.
@@ -173,13 +197,15 @@ pub enum Section {
     Machine,
     /// Where the data is and how much of its budget each task in a box has taken.
     Storage,
+    /// The running version, the automatic check and Check Now.
+    Updates,
     Shortcuts,
     /// The brand's page: the product's name, its version and where it comes from.
     About,
 }
 
 impl Section {
-    pub const ALL: [Section; 9] = [
+    pub const ALL: [Section; 10] = [
         Section::Projects,
         Section::Accounts,
         Section::Agent,
@@ -187,6 +213,7 @@ impl Section {
         Section::Notifications,
         Section::Machine,
         Section::Storage,
+        Section::Updates,
         Section::Shortcuts,
         Section::About,
     ];
@@ -201,12 +228,14 @@ impl Section {
             Section::Notifications => "settings.section.notifications",
             Section::Machine => "settings.section.machine",
             Section::Storage => "settings.section.storage",
+            Section::Updates => "settings.section.updates",
             Section::Shortcuts => "settings.section.shortcuts",
             Section::About => "settings.section.about",
         })
     }
 
-    /// What names the section in the window whatever the language: for its elements, never shown.
+    /// What names the section's row in the window whatever the language: for its elements, never
+    /// shown.
     fn id(self) -> &'static str {
         match self {
             Section::Projects => "settings-section-projects",
@@ -216,6 +245,7 @@ impl Section {
             Section::Notifications => "settings-section-notifications",
             Section::Machine => "settings-section-machine",
             Section::Storage => "settings-section-storage",
+            Section::Updates => "settings-section-updates",
             Section::Shortcuts => "settings-section-shortcuts",
             Section::About => "settings-section-about",
         }
@@ -256,22 +286,32 @@ pub struct Settings {
     families: Option<Vec<String>>,
     data_folder: SharedString,
     pick_folder: FolderPicker,
+    /// The section the person chose. A search that finds nothing in it shows the first section that
+    /// holds what it finds; emptied, it shows this one again.
     section: Section,
+    /// The search field over the sections; empty when the window opens, and without the caret.
+    search: Entity<InputState>,
     projects: Loaded<Vec<Listed>>,
     /// Not read before their section, or a project, is first shown.
     accounts: Option<Loaded<Vec<Account>>>,
     machine: Option<Loaded<BoxStatus>>,
+    /// The runner of the checks the person chose, while `box` writes it.
+    #[cfg(feature = "restate-engine")]
+    runner_asked: Option<RunnerKind>,
+    /// Why `box` did not change the runner, until the next change.
+    #[cfg(feature = "restate-engine")]
+    runner_refusal: Option<BridgeError>,
     reads: HashMap<Read, u64>,
     page: ProjectsPage,
     /// The project to open once the projects are read.
     wanted: Option<String>,
-    scroll: ScrollHandle,
     /// The window the view is in: a field of the project on screen is written in it.
     window: AnyWindowHandle,
     /// The section and language the window's title was last written for.
     titled: Option<(Section, Language)>,
     _page_subscription: Option<Subscription>,
     _default_request_left: Subscription,
+    _search_changed: Subscription,
 }
 
 impl EventEmitter<SettingsEvent> for Settings {}
@@ -288,12 +328,13 @@ impl Global for OpenSettings {}
 /// can listen to its [`SettingsEvent`]s; `None` when the window could not be opened. The window is
 /// shown, or not (off screen, it is only rendered to a file).
 pub fn open_in(deps: Deps, is_shown: bool, cx: &mut App) -> Option<Entity<Settings>> {
+    let is_shown = is_shown && crate::window::can_activate();
     if let Some(open) = cx.try_global::<OpenSettings>() {
         let (window, view) = (open.window, open.view.upgrade());
         let is_there = window
             .update(cx, |_, window, _| {
                 if is_shown {
-                    window.activate_window();
+                    crate::window::activate(window);
                 }
             })
             .is_ok();
@@ -339,6 +380,16 @@ impl Settings {
     pub fn new(deps: Deps, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let default_request = sections::default_request_field(&deps, window, cx);
         let left = cx.subscribe_in(&default_request, window, Self::default_request_left);
+        let search = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(tr(Key("settings.search.placeholder")))
+                .clean_on_escape()
+        });
+        let changed = cx.subscribe(&search, |settings, _, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::Change) {
+                settings.query_changed(cx);
+            }
+        });
         let mut settings = Self {
             source: deps.source,
             shortcuts: deps.shortcuts,
@@ -355,17 +406,22 @@ impl Settings {
             data_folder: deps.data_folder,
             pick_folder: deps.pick_folder,
             section: Section::Projects,
+            search,
             projects: Loaded::Reading,
             accounts: None,
             machine: None,
+            #[cfg(feature = "restate-engine")]
+            runner_asked: None,
+            #[cfg(feature = "restate-engine")]
+            runner_refusal: None,
             reads: HashMap::new(),
             page: ProjectsPage::List,
             wanted: None,
-            scroll: ScrollHandle::new(),
             window: window.window_handle(),
             titled: None,
             _page_subscription: None,
             _default_request_left: left,
+            _search_changed: changed,
         };
         settings.read(Read::Projects, cx);
         settings
@@ -374,6 +430,12 @@ impl Settings {
     /// Shows `section`; what it lists is read the first time it is shown.
     pub fn show(&mut self, section: Section, cx: &mut Context<Self>) {
         self.section = section;
+        self.reveal(section, cx);
+        cx.notify();
+    }
+
+    /// Reads what `section` lists, the first time it is on screen.
+    fn reveal(&mut self, section: Section, cx: &mut Context<Self>) {
         match section {
             Section::Accounts if self.accounts.is_none() => self.read(Read::Accounts, cx),
             Section::Machine | Section::Storage if self.machine.is_none() => {
@@ -382,7 +444,34 @@ impl Settings {
             Section::Appearance if self.families.is_none() => self.read_families(cx),
             _ => {}
         }
+    }
+
+    /// The search changed: the section on screen may be another, and is read if it never was.
+    fn query_changed(&mut self, cx: &mut Context<Self>) {
+        let found = self.found(cx);
+        self.reveal(self.shown(&found), cx);
         cx.notify();
+    }
+
+    /// What the search finds now: each section that holds a row it finds, in the order of the list,
+    /// with only those rows. With no search, every section and every row.
+    fn found(&self, cx: &Context<Self>) -> Vec<(Section, Vec<rows::Group>)> {
+        let query = self.search.read(cx).value();
+        let found = Section::ALL.into_iter().map(|section| {
+            let groups = rows::matching(self.groups(section, cx), &query);
+            (section, groups)
+        });
+        found.filter(|(_, groups)| !groups.is_empty()).collect()
+    }
+
+    /// The section on screen: the one chosen while the search finds something in it, else the first
+    /// that holds what the search finds.
+    fn shown(&self, found: &[(Section, Vec<rows::Group>)]) -> Section {
+        let is_found = |section: Section| found.iter().any(|(listed, _)| *listed == section);
+        match found.first() {
+            Some((first, _)) if !is_found(self.section) => *first,
+            _ => self.section,
+        }
     }
 
     /// Reads the families a terminal can be set in, once: until they are here the menu has Sakura's
@@ -419,8 +508,11 @@ impl Settings {
     }
 
     /// Shows the project named, in "Projects": where Play's "no run command" link leads. While
-    /// the projects are still being read it opens as soon as they are.
+    /// the projects are still being read it opens as soon as they are. A search left in the field
+    /// is emptied, so the project is on screen.
     pub fn show_project(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.search
+            .update(cx, |search, cx| search.set_value("", window, cx));
         self.section = Section::Projects;
         if self.projects.ready().is_some() {
             self.open_project(name, window, cx);
@@ -577,7 +669,6 @@ impl Settings {
         });
         self._page_subscription = Some(cx.subscribe(&form, Self::form_said));
         self.page = ProjectsPage::Form(form);
-        self.scroll.set_offset(gpui::Point::default());
         cx.notify();
     }
 
@@ -635,94 +726,13 @@ impl Settings {
         })
     }
 
-    /// The window's title is the section's name, in the language in force.
-    fn write_title(&mut self, window: &mut Window) {
-        let now = (self.section, l10n::language());
+    /// The window's title is the name of the section on screen, in the language in force.
+    fn write_title(&mut self, shown: Section, window: &mut Window) {
+        let now = (shown, l10n::language());
         if self.titled != Some(now) {
-            window.set_window_title(tr(self.section.title()));
+            window.set_window_title(tr(shown.title()));
             self.titled = Some(now);
         }
-    }
-
-    /// The list of sections: the one on screen is filled.
-    fn sections(&self, palette: &Palette, cx: &Context<Self>) -> AnyElement {
-        let (selected, hover) = (palette.selected_row, palette.hover);
-        let rows = Section::ALL.into_iter().map(|section| {
-            let is_on = section == self.section;
-            let show = cx
-                .listener(move |settings, _: &gpui::ClickEvent, _, cx| settings.show(section, cx));
-            div()
-                .id(section.id())
-                .debug_selector(move || section.id().into())
-                .h(theme::ROW_HEIGHT)
-                .px(theme::ROW_PADDING_X)
-                .flex()
-                .items_center()
-                .rounded(theme::RADIUS_CONTROL)
-                .text_size(theme::TEXT_SMALL)
-                .text_color(if is_on {
-                    palette.text
-                } else {
-                    palette.text_secondary
-                })
-                .when(is_on, |row| row.bg(selected))
-                .when(!is_on, |row| row.hover(move |style| style.bg(hover)))
-                .on_click(show)
-                .child(tr(section.title()))
-        });
-        div()
-            .w(sizes::SECTIONS_WIDTH)
-            .flex_none()
-            .p(theme::PANEL_INSET)
-            .flex()
-            .flex_col()
-            .gap(theme::TAB_GAP)
-            .children(rows)
-            .into_any_element()
-    }
-}
-
-impl Render for Settings {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.write_title(window);
-        let palette = Theme::palette(cx);
-        let section = match self.section {
-            Section::Projects => self.projects_section(&palette, cx),
-            Section::Accounts => self.accounts_section(&palette, cx),
-            Section::Agent => self.agent_section(&palette, cx),
-            Section::Appearance => self.appearance_section(&palette, cx),
-            Section::Notifications => self.notifications_section(&palette, cx),
-            Section::Machine => self.machine_section(&palette, cx),
-            Section::Storage => self.storage_section(&palette, cx),
-            Section::Shortcuts => self.shortcuts_section(&palette, cx),
-            Section::About => brand::about_page(&palette).into_any_element(),
-        };
-        let panel = div()
-            .id("settings-panel")
-            .debug_selector(|| "settings-panel".into())
-            .flex_1()
-            .min_w_0()
-            .my(theme::PANEL_INSET)
-            .mr(theme::PANEL_INSET)
-            .p(sizes::PAGE_PADDING)
-            .flex()
-            .flex_col()
-            .items_center()
-            .overflow_y_scroll()
-            .track_scroll(&self.scroll)
-            .bg(palette.panel)
-            .rounded(theme::RADIUS_SURFACE)
-            .border(theme::PANEL_RING_WIDTH)
-            .border_color(palette.panel_ring)
-            .child(section);
-        div()
-            .size_full()
-            .flex()
-            .bg(palette.canvas)
-            .text_color(palette.text)
-            .font_family(theme::FONT_UI)
-            .child(self.sections(&palette, cx))
-            .child(panel)
     }
 }
 

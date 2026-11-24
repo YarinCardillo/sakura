@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# A lavoro on the Mac: a git worktree of the project's repository at $AGENTBOX_HOME/work/<task>,
+# A task on the Mac: a git worktree of the project's repository at $AGENTBOX_HOME/work/<task>,
 # on its own branch, with the agent running natively as the person. This is the person's own
 # repository and the person's own agent: the machinery for untrusted workspaces (sandbox
 # containers, the verified store, take) does not apply. box reads it with plain git, through the
@@ -7,23 +7,23 @@
 # tools), and nothing is started for a read beyond git.
 #
 # The two places never mix: nothing here is called for a task in a box (lavoro_git refuses one),
-# and nothing of the box machinery is called for a lavoro on the Mac (require_box_task).
+# and nothing of the box machinery is called for a task on the Mac (require_box_task).
 
 readonly DEFAULT_BRANCH_PREFIX="sakura/"
 
-# The prefix of the branches of the lavori of the loaded project.
+# The prefix of the branches of the tasks of the loaded project.
 project_branch_prefix() {
   echo "${BRANCH_PREFIX:-$DEFAULT_BRANCH_PREFIX}"
 }
 
-# The branch of a lavoro on the Mac. Needs the project loaded.
+# The branch of a task on the Mac. Needs the project loaded.
 lavoro_branch() {
   echo "$(project_branch_prefix)$1"
 }
 
-# ---- the worktree, and how host git is pointed at it ---------------------------------------------
-# Host git never finds the repository of a lavoro by looking in its worktree. It is given the
-# git directory and the work tree explicitly, from trusted values: the folder of the lavoro and
+# The worktree, and how host git is pointed at it.
+# Host git never finds the repository of a task by looking in its worktree. It is given the
+# git directory and the work tree explicitly, from trusted values: the folder of the task and
 # the git directory box recorded when it created the worktree (worktrees/<name> in the
 # repository of the project, which is checked like the repository itself). Before every call the
 # .git file of the worktree must still name exactly that directory.
@@ -45,7 +45,7 @@ worktree_pointer() {
 }
 
 # checked_lavoro <task>: succeeds with LAVORO_DIR and LAVORO_GIT_DIR set when host git may be
-# run for the lavoro; fails with LAVORO_PROBLEM set. Needs the project of the task loaded. The
+# run for the task; fails with LAVORO_PROBLEM set. Needs the project of the task loaded. The
 # pointer is compared on every call; the recorded directory is examined once per process.
 checked_lavoro() {
   local task="$1" dir recorded
@@ -64,9 +64,9 @@ checked_lavoro() {
   LAVORO_DIR="$dir" LAVORO_GIT_DIR="$recorded"
 }
 
-# The folder of a lavoro is known by its device and inode, recorded when it was made: another
-# folder under the same name is not the lavoro. Sets LAVORO_IDENTITY, which the read scripts
-# compare with the folder they open. A lavoro made before the identity was recorded is known by
+# The folder of a task is known by its device and inode, recorded when it was made: another
+# folder under the same name is not the task. Sets LAVORO_IDENTITY, which the read scripts
+# compare with the folder they open. A task made before the identity was recorded is known by
 # the folder as it is at this check.
 check_worktree_identity() {
   local task="$1" dir="$2" recorded
@@ -92,7 +92,7 @@ check_recorded_git_dir() {
   check_no_includes "$recorded"
 }
 
-# git for a lavoro on the Mac: never started in the worktree, always told where the git
+# git for a task on the Mac: never started in the worktree, always told where the git
 # directory and the work tree are.
 lavoro_git() {
   local task="$1"
@@ -109,7 +109,7 @@ new_on_mac() {
   branch="$(lavoro_branch "$task")"
   person_git check-ref-format --branch "$branch" >/dev/null 2>&1 || die "'$branch' is not a branch name git accepts"
   ! has_local_branch "$REPO" "$branch" \
-    || die "the branch $branch already exists in $REPO: choose another name for the lavoro, or remove that branch yourself"
+    || die "the branch $branch already exists in $REPO: choose another name for the task, or remove that branch yourself"
   base_sha="$(person_git -C "$REPO" rev-parse --verify --quiet "refs/heads/$base^{commit}")" \
     || die "could not read the branch '$base' of $REPO"
   mkdir -p "$WORK_DIR"
@@ -124,7 +124,7 @@ new_on_mac() {
   echo "task '$task' ready: $dir (branch $branch, a worktree of $REPO)"
 }
 
-# ---- facts ------------------------------------------------------------------------------------
+# Facts.
 
 # The facts of a worktree from the output of a few git commands, in the shape of the facts of a
 # box (see FACTS_ORDER_FILTER); every value is typed and bounded here.
@@ -141,7 +141,7 @@ readonly NATIVE_FACTS_FILTER='
     insertions: ($rows | map(.[0] | tonumber? // 0) | add // 0),
     deletions: ($rows | map(.[1] | tonumber? // 0) | add // 0) }'
 
-# Prints the facts of a lavoro on the Mac as one JSON object; fails when the worktree cannot be
+# Prints the facts of a task on the Mac as one JSON object; fails when the worktree cannot be
 # read. The figures of the working tree are against the commit the branch left the base at.
 native_facts_json() {
   local task="$1" base head merge_base

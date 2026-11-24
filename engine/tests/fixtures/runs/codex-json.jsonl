@@ -1,0 +1,6 @@
+{"type":"thread.started","thread_id":"0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"loading hooks from both <home>/.codex/hooks.json and <home>/.codex/config.toml; prefer a single representation for this layer"}}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_1","type":"error","message":"Exceeded skills context budget. All skill descriptions were removed."}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"OK"}}
+{"type":"turn.completed","usage":{"input_tokens":32654,"cached_input_tokens":6784,"cache_write_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0}}

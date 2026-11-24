@@ -12,16 +12,12 @@
 //!   invariant, names an element, binds a key, or matches what `box` printed ([`NOT_SHOWN`]);
 //! - it is not one of the few literals listed in [`ALLOWED`], each with its reason.
 
-use super::chrome::text_width;
-use super::desk::Desk;
-use super::interaction_tests::{draw, open_with, wait_for};
+#[cfg_attr(not(feature = "boxes"), allow(unused_imports))]
 use crate::l10n::{self, tr, Key, Language, LanguageChoice};
+#[cfg_attr(not(feature = "boxes"), allow(unused_imports))]
 use crate::theme;
-use gpui::{Entity, FontWeight, OwnedMenuItem, Pixels, TestAppContext, VisualTestContext};
-use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 
 const ENGLISH: &str = include_str!("../../locales/en.yml");
 const ITALIAN: &str = include_str!("../../locales/it.yml");
@@ -35,7 +31,15 @@ const KEY_SOURCES: [&str; 4] = [
 ];
 
 /// Files of the app that ship no interface text, and why.
-const NOT_INTERFACE: [(&str, &str); 5] = [
+const NOT_INTERFACE: [(&str, &str); 11] = [
+    (
+        "agent_log.rs",
+        "diagnostics written to the agent startup log",
+    ),
+    (
+        "panic_log.rs",
+        "a developer log written to a file after a crash, never shown in the window",
+    ),
     ("l10n.rs", "the localisation calls themselves"),
     (
         "real_text.rs",
@@ -47,8 +51,24 @@ const NOT_INTERFACE: [(&str, &str); 5] = [
     ),
     ("drive.rs", "snapshot tooling: names of elements to press"),
     (
+        "drive_guard.rs",
+        "a refusal printed to stderr for whoever sets the scripted steps' variable",
+    ),
+    (
+        "event_kinds.rs",
+        "the words of the engine's ledger lines a sentence is matched on, never shown",
+    ),
+    (
+        "event_changes.rs",
+        "the words of the engine's ledger lines a sentence is matched on, never shown",
+    ),
+    (
         "fixture_changes.rs",
         "the sample patch: invented data in git's format",
+    ),
+    (
+        "login_item.rs",
+        "a launch agent: a folder under the home and the property list the system reads",
     ),
 ];
 
@@ -56,7 +76,7 @@ const NOT_INTERFACE: [(&str, &str); 5] = [
 /// declares an action, reads an attribute, matches what `box` printed, notes a call for the tests
 /// (`recorded`, `note_read`), names a view for the render counter, or gives the technical details of an
 /// internal failure, which are data under the details.
-const NOT_SHOWN: [&str; 22] = [
+const NOT_SHOWN: [&str; 24] = [
     "eprintln!",
     "panic!",
     "unreachable!",
@@ -67,6 +87,7 @@ const NOT_SHOWN: [&str; 22] = [
     "ElementId",
     "Button::new(",
     "KeyBinding::new",
+    ".key_context(",
     "Keystroke::parse",
     "actions!",
     "#[",
@@ -79,11 +100,51 @@ const NOT_SHOWN: [&str; 22] = [
     "note_read(",
     "count_render(",
     "internal(",
+    "compile_error!",
 ];
 
 /// Literals that read as words and are not interface text in a language, with why.
-const ALLOWED: [(&str, &str); 11] = [
+const ALLOWED: [(&str, &str); 37] = [
+    ("cargo test -p orchard-search", "the catalogue's specimen command"),
+    (
+        "env CLAUDE_CONFIG_DIR={} {} auth login",
+        "the terminal command for a detected login folder",
+    ),
+    (
+        "CODEX_HOME='{home}' '{program}' login",
+        "the shell line of the terminal window that runs Codex's own login: a command, not words",
+    ),
+    (
+        "see sakura ",
+        "the pointer to a command line of the engine's that is taken out of its text: matched, never shown",
+    ),
+    (
+        "run sakura ",
+        "the pointer to a command line of the engine's that is taken out of its text: matched, never shown",
+    ),
+    (
+        "try sakura ",
+        "the pointer to a command line of the engine's that is taken out of its text: matched, never shown",
+    ),
+    (
+        "the path cannot be used",
+        "the text of an I/O error written to the log, never shown",
+    ),
+    (
+        "tell application Terminalactivatedo script {escaped}end tell",
+        "the AppleScript that opens a terminal window: a program, not words",
+    ),
+    (
+        "inbox && !Input",
+        "a key binding's context: the Inbox, and not a field written in inside it",
+    ),
+    ("Expected:", "matches a check template's result line"),
+    ("Morning summary", "matches the legacy name of the built-in digest"),
     ("Sakura", "the product's name, the same in every language"),
+    (
+        "Remove",
+        "the engine's own label of its action that removes an account, compared with and never shown",
+    ),
     ("English", "a language's own name, never translated"),
     ("Italiano", "a language's own name, never translated"),
     ("Geist", "a font family"),
@@ -102,6 +163,62 @@ const ALLOWED: [(&str, &str); 11] = [
     (
         "(exit {INTERRUPTED_EXIT_CODE})",
         "compared with what `box` printed, never shown",
+    ),
+    (
+        "the engine stopped on an error",
+        "compared with what the engine wrote in its ledger, never shown",
+    ),
+    (
+        "deferred (night):",
+        "compared with what the engine wrote in its ledger, never shown",
+    ),
+    (
+        "defer failed:",
+        "compared with what the engine wrote in its ledger, never shown",
+    ),
+    (
+        "start requested",
+        "compared with what the engine wrote in its ledger, never shown",
+    ),
+    (
+        "resume requested",
+        "compared with what the engine wrote in its ledger, never shown",
+    ),
+    (
+        "stop requested",
+        "compared with what the engine wrote in its ledger, never shown",
+    ),
+    (
+        "discard requested",
+        "compared with what the engine wrote in its ledger, never shown",
+    ),
+    (
+        " approved",
+        "compared with what the engine wrote in its ledger, never shown",
+    ),
+    (
+        " install: exit ",
+        "compared with what the engine wrote in its ledger, never shown",
+    ),
+    (
+        "cage denied",
+        "compared with what the engine wrote in its ledger, never shown",
+    ),
+    (
+        "opened",
+        "compared with what the engine wrote in its ledger, never shown",
+    ),
+    (
+        "ToolSearch",
+        "the name of an agent's tool, compared with the title it gave a call, never shown",
+    ),
+    (
+        "closed",
+        "compared with what the engine wrote in its ledger, never shown",
+    ),
+    (
+        "answered",
+        "compared with what the engine wrote in its ledger, never shown",
     ),
 ];
 
@@ -126,6 +243,9 @@ fn locale_examples_use_public_variables_without_naming_the_service_command() {
                         "sakura_base",
                         "sakura_port",
                         "sakura_ports",
+                        "sakura_bin",
+                        "sakura_acp_adapter",
+                        "sakura_codex",
                     ]
                     .contains(&name.as_str())
             };
@@ -157,7 +277,10 @@ fn installation_guidance_names_the_public_product() {
 }
 
 /// Literals shaped like a key in a family of the locale files that are not keys, with why.
-const NOT_KEYS: [(&str, &str); 1] = [("console.anthropic.com", "a host of the sign-in links")];
+const NOT_KEYS: [(&str, &str); 2] = [
+    ("console.anthropic.com", "a host of the sign-in links"),
+    ("agents.log", "the startup diagnostics filename"),
+];
 
 /// The keys and values of a locale file: one `"key": "value"` a line.
 fn locale(text: &str) -> BTreeMap<String, String> {
@@ -342,18 +465,24 @@ fn both_locales_hold_the_same_keys_with_words_and_the_same_values_to_fill_in() {
 }
 
 #[test]
-fn a_state_reads_as_the_group_the_sidebar_lists_it_under() {
-    for text in [ENGLISH, ITALIAN] {
+fn state_actions_and_idle_groups_have_their_own_words() {
+    for (text, answer, review, idle, idle_group) in [
+        (ENGLISH, "Answer", "Review", "Idle", "Idle"),
+        (ITALIAN, "Rispondi", "Da rivedere", "Fermo", "Fermi"),
+    ] {
         let words = locale(text);
+        assert_eq!(words["state.needs_you"], answer);
+        assert_eq!(words["state.to_review"], review);
+        assert_eq!(words["state.idle"], idle);
+        assert_eq!(words["group.idle"], idle_group);
+        assert_ne!(words["state.needs_you"], words["group.needs_you"]);
+        assert!(!words.contains_key("group.review"));
+        assert!(!words.contains_key("group.not_started"));
         for (state, group) in [
-            ("state.needs_you", "group.needs_you"),
             ("state.preparing", "group.preparing"),
-            ("state.idle", "group.idle"),
-            ("state.not_started", "group.not_started"),
             ("state.working", "group.working"),
-            ("state.to_review", "group.review"),
         ] {
-            assert_eq!(words[state], words[group], "{state} and {group}");
+            assert_eq!(words[state], words[group]);
         }
     }
 }
@@ -415,154 +544,64 @@ fn no_string_a_person_reads_stands_outside_the_locale_files() {
     );
 }
 
-pub(super) fn width(cx: &mut VisualTestContext, selector: &'static str) -> f32 {
-    f32::from(cx.debug_bounds(selector).expect(selector).size.width)
-}
+#[path = "l10n_tests/vocabulary_tests.rs"]
+mod vocabulary;
 
-/// How wide `key`'s words are in the language in force, at `size`.
-pub(super) fn width_of(cx: &mut VisualTestContext, key: Key, size: Pixels) -> f32 {
-    cx.update(|window, _| text_width(window, tr(key), size, FontWeight::NORMAL))
-}
+#[cfg(feature = "boxes")]
+#[path = "l10n_tests/window_tests.rs"]
+mod window;
+#[cfg(feature = "boxes")]
+pub(in crate::ui) use window::{width, width_of};
 
-/// The sidebar's first group and the header's state word show `language`'s words: each is as wide as
-/// its words in that language, and the two languages' words are not equally long.
-fn assert_drawn_in(cx: &mut VisualTestContext, language: Language) {
-    assert_eq!(l10n::language(), language);
-    let shown = [
-        ("group-review", Key("group.review"), theme::TEXT_LABEL),
-        ("header-state", Key("state.verified"), theme::TEXT_SMALL),
-    ];
-    for (selector, key, size) in shown {
-        let (drawn, words) = (width(cx, selector), width_of(cx, key, size));
-        assert!(
-            (drawn - words).abs() < 1.0,
-            "{selector} is {drawn} wide, its words in {} are {words}",
-            language.name()
-        );
+/// The keys that carry a `%{count}` and read right for any count, as a unit or as a figure after the word.
+const COUNT_WITHOUT_FORMS: [&str; 3] = [
+    "master.size.mb",
+    "master.size.kb",
+    "settings_modal.connectors.added",
+];
+
+#[test]
+fn a_sentence_that_counts_has_a_form_for_one_and_a_form_for_the_rest_in_both_languages() {
+    for text in [ENGLISH, ITALIAN] {
+        let words = locale(text);
+        for (key, said) in &words {
+            let family = key.strip_suffix(".other");
+            if let Some(family) = family.filter(|_| said.contains("%{count}")) {
+                assert!(
+                    words.contains_key(&format!("{family}.one")),
+                    "{key}: no one"
+                );
+            }
+        }
+        for (key, said) in &words {
+            let is_form = key.ends_with(".one") || key.ends_with(".other");
+            let is_exempt = COUNT_WITHOUT_FORMS.contains(&key.as_str());
+            assert!(
+                !said.contains("%{count}") || is_form || is_exempt,
+                "{key} counts with one form: it reads '1 things'"
+            );
+        }
     }
 }
 
-/// The names of the menus of the menu bar, and of the language choice with the one checked.
-fn menu_bar(cx: &mut VisualTestContext) -> (Vec<String>, Vec<(String, bool)>) {
-    let menus = cx.update(|_, cx| cx.get_menus()).unwrap_or_default();
-    let names = menus.iter().map(|menu| menu.name.to_string()).collect();
-    let submenu = |item: &OwnedMenuItem| match item {
-        OwnedMenuItem::Submenu(languages) => Some(languages.items.clone()),
-        _ => None,
-    };
-    let languages = menus
-        .first()
-        .and_then(|menu| menu.items.iter().find_map(submenu));
-    let choices = languages.unwrap_or_default().into_iter();
-    let choices = choices.filter_map(|item| match item {
-        OwnedMenuItem::Action { name, checked, .. } => Some((name, checked)),
-        _ => None,
-    });
-    (names, choices.collect())
-}
-
-fn open_on_a_verified_task(cx: &mut TestAppContext) -> (&mut VisualTestContext, Entity<Desk>) {
-    l10n::set_for_test(Language::English);
-    let (cx, desk, _) = open_with(cx, None);
-    wait_for(cx, "the rows", |cx| {
-        cx.debug_bounds("row-sample-accent").is_some()
-    });
-    super::interaction_tests::click(cx, "row-sample-accent");
-    wait_for(cx, "the header", |cx| {
-        cx.debug_bounds("header-state").is_some()
-    });
-    (cx, desk)
-}
-
-/// What the empty composer of the conversation says: words a field keeps between two drawings.
-fn composer_placeholder(cx: &mut VisualTestContext, desk: &Entity<Desk>) -> String {
-    desk.read_with(cx, |desk, cx| {
-        let conversation = desk.conversation_of("sample-accent");
-        conversation
-            .expect("the conversation")
-            .read(cx)
-            .placeholder(cx)
-    })
-}
-
-fn choose(cx: &mut VisualTestContext, choice: LanguageChoice) {
-    cx.update(|_, cx| crate::language::set_choice(choice, cx));
-    draw(cx);
-}
-
-#[gpui::test]
-fn choosing_a_language_draws_the_sidebar_the_header_and_the_menu_bar_again_in_it_at_once(
-    cx: &mut TestAppContext,
-) {
-    let (cx, desk) = open_on_a_verified_task(cx);
-    assert_drawn_in(cx, Language::English);
-    assert_eq!(composer_placeholder(cx, &desk), "Message the agent");
-    let english = width(cx, "group-review");
-    assert_eq!(menu_bar(cx).0, ["Sakura", "File", "Edit", "View", "Window"]);
-
-    choose(cx, LanguageChoice::Is(Language::Italian));
-    assert_drawn_in(cx, Language::Italian);
-    assert_ne!(width(cx, "group-review"), english, "the words changed");
-    assert_eq!(composer_placeholder(cx, &desk), "Scrivi all'agente");
-    let (menus, choices) = menu_bar(cx);
-    assert_eq!(menus, ["Sakura", "File", "Modifica", "Vista", "Finestra"]);
-    let named = |name: &str, checked| (name.to_string(), checked);
+#[test]
+fn counted_words_agree_with_their_number_in_english_and_in_italian() {
+    use crate::l10n::{set_for_test, tr_count, Key, Language};
+    let hours = Key("engine_page.digest.hours");
+    set_for_test(Language::English);
+    assert_eq!(tr_count(hours, 1, &[]), "1 hour");
+    assert_eq!(tr_count(hours, 24, &[]), "24 hours");
+    set_for_test(Language::Italian);
+    assert_eq!(tr_count(hours, 1, &[]), "1 ora");
+    assert_eq!(tr_count(hours, 12, &[]), "12 ore");
+    let batch = Key("inbox.answer.batch");
+    set_for_test(Language::English);
+    assert_eq!(tr_count(batch, 2, &[]), "2 actions queued");
+    set_for_test(Language::Italian);
+    assert_eq!(tr_count(batch, 3, &[]), "3 azioni in attesa");
+    let approved = Key("events.contract_approved");
     assert_eq!(
-        choices,
-        [
-            named("Automatica", false),
-            named("English", false),
-            named("Italiano", true)
-        ],
-        "the three choices, languages by their own names, the one in force checked"
+        tr_count(approved, 1, &[("by", "Ada")]),
+        "1 comando del contratto approvato Ada"
     );
-    let kept = cx.update(|_, cx| crate::prefs::Preferences::current(cx).language);
-    assert_eq!(kept, LanguageChoice::Is(Language::Italian));
-
-    choose(cx, LanguageChoice::Is(Language::English));
-    assert_drawn_in(cx, Language::English);
-    assert_eq!(width(cx, "group-review"), english, "and back");
-}
-
-/// The window stops being the active one and becomes it again.
-fn come_back(cx: &mut VisualTestContext) {
-    cx.deactivate_window();
-    cx.update(|window, _| window.activate_window());
-    cx.run_until_parked();
-    draw(cx);
-}
-
-#[gpui::test]
-fn the_automatic_choice_follows_the_mac_s_languages_when_the_window_becomes_active_and_an_explicit_one_does_not(
-    cx: &mut TestAppContext,
-) {
-    let (cx, _) = open_on_a_verified_task(cx);
-    let preferred = Rc::new(RefCell::new(vec!["en-GB".to_string()]));
-    let read = preferred.clone();
-    cx.update(|_, cx| crate::language::read_preferred_with(move || read.borrow().clone(), cx));
-    come_back(cx);
-    assert_drawn_in(cx, Language::English);
-    assert_eq!(menu_bar(cx).1[0], ("Automatic".to_string(), true));
-
-    // The language is changed in System Settings while Sakura is not the active app.
-    *preferred.borrow_mut() = vec!["fr-FR".to_string(), "it-IT".to_string()];
-    assert_eq!(
-        l10n::language(),
-        Language::English,
-        "not before it is active"
-    );
-    come_back(cx);
-    assert_drawn_in(cx, Language::Italian);
-    assert_eq!(menu_bar(cx).0[4], "Finestra");
-
-    choose(cx, LanguageChoice::Is(Language::English));
-    come_back(cx);
-    assert_drawn_in(cx, Language::English);
-
-    // Back to the automatic choice: the Mac's list is in force at once.
-    choose(cx, LanguageChoice::Automatic);
-    assert_drawn_in(cx, Language::Italian);
-    *preferred.borrow_mut() = vec!["de-DE".to_string()];
-    come_back(cx);
-    assert_drawn_in(cx, Language::English);
 }

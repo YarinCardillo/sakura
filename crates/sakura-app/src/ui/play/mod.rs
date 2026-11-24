@@ -27,6 +27,7 @@ use gpui::{
 use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
 use gpui_component::input::{CursorBlink, InputEvent, Position, Textarea, TextareaState};
 use gpui_component::Disableable as _;
+use sakura_core::box_words;
 use sakura_core::error::{BridgeError, BridgeResult};
 use sakura_core::play::{self, Action, Availability, Log, Outcome};
 use std::rc::Rc;
@@ -132,6 +133,21 @@ impl Play {
             play.ask(Action::Status, cx);
         }
         play
+    }
+
+    /// What the start or stop that failed says in place.
+    #[cfg(test)]
+    pub fn failure_said(&self) -> Option<SharedString> {
+        self.failure.as_ref().map(failure_words)
+    }
+
+    /// What the log that could not be read says in place.
+    #[cfg(test)]
+    pub fn log_failure_said(&self) -> Option<SharedString> {
+        match &self.log {
+            LogState::Failed(error) => Some(failure_words(error)),
+            _ => None,
+        }
     }
 
     /// Whether the service said where Play stands and nothing is being asked: a press is taken.
@@ -394,25 +410,17 @@ impl Play {
                 .into_any_element()
         };
         if let Some(why) = self.unavailable() {
-            let settings = (self.availability == Availability::NoRunCommand).then(|| {
-                let ask = cx
-                    .listener(|_, _: &ClickEvent, _, cx| cx.emit(PlayEvent::ProjectSettingsAsked));
-                let ink = palette.text;
-                div()
-                    .id("play-project-settings")
-                    .debug_selector(|| "play-project-settings".into())
-                    .text_size(theme::TEXT_SMALL)
-                    .text_color(palette.text_secondary)
-                    .hover(move |style| style.text_color(ink))
-                    .on_click(ask)
-                    .child(tr(Key("play.project_settings")))
-                    .into_any_element()
-            });
+            let settings = (self.availability == Availability::NoRunCommand)
+                .then(|| settings_link("play-project-settings", palette, cx));
             return self.sentence("play-unavailable", quiet(why), settings);
         }
         match &self.log {
             LogState::Unread | LogState::Reading => {
                 self.sentence("play-log-reading", quiet(Key("play.log.reading")), None)
+            }
+            // A log that failed for the reason the start failed says nothing more: it is said above.
+            LogState::Failed(error) if self.failure.as_ref() == Some(error) => {
+                div().into_any_element()
             }
             LogState::Failed(error) => {
                 self.sentence("play-log-failed", failure(error, palette), None)
@@ -465,24 +473,72 @@ impl Play {
     }
 }
 
-/// A failure said in place: Sakura's sentence, with what `box` wrote as its details.
-fn failure(error: &BridgeError, palette: &Palette) -> AnyElement {
-    failure_sentence("play-failure", say(&error.said), error.details.as_deref())
+/// "Project settings": where the run command of the project is set.
+fn settings_link(id: &'static str, palette: &Palette, cx: &Context<Play>) -> AnyElement {
+    let ask = cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(PlayEvent::ProjectSettingsAsked));
+    let ink = palette.text;
+    div()
+        .id(id)
+        .debug_selector(move || id.into())
         .text_size(theme::TEXT_SMALL)
-        .text_color(palette.danger)
+        .text_color(palette.text_secondary)
+        .hover(move |style| style.text_color(ink))
+        .on_click(ask)
+        .child(tr(Key("play.project_settings")))
         .into_any_element()
+}
+
+/// What a start or a stop that failed says in place: Sakura's sentence for a reason it knows (which
+/// names its cure), else the service's own reason, never the general sentence with the reason only
+/// under the pointer.
+fn failure_words(error: &BridgeError) -> SharedString {
+    let reason = error.details.as_deref().and_then(box_words::reason);
+    match reason {
+        Some(reason) if error.said.key == box_words::UNKNOWN => reason.to_string().into(),
+        _ => say(&error.said),
+    }
+}
+
+/// The failure of a start or a stop, in place, with the way to its cure where the app has one: a
+/// project with no run command is given one in its settings.
+fn failed_start(error: &BridgeError, palette: &Palette, cx: &Context<Play>) -> AnyElement {
+    let has_cure = error.said.key == box_words::Known::NoRunCommand.key();
+    let said = failure_sentence(
+        "play-failure",
+        failure_words(error),
+        error.details.as_deref(),
+    )
+    .text_size(theme::TEXT_SMALL)
+    .text_color(palette.danger);
+    div()
+        .debug_selector(|| "play-failed".into())
+        .px(theme::SIDE_PANE_INSET)
+        .pb(theme::GAP)
+        .flex()
+        .flex_col()
+        .items_start()
+        .gap(theme::GAP)
+        .child(said)
+        .children(has_cure.then(|| settings_link("play-failure-cure", palette, cx)))
+        .into_any_element()
+}
+
+/// A failure of the log said in place, in the words of a failed start.
+fn failure(error: &BridgeError, palette: &Palette) -> AnyElement {
+    failure_sentence(
+        "play-failure",
+        failure_words(error),
+        error.details.as_deref(),
+    )
+    .text_size(theme::TEXT_SMALL)
+    .text_color(palette.danger)
+    .into_any_element()
 }
 
 impl Render for Play {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = Theme::palette(cx);
-        let failed = self.failure.as_ref().map(|error| {
-            div()
-                .debug_selector(|| "play-failed".into())
-                .px(theme::SIDE_PANE_INSET)
-                .pb(theme::GAP)
-                .child(failure(error, &palette))
-        });
+        let failed = (self.failure.as_ref()).map(|error| failed_start(error, &palette, cx));
         div()
             .size_full()
             .flex()
@@ -509,10 +565,7 @@ fn secondary(palette: &Palette, cx: &App) -> ButtonCustomVariant {
 pub fn header_control(play: &Entity<Play>, cx: &App) -> impl IntoElement {
     let palette = Theme::palette(cx);
     let state = play.read(cx);
-    let words = WORDS.map(tr);
-    let label = steady_label(tr(state.word()), &words)
-        .text_size(theme::TEXT_SMALL)
-        .font_weight(theme::WEIGHT_MEDIUM);
+    let label = word_label(state.word());
     let is_running = state.is_running();
     let press = {
         let play = play.clone();
@@ -530,12 +583,13 @@ pub fn header_control(play: &Entity<Play>, cx: &App) -> impl IntoElement {
     let button = Button::new("play-control")
         .debug_selector(|| "play-control".into())
         .custom(secondary(&palette, cx))
+        .bg(crate::theme::Theme::palette(cx).fill)
         .h(theme::CONTROL_HEIGHT)
         .px(theme::CONTROL_PADDING_X)
         .child(label)
         .disabled(why.is_some() || state.asked.is_some())
         .on_click(press);
-    let can_play = why.is_none();
+    let keeps_port_room = state.availability != Availability::InBox;
     let button = match why {
         Some(why) => button.tooltip(why),
         None => button,
@@ -547,12 +601,42 @@ pub fn header_control(play: &Entity<Play>, cx: &App) -> impl IntoElement {
         .flex()
         .items_center()
         .gap(theme::GAP_WIDE)
-        .children(can_play.then(|| port_room(port)))
+        .children(keeps_port_room.then(|| port_room(port)))
         .child(button)
 }
 
+/// The header's control while the run command of the task's project is still being read and the task
+/// has no [`Play`] yet: the same disabled "Play" in the same room, so that the answer changes a word
+/// and a state but moves nothing in the header.
+pub fn header_placeholder(cx: &App) -> impl IntoElement {
+    let palette = Theme::palette(cx);
+    let button = Button::new("play-control")
+        .debug_selector(|| "play-control".into())
+        .custom(secondary(&palette, cx))
+        .bg(crate::theme::Theme::palette(cx).fill)
+        .h(theme::CONTROL_HEIGHT)
+        .px(theme::CONTROL_PADDING_X)
+        .child(word_label(Key("play.start")))
+        .disabled(true);
+    div()
+        .flex()
+        .items_center()
+        .gap(theme::GAP_WIDE)
+        .child(port_room(None))
+        .child(button)
+}
+
+/// A word of the control, in the room of the widest.
+fn word_label(word: Key) -> Div {
+    let words = WORDS.map(tr);
+    steady_label(tr(word), &words)
+        .text_size(theme::TEXT_SMALL)
+        .font_weight(theme::WEIGHT_MEDIUM)
+}
+
 /// The room of a port's link at its widest, with the running port at its right end. The room is
-/// there whenever the lavoro can play, so a start moves nothing beside the control.
+/// there whenever the task is on the Mac, whether its project has a run command yet or not, so
+/// neither the answer about the run command nor a start moves anything beside the control.
 fn port_room(port: Option<AnyElement>) -> Div {
     let room = div().h(Pixels::ZERO).overflow_hidden().child(PORT_ROOM);
     div()

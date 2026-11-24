@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# What box reads of a lavoro on the Mac beyond its facts: its commits and its patch, with plain
+# What box reads of a task on the Mac beyond its facts: its commits and its patch, with plain
 # git (lavoro_git), in the shapes the same verbs print for a task in a box.
 
 readonly EMPTY_TREE=4b825dc642cb6eb9a060e54bf8d69288fbee4904
@@ -18,13 +18,13 @@ readonly NATIVE_LOG_RECORDS='
         insertions: ($rows | map(.[0] | tonumber? // 0) | add // 0),
         deletions: ($rows | map(.[1] | tonumber? // 0) | add // 0) } ]'
 
-# Loads the project of a lavoro on the Mac and checks its worktree, or ends with the reason.
+# Loads the project of a task on the Mac and checks its worktree, or ends with the reason.
 require_checked_lavoro() {
   load_task_project "$1"
   checked_lavoro "$1" || die "$LAVORO_PROBLEM"
 }
 
-# Prints the commits of a lavoro after its base, newest first, at most 200, as a JSON array.
+# Prints the commits of a task after its base, newest first, at most 200, as a JSON array.
 native_log_json() {
   local task="$1"
   lavoro_git "$task" log --max-count="$NATIVE_MAX_COMMITS" --diff-merges=first-parent --no-ext-diff --no-textconv --numstat \
@@ -32,7 +32,7 @@ native_log_json() {
     | jq -Rs "$NATIVE_LOG_RECORDS" 2>/dev/null | jq -c "$LOG_FILTER" 2>/dev/null
 }
 
-# git for a lavoro, started in its worktree (for the one command that takes paths of the file
+# git for a task, started in its worktree (for the one command that takes paths of the file
 # system); the git directory and the work tree are still named explicitly.
 lavoro_git_in_tree() {
   local task="$1"
@@ -44,7 +44,7 @@ lavoro_git_in_tree() {
   (cd "$LAVORO_DIR" && person_environment "$git" "${PERSON_GIT_OPTIONS[@]}" --git-dir="$LAVORO_GIT_DIR" --work-tree="$LAVORO_DIR" "$@")
 }
 
-# The patch of a lavoro against the commit it left the base at: what is committed, what is
+# The patch of a task against the commit it left the base at: what is committed, what is
 # not, and every file git does not know yet as a new file (plain files and links only).
 native_working_patch() {
   local task="$1" base merge_base path count=0
@@ -59,7 +59,7 @@ native_working_patch() {
   done < <(lavoro_git "$task" ls-files --others --exclude-standard -z)
 }
 
-# The patch of one commit of the lavoro against its first parent.
+# The patch of one commit of the task against its first parent.
 native_commit_patch() {
   local task="$1" commit="$2" parent
   lavoro_git "$task" rev-list --max-count="$NATIVE_MAX_COMMITS" "$(task_base_sha "$task")..HEAD" 2>/dev/null | grep -qx "$commit" || return 1
@@ -67,7 +67,7 @@ native_commit_patch() {
   lavoro_git "$task" diff "${NATIVE_DIFF_OPTIONS[@]}" "$parent" "$commit"
 }
 
-# box diff <task> [--commit <sha>] for a lavoro on the Mac: the patch, cut at its limit.
+# box diff <task> [--commit <sha>] for a task on the Mac: the patch, cut at its limit.
 native_diff() {
   local task="$1" commit="$2" status
   require_checked_lavoro "$task"

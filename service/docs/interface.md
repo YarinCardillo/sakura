@@ -5,32 +5,32 @@ binary, never git or docker itself. Everything it shows comes from the commands 
 
 ## The two places, and what each guarantees
 
-A lavoro (a task) lives in one of two places, chosen when it is created (`box new ... --where mac|box`, the
+A task (a task) lives in one of two places, chosen when it is created (`box new ... --where mac|box`, the
 default comes from the project) and recorded for good in a file only the host writes. The two are different
 things, and no path of `box` mixes them.
 
 - `box`: a clone in a container. The agent is confined (its own network behind the proxy, no capabilities,
   limits), its workspace is untrusted, the host never runs git in it, everything read from it goes through
   sandbox containers and the verified store, and its work reaches the person's repository only with `box take`.
-  Every guarantee this document makes about confinement and untrusted workspaces is a guarantee about lavori in a
+  Every guarantee this document makes about confinement and untrusted workspaces is a guarantee about tasks in a
   box, and only about them.
 - `mac`: a git worktree of the person's repository, with the agent running natively on the Mac. **The agent of a
-  lavoro on the Mac runs as the person, with the person's privileges.** It can do
+  task on the Mac runs as the person, with the person's privileges.** It can do
   whatever the person can do on this Mac: read and write any file, use the person's credentials, start programs,
   reach the network. So nothing in a worktree on the Mac is treated as hostile, and nothing of the box machinery
-  applies to it: no sandbox reads, no verified import, no proxy, no limits, no `take`. `box` gives such a lavoro
-  order (one worktree and branch per lavoro, one check at a time, a place for its logs), not confinement.
+  applies to it: no sandbox reads, no verified import, no proxy, no limits, no `take`. `box` gives such a task
+  order (one worktree and branch per task, one check at a time, a place for its logs), not confinement.
 
 What keeps the two apart:
-- A lavoro on the Mac never reaches a container. Nothing of it is ever mounted, no drop directory exists for it,
+- A task on the Mac never reaches a container. Nothing of it is ever mounted, no drop directory exists for it,
   the runner starts no container for it. The functions that mount a workspace or a drop directory, start a job
   container or read through the verified store refuse a task on the Mac themselves, whatever verb led there, and
   every verb that belongs to a box says so in one `box:` line with exit code 80. (Otherwise a box could be started
   on a worktree, write git metadata there, and the host's git would follow it: a way out of the box.)
 - A task in a box is never read with host git: the host git functions refuse a task whose record does not say
   `mac`.
-- Host git for a lavoro on the Mac never looks for the repository in the worktree. It is given `--git-dir` and
-  `--work-tree` explicitly, from trusted values: the folder of the lavoro and the git directory `box` recorded
+- Host git for a task on the Mac never looks for the repository in the worktree. It is given `--git-dir` and
+  `--work-tree` explicitly, from trusted values: the folder of the task and the git directory `box` recorded
   when it created the worktree (`worktrees/<name>` in the project's repository, checked like the repository
   itself, see "What a repository must be"). Before every call the `.git` file of the worktree must still hold
   exactly `gitdir: <that directory>`; anything else (another directory, another spelling, a link, a git directory
@@ -50,19 +50,19 @@ Which path each verb takes, asserted by `tests/test_place_paths.sh` against one 
 Exit codes that say "not for this place": 80 the verb does not apply to the place of the task, 81 Play in a box
 is not built yet. (82 is `box file` for a file over 2 MiB.)
 
-## Lavori on the Mac
+## Tasks on the Mac
 
-A lavoro on the Mac is a git worktree of the project's repository at
+A task on the Mac is a git worktree of the project's repository at
 `$AGENTBOX_HOME/work/<task>`, on a new branch `<prefix><task>` (the project's `BRANCH_PREFIX`, `sakura/` when it
 names none) started from the base. The agent runs natively, as the person. Everything below needs no Docker and
-starts no container, and with only lavori on the Mac nothing asks Docker for anything (`box status` looks for
+starts no container, and with only tasks on the Mac nothing asks Docker for anything (`box status` looks for
 volumes left by tasks in a box only when a task lives in a box). Nothing runs at rest: no daemon, no watcher.
-The efficiency rule says that a read of a lavoro on the Mac starts nothing beyond git itself. One exception is
+The efficiency rule says that a read of a task on the Mac starts nothing beyond git itself. One exception is
 accepted: `tree`, `file` and `search` start `python3` once per call, with the same script that reads a task in a
 box (one implementation for both places, walking paths through directory descriptors); the other reads (`facts`,
 `status`, `log`, `diff`, `graph`) run git and `jq` only. Each ends when it has answered.
 
-Host requirements for lavori on the Mac: `git`, `jq`, `perl`, `python3`; `npm` and `node` for `box acp` (the
+Host requirements for tasks on the Mac: `git`, `jq`, `perl`, `python3`; `npm` and `node` for `box acp` (the
 adapter is installed on first use).
 
 ### What changes in the verbs that existed
@@ -72,8 +72,8 @@ adapter is installed on first use).
   dependencies are installed by `box` and no drop directory is made.
 - `box tasks --json`, `box status --json`, `box facts <task> --json`: every task carries `"where": "mac" | "box"`
   (a task created before places existed is `box`). `status` and `facts` also carry `"folder"`: the absolute path
-  of the worktree for a lavoro on the Mac (what a client passes as the working directory of an ACP session),
-  `null` for a task in a box. For a lavoro on the Mac `taken` and `agent` are always `null`, `otherContainers` is
+  of the worktree for a task on the Mac (what a client passes as the working directory of an ACP session),
+  `null` for a task in a box. For a task on the Mac `taken` and `agent` are always `null`, `otherContainers` is
   `0`, `branch` is its real branch (`sakura/<task>`), and the git fields are read with plain git every time (no
   cache; `--fresh` changes nothing). The other fields mean what they mean for a box.
 - `box log <task> [--json]`, `box diff <task> [--commit <sha>]`: the same shapes, read with plain git. The patch is
@@ -83,12 +83,12 @@ adapter is installed on first use).
   Exit 3 when no setup command ran; exit 80 for a task in a box.
 - `box verify`, `box cancel`, the runner: see "Checks" below. `box stop <task>` ends the open conversation (exit
   1 with one line when none is open). `box rm`: see "Removal".
-- `box shell <task>`: the person's own login shell in the folder of the lavoro (the project's subfolder when it
+- `box shell <task>`: the person's own login shell in the folder of the task (the project's subfolder when it
   has one). `box` starts `$SHELL -l` when `$SHELL` is an absolute path of a program, else `/bin/zsh -l`, and the
   shell takes the place of the `box` process: its exit code is what the caller sees. **It is not confined**, as
   everything of the Mac place: it is the person's shell, with the person's privileges and environment. No lock
   is held while it is open (a terminal lasts as long as the person wants); `box` keeps a record of the shell
-  (its process, the boot time, its start time). `box rm` refuses while a terminal is open in the lavoro (exit 1,
+  (its process, the boot time, its start time). `box rm` refuses while a terminal is open in the task (exit 1,
   one line); `box rm --force` tells each open shell to hang up (SIGHUP), waits 3 s, kills one that stays, and
   goes on. A record of a terminal that was closed is dropped without a signal.
 - `box take`, `box run`, `box agent`, `box attach`: one `box:` line that says why it does not apply
@@ -98,7 +98,7 @@ New native tasks use the default `sakura/` branch prefix. Existing tasks keep th
 branch, including branches created by earlier versions; no branch is renamed.
 
 ### Commands of the project that run natively
-`SETUP`, `ARCHIVE`, `RUN` and the checks of a lavoro on the Mac are run by `bash -c` in the folder of the
+`SETUP`, `ARCHIVE`, `RUN` and the checks of a task on the Mac are run by `bash -c` in the folder of the
 project inside the worktree (`work/<task>/<SUBDIR>`), as the person, with the person's environment plus:
 `SAKURA_TASK` (the task), `SAKURA_WORKTREE` (the worktree), `SAKURA_REPO` (the person's repository), `SAKURA_BASE`
 (the base branch). No previous product environment aliases are exported. The same four values are also exposed as `CONDUCTOR_WORKSPACE_NAME`, `CONDUCTOR_WORKSPACE_PATH`,
@@ -141,17 +141,17 @@ adapter has ended even when its output is still open. So `box new`, the runner, 
 end when their command ends.
 - `SETUP`: once, at `box new`, with the install deadline (`BOX_INSTALL_TIMEOUT`, 1800 s). Output to
   `$AGENTBOX_HOME/setup/<task>.log` (at most 4 MiB). When it fails `box new` exits 1, says the exit code and
-  `box log <task> --setup`, and the lavoro is kept.
+  `box log <task> --setup`, and the task is kept.
 - `ARCHIVE`: before `box rm` removes the worktree, same deadline, output to `setup/<task>.archive.log`.
 
 ### Removal
-`box rm <task> [--force]` on a lavoro of the Mac refuses (exit 1, one line) while the worktree has uncommitted
+`box rm <task> [--force]` on a task of the Mac refuses (exit 1, one line) while the worktree has uncommitted
 files, or commits that are neither in a remote-tracking branch nor in the base branch
 (`git rev-list HEAD --not --remotes <base>` is not empty), unless `--force`. Then the `ARCHIVE` command runs; when
-it fails the lavoro is kept unless `--force`. Then its requests are cancelled, its Play is stopped and its ports
+it fails the task is kept unless `--force`. Then its requests are cancelled, its Play is stopped and its ports
 given back, the worktree is removed through the person's repository (a rename into a folder of `box`, a last look, the deletion, then
 `git worktree prune`) and its records and logs are deleted. **The branch is never deleted.** `box rm` deletes a folder only
-when it is the worktree `box` made for the lavoro (its `.git` names the recorded git directory, which belongs to
+when it is the worktree `box` made for the task (its `.git` names the recorded git directory, which belongs to
 the project's repository), also with `--force`, and never deletes by a path it has not just examined: whatever else has come to stand at `work/<task>` (another folder, another repository, a link) is left
 alone, with exit 1 and one line. The folder is looked at twice: before anything runs, and again after the
 archive command has run and the conversation and Play have been ended, immediately before the removal. It is
@@ -184,7 +184,7 @@ A project names its default account (`ACCOUNT`, set with `--account <name>`).
 
 ### `box acp <task> [<account>]` on the Mac
 The same Claude ACP adapter as in a box (`@agentclientprotocol/claude-agent-acp`, the version the image pins),
-run natively in the worktree for the account that is named, else the `ACCOUNT` of the lavoro's project values;
+run natively in the worktree for the account that is named, else the `ACCOUNT` of the task's project values;
 with neither, exit 1 and one line. The account's config directory reaches the CLI through `CLAUDE_CONFIG_DIR`,
 with one exception: for the default directory (`$HOME/.claude`, also under another name or spelling) the variable
 is left out. The CLI keeps the login of a directory under a name that depends on whether the variable is set, so
@@ -208,20 +208,20 @@ The channel is the one of a box: `lib/acp_proxy.pl` stands between client and ad
 passes and of its notifications only `session/update`, lines over 8 MiB end the session with exit 65, the end
 and stall deadlines with exit 66), standard error goes to `$AGENTBOX_HOME/acp/<task>.log` with the same byte
 limit, and the exit codes are the same. These rules bound what reaches the client; they do not confine the
-agent, which runs as the person. One front end per lavoro: a second `box acp` while one is open is exit 1 with
+agent, which runs as the person. One front end per task: a second `box acp` while one is open is exit 1 with
 "a conversation is open for task '<task>'". The lock of the front end is held by `box acp` and by the relay it
 starts, which is the supervisor of the session: when `box acp` itself is killed outright (SIGKILL, no cleanup),
 the relay sees it through a lifetime pipe whose other end only `box acp` held, ends the adapter and its process
 group, and only then lets go of the lock, so no second conversation runs beside a first one that lost its calling component.
 The reader of the log, which is started before the relay, holds neither that lock nor the lifecycle lock while
 it waits for the relay to open the log pipe, and ends by itself when no writer has come after 30 seconds
-(`BOX_LOG_RENDEZVOUS_SECONDS`); the same holds for the conversation of a lavoro in a box. The adapter and everything it starts live in one process group,
+(`BOX_LOG_RENDEZVOUS_SECONDS`); the same holds for the conversation of a task in a box. The adapter and everything it starts live in one process group,
 ended when standard input closes (within `BOX_ACP_END_SECONDS`), on a signal to `box`, and by `box stop <task>`
-(the open `box acp` then ends with 143); what is left of the group is killed. The client passes the lavoro's
+(the open `box acp` then ends with 143); what is left of the group is killed. The client passes the task's
 `folder` as the `cwd` of `session/new`.
 
 ### Play
-A project names `RUN` (the command), `PORTS` (how many ports a lavoro gets, 1 to 100, default 10) and `RUN_MODE`
+A project names `RUN` (the command), `PORTS` (how many ports a task gets, 1 to 100, default 10) and `RUN_MODE`
 (`one`, the default, or `many`), set with `--run`, `--ports`, `--run-mode`.
 For native tasks, each Play start reads these three current values from the host-private
 project file, including for tasks created before a run command was configured. Other task
@@ -234,15 +234,15 @@ status after acting:
 { "task": "m1", "running": true, "pid": 4711, "ports": [56000, 56001, 56002], "since": "2026-11-10T16:00:00Z" }
 ```
 `pid` is the id of the process group of the command (`null` when it does not run), `ports` the whole range
-reserved for the lavoro (`[]` before its first start), `since` when it was started (`null` when it does not
+reserved for the task (`[]` before its first start), `since` when it was started (`null` when it does not
 run). Without `--json` the three print one line for people.
 - `start` runs `RUN` detached from `box` (a session of its own), as described under "Commands of the project",
   without a deadline, with `SAKURA_PORT` set to the first port of the range, `CONDUCTOR_PORT` to the same value
-  and `SAKURA_PORTS` to the size of the range. The range is the lowest one from 56000 up that no other lavoro
+  and `SAKURA_PORTS` to the size of the range. The range is the lowest one from 56000 up that no other task
   holds. A reservation stays with the task between starts when its port count is unchanged.
   If the current count changed, the next start reserves a new non-overlapping range; `box rm` releases it
-  (`box` reserves the numbers among lavori; it does not check that another program is not listening on them).
-  With `RUN_MODE=one`, starting the Play of a lavoro first stops the Plays of the other lavori of the same
+  (`box` reserves the numbers among tasks; it does not check that another program is not listening on them).
+  With `RUN_MODE=one`, starting the Play of a task first stops the Plays of the other tasks of the same
   project. A Play that already runs is left as it is. A command that ends within half a second is not a Play:
   exit 1, with `box play <task> log` named. A project without a current `RUN` refuses start with
   exit 1 and one plain `box:` line naming `box project set <project> --run '<command>'`,
@@ -256,10 +256,10 @@ run). Without `--json` the three print one line for people.
 
 ### Checks
 What a check on the Mac proves, and what it does not. A check on the Mac runs the project's command in the
-lavoro's own folder with the person's environment. It proves that the command passed while HEAD was the recorded
+task's own folder with the person's environment. It proves that the command passed while HEAD was the recorded
 commit and the tracked files matched it. It is not isolated from the agent, which runs as the person: ignored
 files such as installed dependencies, git filters, submodules and the service's own files are within its reach.
-A check that must hold against the agent is a check of a lavoro in a box. So every result says where it ran:
+A check that must hold against the agent is a check of a task in a box. So every result says where it ran:
 `"where": "mac"` or `"where": "box"`, in the result file (`results/<task>/<id>.json`) and in each entry of
 `results` in `box status --json` and `box facts --json` (a result written before this field existed ran in a
 box and is shown as `box`; `box tasks --json` shows nothing of results). The app is expected to label a result
@@ -271,7 +271,7 @@ refuses (exit 1) when the worktree has uncommitted files: `commit first: a check
 `verb=... sha=... exit=... seconds=... peak_memory_bytes=...`, and ends with the exit code of the check (75 when
 no runner runs, 77 when the wait is over), like the waiting verify of a box.
 
-The runner (`box runner`, one loop for both places, one request at a time across all lavori) runs the command of
+The runner (`box runner`, one loop for both places, one request at a time across all tasks) runs the command of
 the verb natively, as described under "Commands of the project", with the verb deadline (`BOX_VERB_TIMEOUT`,
 2700 s). It runs only when the worktree is at the commit of the request and has no uncommitted files; otherwise
 the result has `exit_code` 2 and its log says why (`commit first: a check is for a commit`, or that the worktree
@@ -293,11 +293,11 @@ made and undone while the check runs is not seen; ruling that out would take a c
 memory is not measured (`0`). `box cancel <task> <verb>` ends a queued or running check (the process group of a
 running one is ended) with a cancelled result; a result is final. The runner starts and stops without Docker
 (`box runner`, `--daemon`, `--stop`); while Docker does not answer, the requests of tasks in a box stay queued
-and those of lavori on the Mac run. Stopping the runner ends the native check that runs (its whole process
+and those of tasks on the Mac run. Stopping the runner ends the native check that runs (its whole process
 group); the request stays in the queue and the next runner runs it again.
 
 ### Reading: `box tree`, `box file`, `box search`, `box graph`
-The same four verbs for both places. For a lavoro on the Mac they run natively; for a task in a box `tree`,
+The same four verbs for both places. For a task on the Mac they run natively; for a task in a box `tree`,
 `file` and `search` run in a workspace container (what they print about an untrusted workspace is the agent's
 word: validated and shown, never acted on) and `graph` reads the verified store.
 
@@ -310,26 +310,26 @@ word: validated and shown, never acted on) and `graph` reads the verified store.
 ```
 `path` is `""` for the root. `kind` is `file`, `dir`, `link` (a symbolic link, not followed), `other`, or
 `deleted` (a file of the base that is gone from this level). `changed` says whether the entry differs from the
-commit the lavoro left its base at: for a folder, whether anything below it does. `added` and `removed` are
+commit the task left its base at: for a folder, whether anything below it does. `added` and `removed` are
 lines, for files only: against the base for a file git tracks (`null` for a binary one), all its lines for a
 file git does not know yet (`null` above 2 MiB). Entries are sorted by name, at most 2000 (`truncated`). Files
 and folders git ignores are left out unless `--all`; `.git` is never listed. Exit 1 with one line when the path
-is not a directory of the lavoro, climbs out of it or leaves it through a link.
+is not a directory of the task, climbs out of it or leaves it through a link.
 
 `box file <task> <path> [--at <sha>]`: the bytes of one file on standard output, exactly as they are (not
 sanitized: text to display, never terminal output). Without `--at` the file of the working tree, a link is
-followed only when it stays inside the lavoro; with `--at <40 hex>` the regular file that commit has at the
+followed only when it stays inside the task; with `--at <40 hex>` the regular file that commit has at the
 path. Nothing is printed unless all of it can be: exit 82 and `box: the file is larger than 2 MiB: box file does
 not print it` above 2097152 bytes; exit 3 when there is no such file; exit 1 for a path that is absolute, climbs
-out, names the git metadata, or is (or passes through) a link that leaves the lavoro, and for a link or a folder
+out, names the git metadata, or is (or passes through) a link that leaves the task, and for a link or a folder
 at a commit. `tree` and `file` reach a path through directory descriptors, one component at a time from the root
-of the lavoro, never following a link by name: a link is read and walked the same way (one with an absolute
+of the task, never following a link by name: a link is read and walked the same way (one with an absolute
 target is refused even when it points inside, at most 16 links per path), what was opened is examined on its
 descriptor (a FIFO or a device is never read and never makes a read wait), and every read stops at 2 MiB plus
-one byte. A file or folder that is swapped for a link while a read is under way cannot lead it out of the lavoro. The
-walk starts at the folder of the lavoro itself, which is opened by its name below its parent (the work directory
+one byte. A file or folder that is swapped for a link while a read is under way cannot lead it out of the task. The
+walk starts at the folder of the task itself, which is opened by its name below its parent (the work directory
 of `box`, or the root of the container) without following a link and must have the device and inode `box`
-recorded for it when the lavoro was made (`WORKTREE_IDENTITY` in its record): a worktree that is renamed and
+recorded for it when the task was made (`WORKTREE_IDENTITY` in its record): a worktree that is renamed and
 replaced by a link or by another folder between the check and the read is not walked.
 
 `box search <task> <text> --json`: file names for quick open.
@@ -341,7 +341,7 @@ letter case ignored; a match in the file's own name comes before a match in a fo
 most 200 (`truncated`). The text is 1 to 200 characters.
 
 `box graph <project> --json [--limit <n>]`, `box graph <task> --json [--limit <n>]`: the commits to draw. A
-name that is a project is read as the project (all its lavori); otherwise it is a task (that lavoro alone).
+name that is a project is read as the project (all its tasks); otherwise it is a task (that task alone).
 ```json
 { "project": "app", "base": "main", "limit": 100,
   "lanes": [ { "lavoro": null, "branch": "main", "where": null, "head": "<40>", "base": null, "readable": true },
@@ -349,18 +349,18 @@ name that is a project is read as the project (all its lavori); otherwise it is 
   "commits": [ { "sha": "<40>", "parents": ["<40>"], "subject": "...", "time": "2026-11-10T16:00:00Z",
                  "lavoro": "m1", "branches": ["sakura/m1"] } ] }
 ```
-The first lane is the base branch (of the project, or of the one lavoro): its last `limit` commits (default
-100, at most 1000). Each other lane is a lavoro: its branch, place, head, the commit it started from (`base`),
-and its commits after that one (at most 200). A lavoro that cannot be read is a lane with `readable` false,
-`head` null and no commits. `commits` holds every commit once, newest first: `lavoro` is the lavoro it belongs
-to, `null` for a commit of the base branch (also when a lavoro's commit was merged into it); `branches` are the
-branches of the lanes whose head it is. A parent that is older than the commits listed is simply not in the
+The first lane is the base branch (of the project, or of the one task): its last `limit` commits (default
+100, at most 1000). Each other lane is a task: its branch, place, head, the commit it started from (`base`),
+and its commits after that one (at most 200). A task that cannot be read is a lane with `readable` false,
+`head` null and no commits. `commits` holds every commit once, newest first: `lavoro` is the task it belongs
+to, `null` for a commit of the base branch (also when a task's commit was merged into it); `branches` are the
+branches of the lanes whose head it is. A parent that is older than the commits listed is not in the
 list.
 
 ### Publishing
-There is no verb for it. The agent of a lavoro on the Mac has the person's git and `gh`: to publish, the app
+There is no verb for it. The agent of a task on the Mac has the person's git and `gh`: to publish, the app
 sends the agent a request, in its conversation, to push the branch and open a draft pull request. `box` only
-shows the outcome afterwards (the commits in `box log` and `box graph`; `box rm` accepts a lavoro whose commits
+shows the outcome afterwards (the commits in `box log` and `box graph`; `box rm` accepts a task whose commits
 are in a remote-tracking branch).
 
 ## Differences from the contract
@@ -460,9 +460,20 @@ Rules for every command here:
                   "tests": { "ran": 7880, "skipped": 0, "base": 7880, "baseSkipped": 0, "source": "log" }, "isHead": true }
       }
     }
-  ]
+  ],
+  "checkRunner": { "runner": "bash | engine",
+                   "engine": { "restateServer": true, "node": false, "setup": "checks need Node 24 or newer, which is not installed: brew install node" } }
 }
 ```
+
+`checkRunner` says which runner runs the checks (`RUNNER` in the config, see the README, "Two runners"; `box config
+get|set RUNNER [bash|engine]` reads and writes it, and refuses to change it while the runner it replaces holds a
+check, with the reason on one line and exit 1) and whether the two programs the engine needs are there:
+`restateServer` (`restate-server` on the PATH), `node` (Node 24 or newer) and `setup`, the one line that says what
+to install, `null` when nothing is missing. `engine` is `null` when they could not be examined. The rest of the
+document is the engine's own (`runners/engine/docs/interface.md`) when `runner` is `engine`: its `runner.state`
+is `running` or `not-installed` (with `runner.setup`), and `box runner` does not exist there.
+
 `project` is the project of the task (`profile` is its older name and holds the same). `checks` are the verbs
 the project names, the ones `box verify` accepts for the task; a project without checks gives `[]`, and the app
 must then ask the person at take, because nothing can be verified. `base` is the branch the task started from
@@ -557,7 +568,7 @@ profile's REPO (the person's trusted repository, so the host may read that ref t
 ```json
 [ { "name": "m1", "profile": "sample-app", "where": "box", "base": "main", "taken": false } ]
 ```
-`where` is the place of the task, `mac` or `box`. For a lavoro on the Mac `taken` is always `false` (its branch
+`where` is the place of the task, `mac` or `box`. For a task on the Mac `taken` is always `false` (its branch
 lives in the repository from the start; there is nothing to take).
 The cheap inventory, in the order of `box status`. Read from the host-private task records and from the
 branch `box/<task>` in the profile's source repository (`taken` is true when it exists). No container is
@@ -643,7 +654,7 @@ exited. Newest last. At most the last 2000 events.
 [ { "name": "personal", "where": "box", "loggedIn": true, "authMethod": "claude.ai", "checkedAt": "2026-11-10T08:00:00Z" } ]
 ```
 Every element has `where`. The accounts of the boxes come first and are described here; the accounts of the Mac
-follow them (see "Lavori on the Mac", "Accounts").
+follow them (see "Tasks on the Mac", "Accounts").
 An account exists when its volume `agentbox-acct-<name>` exists. `loggedIn` is what `claude auth status --json`
 reports inside a confined container (internal network and proxy only, no capabilities, read-only root) with
 that account volume as the config directory; `authMethod` is the reported method (letters, digits, dot,
@@ -663,12 +674,12 @@ optionally a base branch.
 
 A project is a file of the data directory, `$AGENTBOX_HOME/projects/<name>.env` (host-private), written by `box`.
 It holds `KEY=value` lines (`REPO`, `BASE`, `SUBDIR`, `INSTALL`, `REBUILD`, `SPARSE`, `PROTECTED`, `TEST_FILES`,
-`VERB_<verb>`, and for the place of its lavori and the lavori on the Mac `WHERE`, `BRANCH_PREFIX`, `SETUP`,
+`VERB_<verb>`, and for the place of its tasks and the tasks on the Mac `WHERE`, `BRANCH_PREFIX`, `SETUP`,
 `ARCHIVE`, `ACCOUNT`, `RUN`, `PORTS`, `RUN_MODE`) and is read as data: nothing in it is evaluated. A file with a key that is not known or a value
 that is not safe (a repository that is not an absolute path, a subfolder that climbs out, a base that is not a
 branch name, a control character, a value over 2000 characters) is refused wherever it is used, with one `box:`
 line that names the project and the reason. Commands are text: for a task in a box they only ever run inside a
-container; for a lavoro on the Mac they run natively, as the person (see "Lavori on the Mac"). A task keeps the
+container; for a task on the Mac they run natively, as the person (see "Tasks on the Mac"). A task keeps the
 project values it was created with, except native Play reads current `RUN`, `PORTS` and
 `RUN_MODE` on each start. `SUBDIR` and
 `INSTALL` may be empty: a project at the root of its repository works, and one without an install command has no
@@ -776,8 +787,12 @@ first, at most 200. `default` is the project's base.
 
 ## Action commands
 
+- `box up --check`: whether a box can be used now, without building or starting anything: one JSON object
+  `{"docker", "image", "proxy", "ready"}`, each a boolean (`docker` false makes the others false). `ready` is
+  all three; when it is false, `box up` builds the image and starts the network and the proxy (the first
+  time several minutes and about 2.5 GB). Exit 0 whatever the answer.
 - `box new <task> <project> [--base <branch>] [--where mac|box]`: the place is the one named, else the
-  project's, else `mac`; what follows describes a task in a box, see "Lavori on the Mac" for the other place.
+  project's, else `mac`; what follows describes a task in a box, see "Tasks on the Mac" for the other place.
   The project is required (there is no default project in the
   code any more). Without `--base` the task starts from the project's base branch; with it from that local
   branch of the project's repository, which must exist (one line names `box branches` otherwise). The task
@@ -790,7 +805,8 @@ first, at most 200. `default` is the project's base.
   the filesystem of the person: two paths that differ only in letter case or in how an accented letter is
   composed (one file on a Mac, two on the Linux of the check), a name some filesystem takes for `.git`
   (`.GIT`, `git~1`, `.git` with ignored characters, a trailing dot or space) and a name with a colon are
-  refused. The check ends with exit code 2 and the line "the commit was not checked: <why>" in its log;
+  refused. The check ends with exit code 2, the line "the commit was not checked: <why>" in its log and
+  the reason as `discarded` in its result;
   `box take` ends with exit 1 and "task '<task>' was not taken: <why>. Nothing was changed in <repo>". A tree
   that cannot be examined is refused the same way.
 - `box take <task>`: prints the taken sha as its last stdout line. The commit is read from the workspace once;
@@ -855,10 +871,10 @@ One agent container per task, named `agentbox-agent-<task>`.
   connection to the sign-in service (is the proxy running), or the container itself failed. The script is
   `image/runner/login.sh`, mounted read-only.
 - `box shell <task>`: for a task in a box, interactive bash in a one-off agent container, for the person to look
-  around. For a lavoro on the Mac it is the person's own login shell in the folder of the lavoro, not confined
-  (see "Lavori on the Mac").
+  around. For a task on the Mac it is the person's own login shell in the folder of the task, not confined
+  (see "Tasks on the Mac").
 
-### `box acp <task> <account>` (the conversation view; for a lavoro on the Mac see "Lavori on the Mac")
+### `box acp <task> <account>` (the conversation view; for a task on the Mac see "Tasks on the Mac")
 
 Starts the account's ACP adapter (`claude-agent-acp`, pinned in the image, see `image/Dockerfile`) in a container
 named `agentbox-acp-<task>` and connects the caller's stdin and stdout to it. The client speaks the Agent Client
@@ -1004,8 +1020,8 @@ budget or one million entries, or when measurement fails or exceeds its deadline
 
 `facts` and `status` add `disk` for boxes:
 `{"bytes":123456,"entries":123,"limitBytes":21474836480,"entryLimit":1000000,"overBudget":false,"enforcement":"detection"}`.
-`disk` is null for a native lavoro or when measurement failed. No Docker call is added for a
-native lavoro.
+`disk` is null for a native task or when measurement failed. No Docker call is added for a
+native task.
 
 Limits to know: the disk budget is detection at operation boundaries, not a quota. Docker
 Desktop and OrbStack do not provide per-volume byte and inode quotas for these mounts. The
@@ -1031,7 +1047,7 @@ import refusal. A process killed outright can leave its private directory for ma
 The app sets `AGENTBOX_HOME` to its writable application-data directory. That directory and
 its children are created on demand; neither a pre-existing `$AGENTBOX_HOME` nor a writable
 service installation is required. On an empty home, `projects --json` returns `[]`; register
-a repository with `project add`, then create its native lavoro with `new`.
+a repository with `project add`, then create its native task with `new`.
 
 For boxes, runner scripts, agent rules and proxy resources are copied to a versioned directory
 under `$AGENTBOX_HOME/runtime/` before use. Container bind mounts refer to that copy, including
@@ -1046,7 +1062,7 @@ Queued duplicates of the same task, commit and verb still share one request.
 
 Storage reads hold the task's shared lifecycle lock until the Docker client ends, and check
 the place again under that lock. Removal or recreation cannot replace a box by a native
-lavoro between the storage guard and its mount. An existing startup's exclusive lock is reused.
+task between the storage guard and its mount. An existing startup's exclusive lock is reused.
 
 
 ## Security disclosure for public distribution
@@ -1061,3 +1077,14 @@ The shared proxy has a global 64-connection limit without per-task reservations.
 task can monopolize those connections and deny network access to other tasks. Neither disk
 availability isolation nor proxy availability isolation should be advertised as a security
 guarantee. Public SECURITY.md documentation must retain these limitations.
+
+## Task age
+
+`box status --json` and `box facts <task> --json` include `ageAt`, a nullable UTC timestamp
+(`YYYY-MM-DDTHH:MM:SSZ`). It is the latest completed agent turn, or the task's creation time
+until a turn ends. ACP prompt responses (including errors) record completion before they reach
+the client. An interrupted pending turn records completion when the adapter ends. Merely opening
+or loading a conversation, reading facts, editing files or running checks does not move it.
+Terminal agents use the container's actual finish time. Older tasks without a recorded age use
+the creation journal entry when available; otherwise `ageAt` is null. Removing and recreating a
+task starts a new age. Clients hide the age while a turn is working.

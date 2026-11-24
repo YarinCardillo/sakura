@@ -36,6 +36,44 @@ pub(super) fn parse(text: &str) -> Patch {
     reader.finish()
 }
 
+/// `text` with the lines git would have written and the engine left out: the `diff --git` line, and for a
+/// file with none of its hunk lines the one hunk its added lines make.
+pub(super) fn complete_file_patch(path: &str, text: &str) -> String {
+    if text.lines().any(|line| line.starts_with(GIT_LINE)) {
+        return text.to_string();
+    }
+    let mut lines: Vec<&str> = text.lines().collect();
+    let body_start = lines.iter().position(|line| line.starts_with("+++ "));
+    let has_hunk = lines.iter().any(|line| line.starts_with("@@ "));
+    let header = match (body_start, has_hunk) {
+        (Some(start), false) => Some((start, whole_file_hunk(&lines[start + 1..]))),
+        _ => None,
+    };
+    let hunk;
+    if let Some((start, line)) = header {
+        hunk = line;
+        lines.insert(start + 1, &hunk);
+    }
+    let kind = if lines.contains(&"--- /dev/null") {
+        "new file mode 100644\n"
+    } else if lines.contains(&"+++ /dev/null") {
+        "deleted file mode 100644\n"
+    } else {
+        ""
+    };
+    format!("{GIT_LINE}a/{path} b/{path}\n{kind}{}\n", lines.join("\n"))
+}
+
+/// The `@@` line of a file whose every line is added or removed, counted from `body`.
+fn whole_file_hunk(body: &[&str]) -> String {
+    let count = |mark: char| body.iter().filter(|line| line.starts_with(mark)).count();
+    let range = |count: usize| match count {
+        0 => "0,0".to_string(),
+        count => format!("1,{count}"),
+    };
+    format!("@@ -{} +{} @@", range(count('-')), range(count('+')))
+}
+
 /// A file being read: the paths seen so far, kept until the file ends.
 struct Draft {
     file: FilePatch,

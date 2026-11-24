@@ -1,0 +1,143 @@
+{
+  "runner": {
+    "state": "running",
+    "current": null,
+    "queue": [],
+    "waiting": null
+  },
+  "tasks": [
+    {
+      "name": "off1",
+      "project": "live",
+      "profile": "live",
+      "where": "box",
+      "ageAt": "2026-11-11T18:56:23Z",
+      "folder": null,
+      "checks": [
+        "probe"
+      ],
+      "base": "main",
+      "baseSha": "f081c4ca969bbf5c919c2596e36793ff781701d0",
+      "readable": true,
+      "branch": "box/off1",
+      "head": "a71aaab35522aeba493e9f02f8213ee8e7d1549d",
+      "headSubject": "off change",
+      "headTime": "2026-11-11T18:56:32Z",
+      "ahead": 1,
+      "dirtyFiles": 0,
+      "filesChanged": 1,
+      "insertions": 1,
+      "deletions": 0,
+      "taken": null,
+      "agent": null,
+      "otherContainers": 0,
+      "disk": {
+        "bytes": 188416,
+        "entries": 82,
+        "limitBytes": 21474836480,
+        "entryLimit": 1000000,
+        "overBudget": false,
+        "enforcement": "detection"
+      },
+      "results": {
+        "probe": {
+          "sha": "a71aaab35522aeba493e9f02f8213ee8e7d1549d",
+          "where": "box",
+          "exitCode": 0,
+          "seconds": 1,
+          "finishedAt": "2026-11-11T18:57:01Z",
+          "cancelled": false,
+          "changesChecks": false,
+          "checksTouched": [],
+          "checksReason": null,
+          "testsTouched": {
+            "modified": 0,
+            "deleted": 0,
+            "files": []
+          },
+          "tests": null,
+          "isHead": true
+        }
+      }
+    },
+    {
+      "name": "on1",
+      "project": "live",
+      "profile": "live",
+      "where": "box",
+      "ageAt": "2026-11-11T18:57:34Z",
+      "folder": null,
+      "checks": [
+        "probe"
+      ],
+      "base": "main",
+      "baseSha": "f081c4ca969bbf5c919c2596e36793ff781701d0",
+      "readable": true,
+      "branch": "box/on1",
+      "head": "e3f036e351ccb1a39c2f1e55de4eabf5fe37674b",
+      "headSubject": "on change",
+      "headTime": "2026-11-11T18:57:39Z",
+      "ahead": 1,
+      "dirtyFiles": 0,
+      "filesChanged": 1,
+      "insertions": 1,
+      "deletions": 0,
+      "taken": null,
+      "agent": null,
+      "otherContainers": 0,
+      "disk": {
+        "bytes": 188416,
+        "entries": 82,
+        "limitBytes": 21474836480,
+        "entryLimit": 1000000,
+        "overBudget": false,
+        "enforcement": "detection"
+      },
+      "results": {
+        "probe": {
+          "sha": "e3f036e351ccb1a39c2f1e55de4eabf5fe37674b",
+          "where": "box",
+          "exitCode": 0,
+          "seconds": 0,
+          "finishedAt": "2026-11-11T18:59:32Z",
+          "cancelled": false,
+          "changesChecks": false,
+          "checksTouched": [],
+          "checksReason": null,
+          "testsTouched": {
+            "modified": 0,
+            "deleted": 0,
+            "files": []
+          },
+          "tests": null,
+          "isHead": true
+        }
+      }
+    }
+  ],
+  "idle": [
+    {
+      "piece": "proxy",
+      "rssMb": 1,
+      "cpuPercent": 0.00
+    },
+    {
+      "piece": "restate",
+      "rssMb": 74,
+      "cpuPercent": 0.8
+    },
+    {
+      "piece": "engine",
+      "rssMb": 74,
+      "cpuPercent": 2.5
+    }
+  ],
+  "checkRunner": {
+    "runner": "engine",
+    "engine": {
+      "restateServer": true,
+      "node": true,
+      "setup": null
+    }
+  }
+}

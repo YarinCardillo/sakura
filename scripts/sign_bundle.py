@@ -7,6 +7,8 @@ import sys
 MACHO_MAGICS = {bytes.fromhex(value) for value in (
     "feedface", "cefaedfe", "feedfacf", "cffaedfe", "cafebabe", "bebafeca", "cafebabf", "bfbafeca")}
 CODE_CONTAINERS = {".app", ".xpc", ".framework", ".bundle"}
+# Sparkle is signed by scripts/sign-sparkle.sh, which keeps the Downloader's own entitlements.
+SPARKLE_FRAMEWORK = "Sparkle.framework"
 SIGN_TIMEOUT_SECONDS = 120
 
 
@@ -29,9 +31,14 @@ def bundle_executable(bundle):
     return (base / name).resolve()
 
 
+def is_sparkle(app, path):
+    """Whether the path is the Sparkle framework or lies inside it."""
+    return SPARKLE_FRAMEWORK in path.relative_to(app).parts
+
+
 def signing_targets(app):
-    """Return inside-out targets; each container signs its own main executable."""
-    paths = [path for path in app.rglob("*") if not path.is_symlink()]
+    """Return inside-out targets; each container signs its own main executable. Sparkle is left as it is."""
+    paths = [path for path in app.rglob("*") if not path.is_symlink() and not is_sparkle(app, path)]
     containers = [path for path in paths if path.is_dir() and path.suffix in CODE_CONTAINERS]
     owned = {bundle_executable(bundle) for bundle in containers + [app]}
     images = [path for path in paths if is_macho(path) and path.resolve() not in owned]

@@ -1,0 +1,85 @@
+{
+  "pipeline": [
+    {
+      "can_toggle": false,
+      "id": "plan",
+      "name": "Plan",
+      "note": "",
+      "on": true,
+      "reason": "plan is already done on this lane",
+      "state": "done"
+    },
+    {
+      "can_toggle": false,
+      "id": "plan_review",
+      "name": "Plan review",
+      "note": "",
+      "on": true,
+      "reason": "plan review is already done on this lane",
+      "state": "done"
+    },
+    {
+      "can_toggle": false,
+      "id": "build",
+      "name": "Build",
+      "note": "",
+      "on": true,
+      "reason": "build is always on: the least a lane does is build",
+      "state": "running"
+    },
+    {
+      "can_toggle": true,
+      "id": "task_review",
+      "name": "Task review",
+      "note": "",
+      "on": true,
+      "reason": "",
+      "state": "next"
+    },
+    {
+      "can_toggle": true,
+      "id": "final_review",
+      "name": "Final review",
+      "note": "",
+      "on": false,
+      "reason": "",
+      "state": "off"
+    },
+    {
+      "can_toggle": true,
+      "id": "checks",
+      "name": "Checks",
+      "note": "",
+      "on": true,
+      "reason": "",
+      "state": "next"
+    },
+    {
+      "can_toggle": true,
+      "id": "evaluator",
+      "name": "Evaluator",
+      "note": "",
+      "on": false,
+      "reason": "",
+      "state": "off"
+    },
+    {
+      "can_toggle": false,
+      "id": "deliver",
+      "name": "Deliver",
+      "note": "",
+      "on": true,
+      "reason": "deliver is always on: the least a lane does is deliver",
+      "state": "next"
+    },
+    {
+      "can_toggle": true,
+      "id": "reporter",
+      "name": "Reporter",
+      "note": "",
+      "on": true,
+      "reason": "",
+      "state": "next"
+    }
+  ]
+}

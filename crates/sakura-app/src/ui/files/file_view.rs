@@ -2,7 +2,8 @@
 //! line numbers are the editor's; the lines that differ from the base are marked in its gutter (added,
 //! modified, and a mark where lines were removed); a long line wraps onto rows that keep its indent, so
 //! nothing is ever cut; the text can be selected and copied, and with lines selected "Ask the agent"
-//! hands them over for the conversation's composer. A file that is too large or not text is one plain
+//! hands them over for the conversation's composer. The added and modified lines are also tinted across
+//! their rows the way "Changes" tints an added line, so an edit is seen where it lands. A file that is too large or not text is one plain
 //! sentence. The file is read again when the task changes and keeps its place.
 //!
 //! The person taking the view (a scroll, a press) is told to the pane, which stops following the agent.
@@ -14,6 +15,7 @@ use super::source::Source;
 use super::syntax;
 use crate::l10n::Key;
 use crate::theme::{self, Palette, Theme};
+use crate::ui::patience::Patience;
 use gpui::{
     point, px, AppContext as _, Context, Entity, EventEmitter, Pixels, Subscription, Task, Window,
 };
@@ -23,6 +25,7 @@ use gpui_component::input::{
 use sakura_core::error::BridgeResult;
 use sakura_core::files::{gutter_marks, FileBody, GutterMark, MarkKind, Reference};
 use sakura_core::patch::Patch;
+use std::ops::RangeInclusive;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -48,6 +51,8 @@ enum Shown {
     Text(LineIndex),
     /// One sentence in place of a file that cannot be shown.
     Note(Key),
+    /// A file that could not be read, and the reason in plain words.
+    Unreadable(String),
 }
 
 struct Open {
@@ -62,13 +67,22 @@ pub struct FileView {
     source: Rc<dyn Source>,
     editor: Entity<EditorState>,
     marks: Option<GutterDecorationCollection>,
+    /// The lines added or modified, numbered from 1, whose rows are tinted.
+    tinted: Rc<[RangeInclusive<u32>]>,
     patch: Option<Arc<Patch>>,
     open: Option<Open>,
     /// The line to go to and the passes left to apply it in.
     jump: Option<(u32, u8)>,
     reading: Option<Task<()>>,
+    /// A read of the open file is under way: a jump waits for it, the line may be one only the new text
+    /// has.
+    is_reading: bool,
     /// The caret policy the app had before the file took the keyboard, to put back when it leaves.
     blink_before: Option<CursorBlink>,
+    /// Whether "Ask the agent" is offered over selected lines: not where nothing takes the question.
+    can_ask: bool,
+    /// When the file began to be read: its line shows only for a slow read.
+    patience: Patience,
     _observers: [Subscription; 4],
 }
 
@@ -99,19 +113,20 @@ impl FileView {
             source,
             editor,
             marks: None,
+            tinted: Rc::new([]),
             patch: None,
             open: None,
             jump: None,
             reading: None,
+            is_reading: false,
             blink_before: None,
+            can_ask: true,
+            patience: Patience::default(),
             _observers: [on_theme, on_editor, on_keyboard, on_release],
         }
     }
 
-    /// The file took the keyboard or gave it back. The kit's caret blinks on a timer, by one policy
-    /// for the whole app. Nothing is typed in a file that is only read, so while it has the keyboard
-    /// the policy is a caret that stands still and no frame is requested at rest; the policy the app
-    /// had is put back when the keyboard goes elsewhere.
+    /// Suppress the shared blink timer while this read-only editor has focus, restoring it on blur.
     fn keyboard_changed(
         &mut self,
         _: Entity<EditorState>,
@@ -137,7 +152,13 @@ impl FileView {
         }
     }
 
-    /// The path of the open file.
+    /// The view with "Ask the agent" left out, for a place where nothing takes the question.
+    #[cfg(not(feature = "boxes"))]
+    pub fn without_asking(mut self) -> Self {
+        self.can_ask = false;
+        self
+    }
+
     pub fn path(&self) -> Option<&str> {
         self.open.as_ref().map(|open| open.path.as_str())
     }
@@ -202,6 +223,7 @@ impl FileView {
             return;
         };
         let reading = self.source.file(&path);
+        self.is_reading = true;
         // A read still under way for another file is dropped with its task.
         self.reading = Some(cx.spawn_in(window, async move |view, cx| {
             let body = reading.await;
@@ -223,6 +245,7 @@ impl FileView {
         if self.path() != Some(path) {
             return;
         }
+        self.is_reading = false;
         let was_shown = self.lines().is_some();
         match body {
             Ok(FileBody::Text(text)) => self.show_text(&text, keeps_place && was_shown, window, cx),
@@ -230,7 +253,7 @@ impl FileView {
             Ok(FileBody::TooLarge) => self.show(Shown::Note(Key("files.view.too_large")), false),
             // What was read before stays, said to be old; a file never read is said unreadable.
             Err(_) if was_shown => self.set_stale(true),
-            Err(_) => self.show(Shown::Note(Key("files.view.unreadable")), false),
+            Err(error) => self.show(Shown::Unreadable(crate::l10n::told(&error)), false),
         }
         cx.notify();
     }
@@ -261,10 +284,13 @@ impl FileView {
         };
         let language = syntax::language_of(path);
         self.show(Shown::Text(LineIndex::of(text)), false);
+        // The kit's editor numbers a line after the last line break: a file that ends with one is shown
+        // without it, so only the lines the file has are numbered. Every line keeps its bytes.
+        let shown = text.strip_suffix('\n').unwrap_or(text).to_string();
         self.editor.update(cx, |editor, cx| {
             let place = editor.scroll_offset();
             editor.set_highlighter(language, cx);
-            editor.set_value(text.to_string(), window, cx);
+            editor.set_value(shown, window, cx);
             if keeps_place {
                 editor.set_scroll_offset(place, cx);
             }
@@ -272,9 +298,15 @@ impl FileView {
         self.mark_gutter(cx);
     }
 
-    /// Marks in the gutter the lines of the open file that differ from the base.
+    /// Marks the lines of the open file that differ from the base: in the gutter, and the added and
+    /// modified ones across their rows.
     fn mark_gutter(&mut self, cx: &mut Context<Self>) {
-        let marks = self.gutter_decorations(cx);
+        let marks = self.file_marks();
+        let changed = marks
+            .iter()
+            .filter(|mark| mark.kind != MarkKind::RemovedAbove);
+        self.tinted = changed.map(|mark| mark.lines.clone()).collect();
+        let marks = self.gutter_decorations(marks, cx);
         if let Some(old) = self.marks.take() {
             old.dispose(cx);
         }
@@ -284,21 +316,29 @@ impl FileView {
         }));
     }
 
-    fn gutter_decorations(&self, cx: &gpui::App) -> Vec<GutterDecoration> {
-        let (Some(path), Some(lines), Some(patch)) = (self.path(), self.lines(), &self.patch)
-        else {
+    /// The marks of the open file's part of the patch; none before its text is shown.
+    fn file_marks(&self) -> Vec<GutterMark> {
+        let (Some(path), Some(_), Some(patch)) = (self.path(), self.lines(), &self.patch) else {
+            return Vec::new();
+        };
+        let file = patch.files.iter().find(|file| file.path == path);
+        file.map(gutter_marks).unwrap_or_default()
+    }
+
+    fn gutter_decorations(&self, marks: Vec<GutterMark>, cx: &gpui::App) -> Vec<GutterDecoration> {
+        let Some(lines) = self.lines() else {
             return Vec::new();
         };
         let palette = Theme::palette(cx);
-        let file = patch.files.iter().find(|file| file.path == path);
-        let marks = file.map(gutter_marks).unwrap_or_default();
         let decoration = |mark: GutterMark| decoration(&mark, lines, &palette);
         marks.into_iter().map(decoration).collect()
     }
 
-    /// Goes to the line of a jump still to apply: the line stands a few rows under the top.
+    /// Goes to the line of a jump still to apply, once the file's text is read: the line stands a few rows
+    /// under the top.
     fn apply_jump(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((line, passes)) = self.jump.filter(|_| self.lines().is_some()) else {
+        let is_read = self.lines().is_some() && !self.is_reading;
+        let Some((line, passes)) = self.jump.filter(|_| is_read) else {
             return;
         };
         self.editor.update(cx, |editor, cx| {
@@ -344,24 +384,42 @@ fn decoration(mark: &GutterMark, lines: &LineIndex, palette: &Palette) -> Gutter
 
 #[cfg(test)]
 impl FileView {
+    #[cfg(test)]
     /// The kit's editor, for the tests.
     pub(in crate::ui) fn editor(&self) -> Entity<EditorState> {
         self.editor.clone()
     }
 
+    #[cfg(test)]
     /// The sentence that stands in the file's place, when one does.
-    pub(super) fn note(&self) -> Option<Key> {
+    pub(in crate::ui) fn note(&self) -> Option<Key> {
         match self.open.as_ref().map(|open| &open.shown) {
             Some(Shown::Note(key)) => Some(*key),
+            Some(Shown::Unreadable(_)) => Some(Key("files.view.unreadable")),
             _ => None,
         }
     }
 
+    #[cfg(test)]
     /// Whether what is shown is from before a read that failed.
-    pub(super) fn is_stale(&self) -> bool {
+    pub(in crate::ui) fn is_stale(&self) -> bool {
         self.open.as_ref().is_some_and(|open| open.is_stale)
     }
 
+    #[cfg(test)]
+    /// The lines whose rows are tinted.
+    pub(in crate::ui) fn tinted_lines(&self) -> Vec<RangeInclusive<u32>> {
+        self.tinted.to_vec()
+    }
+
+    #[cfg(test)]
+    /// The bands the tinted rows are painted in, across the editor.
+    pub(in crate::ui) fn tint_bands(&self, cx: &gpui::App) -> Vec<gpui::Bounds<Pixels>> {
+        let editor = self.editor.read(cx);
+        render::row_bands(editor, &self.tinted, editor.input_bounds())
+    }
+
+    #[cfg(test)]
     /// How many marks the gutter has.
     pub(in crate::ui) fn mark_count(&self, cx: &gpui::App) -> usize {
         self.marks

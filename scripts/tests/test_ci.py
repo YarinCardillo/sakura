@@ -100,11 +100,18 @@ class TestReleasePermissions(unittest.TestCase):
         self.assertNotIn('contents: write', ci)
 
 class TestNativeOnlyRelease(unittest.TestCase):
-    def test_release_docs_and_workflows_do_not_offer_the_excluded_engine(self):
-        for name in ['README.md', 'THIRD_PARTY_NOTICES', '.github/workflows/ci.yml', '.github/workflows/release.yml']:
+    def test_workflows_do_not_build_or_run_the_engine(self):
+        for name in ['.github/workflows/ci.yml', '.github/workflows/release.yml']:
             text = (ROOT / name).read_text()
             self.assertNotIn('service/engine', text, name)
             self.assertNotIn('Restate', text, name)
+
+    def test_readme_changelog_and_tree_do_not_carry_the_restate_runner(self):
+        for name in ['README.md', 'CHANGELOG.md']:
+            text = (ROOT / name).read_text()
+            self.assertNotIn('Restate', text, name)
+            self.assertNotIn('service/engine', text, name)
+        self.assertFalse((ROOT / 'service/runners/engine').exists())
 
     def test_each_zed_adaptation_has_the_prominent_modification_date(self):
         for name in ['ime', 'grid_view', 'overlay', 'keys', 'rows', 'mouse', 'pointer']:

@@ -29,10 +29,10 @@ def write_cask(version, archive, destination, architecture):
 
   url "https://github.com/YarinCardillo/sakura/releases/download/v#{{version}}/Sakura-#{{version}}.zip"
   name "Sakura"
-  desc "Desk for watching and steering coding agents in confined workspaces"
+  desc "Run coding agents in parallel lanes and decide only what needs you"
   homepage "https://github.com/YarinCardillo/sakura"
 
-  depends_on macos: :big_sur
+  depends_on macos: :monterey
 {ARCH_LINES[architecture]}
   app "Sakura.app"
 end

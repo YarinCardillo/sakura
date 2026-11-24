@@ -23,6 +23,7 @@ LEFT_OUT_ANYWHERE = ("__pycache__", "*.pyc", ".DS_Store", ".gitignore", "node_mo
 ENGINE_LEFT_OUT = ("test", "vitest.config.ts")
 DOCUMENTS = ("LICENSE", "THIRD_PARTY_NOTICES", "README.md")
 LINUX_EXTRAS = (("packaging/linux/sakura.desktop", "sakura.desktop"), ("assets/icons/sakura-1024.png", "sakura.png"))
+LINUX_ICON_SIZES = (16, 32, 48, 64, 128, 256, 512)
 ARCHITECTURE = "x86_64"
 INSTALL_DEADLINE_SECONDS = 600
 
@@ -76,6 +77,15 @@ def lay_out(system, binary, folder):
     if system == "linux":
         for source, name in LINUX_EXTRAS:
             shutil.copy2(ROOT / source, folder / name)
+        carry_linux_icons(folder)
+
+
+def carry_linux_icons(folder):
+    """Copy the original PNGs to the sizes a desktop's hicolor theme searches."""
+    for size in LINUX_ICON_SIZES:
+        destination = folder / f"share/icons/hicolor/{size}x{size}/apps"
+        destination.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / f"assets/icons/linux/sakura-{size}.png", destination / "sakura.png")
 
 
 def archive(system, folder):

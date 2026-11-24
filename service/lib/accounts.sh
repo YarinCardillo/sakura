@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# The accounts of lavori on the Mac: the Claude logins the person already has. Each is a config
+# The accounts of tasks on the Mac: the Claude logins the person already has. Each is a config
 # directory of the person, named in $AGENTBOX_HOME/config (ACCOUNT_<name>=<path>). The native
 # agent is started with that directory by path (CLAUDE_CONFIG_DIR); box never opens a file
 # inside it, and there is no sign-in step.
@@ -19,7 +19,7 @@ ensure_config() {
   mkdir -p "$AGENTBOX_HOME"
   staged="$(mktemp "$AGENTBOX_HOME/.config.XXXXXX")" || return 0
   {
-    echo "# The Claude logins of the lavori on the Mac: ACCOUNT_<name>=<config directory>."
+    echo "# The Claude logins of the tasks on the Mac: ACCOUNT_<name>=<config directory>."
     echo "# Add a line for another login; box only ever passes the directory to the agent."
     for pair in $FIRST_MAC_ACCOUNTS; do
       if [ -d "$HOME/${pair#*=}" ]; then echo "ACCOUNT_${pair%%=*}=$HOME/${pair#*=}"; fi

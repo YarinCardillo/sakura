@@ -1,35 +1,43 @@
 //! The palette on screen: the kit's command list (a search field over grouped commands, each with its key
 //! when it has one) in a panel near the top of the window, over a dimmed window. It appears and goes at
-//! once, with no animation. Opened by its key it has the caret in its field, the one place in the app that
-//! takes the keyboard without a click; opened any other way (a menu, a button) the palette itself has the
-//! keyboard, for Esc, and the field takes the caret when it is pressed. Closing gives the keyboard back
-//! to what had it.
+//! once. The engine desk focuses search on open and restores the previous focus on close.
 
-use super::commands::{groups, is_offered, Ask, Entry, Group, Run, Situation};
+#[cfg(feature = "boxes")]
+use super::metrics::WIDTH as COMMAND_WIDTH;
+#[cfg(not(feature = "boxes"))]
+use super::metrics::{COMMAND_BOTTOM_MARGIN, COMMAND_LIST_MAX_HEIGHT, COMMAND_TOP, COMMAND_WIDTH};
 use super::metrics::{
-    EMPTY_PADDING_Y, EMPTY_TEXT_SIZE, LAYER, LIST_MAX_HEIGHT, SCRIM_ALPHA, SIDE_MARGIN, TOP, WIDTH,
+    EMPTY_PADDING_Y, EMPTY_TEXT_SIZE, FULL_HEIGHT, GLYPH_SIZE, LAYER, LIBRARY_LINE_FRAME_REMS,
+    LIST_MAX_HEIGHT, LIST_REM, SCRIM_ALPHA, SIDE_MARGIN,
 };
-use crate::l10n::{tr, Key, Language, LanguageChoice};
-use crate::menus::{
-    LanguageAutomatic, LanguageEnglish, LanguageItalian, NewTask, ShowSettings, StartPlay,
-    StopPlay, ToggleChanges, ToggleSidebar,
+use super::ChooseInNewTab;
+use super::{
+    action_of, groups, icon_of, is_offered, Ask, Entry, Group, Run, Situation, PLACEHOLDER,
 };
+use crate::l10n::{tr, Key};
+use crate::theme::Theme;
+#[cfg(feature = "boxes")]
 use crate::ui::centred;
-use crate::ui::files::quick_open::ToggleQuickOpen;
-use crate::ui::tabs::keys::CloseTab;
+use crate::ui::kit::command_row;
+use crate::ui::rem_scope::at_rem;
+#[cfg(not(feature = "boxes"))]
+use gpui::Focusable as _;
 use gpui::{
     anchored, deferred, div, point, px, AnyElement, App, AppContext as _, Context, Div, Entity,
-    EventEmitter, FocusHandle, InteractiveElement as _, IntoElement, KeyDownEvent, MouseButton,
-    ParentElement as _, Pixels, Render, Size, Stateful, Styled as _, WeakEntity, Window,
+    EventEmitter, FocusHandle, InteractiveElement as _, IntoElement, KeyDownEvent, Keystroke,
+    MouseButton, ParentElement as _, Pixels, Render, SharedString, Size, Stateful, Styled as _,
+    WeakEntity, Window,
 };
+use gpui_base::actions::Confirm;
 use gpui_component::command::{Command, CommandGroup, CommandItem, CommandState};
-use gpui_component::{ActiveTheme as _, IndexPath};
+use gpui_component::kbd::Kbd;
+use gpui_component::{ActiveTheme as _, Icon, IndexPath};
 use std::rc::Rc;
 
-/// What the field says before anything is typed.
-pub const PLACEHOLDER: Key = Key("palette.placeholder");
 /// The key that closes the palette.
 const ESCAPE: &str = "escape";
+/// The key that chooses the highlighted command.
+const RETURN: &str = "enter";
 /// What the list says when nothing matches.
 pub const NOTHING_FOUND: Key = Key("palette.nothing");
 
@@ -48,10 +56,15 @@ pub struct Palette {
     panel_left: Pixels,
     /// What had the keyboard before the palette opened.
     before: Option<FocusHandle>,
-    /// The palette's own place for the keyboard when it was not opened by a key.
+    /// Receives Escape before the search field is activated.
     handle: FocusHandle,
     /// Where the window is now, asked again right before a chosen command is carried out.
     now: Option<Rc<Now>>,
+    /// Cmd-Return requested the choice about to be made to open in a tab of its own.
+    is_new_tab: bool,
+    /// The page that was on screen when the palette opened: the palette does not outlive a change of it.
+    #[cfg(not(feature = "boxes"))]
+    page: Option<sakura_core::tabs::Page>,
 }
 
 /// Reads where the window is.
@@ -69,6 +82,9 @@ impl Palette {
             before: None,
             handle: cx.focus_handle(),
             now: None,
+            is_new_tab: false,
+            #[cfg(not(feature = "boxes"))]
+            page: None,
         }
     }
 
@@ -98,22 +114,36 @@ impl Palette {
         }
     }
 
-    /// Lists the commands for `situation` with an empty field; the caret is in it when a key opened it.
+    /// Lists the commands for `situation` with an empty search field.
     pub fn open(&mut self, situation: &Situation, window: &mut Window, cx: &mut Context<Self>) {
         self.listed = Some(groups(situation));
         self.panel_left = situation.panel_left;
+        #[cfg(not(feature = "boxes"))]
+        {
+            self.page = Some(situation.page.clone());
+        }
         self.before = window.focused(cx);
         // A list of its own for each opening: an empty field and its first command highlighted, whatever
         // was typed or highlighted the last time.
         self.state = cx.new(|cx| CommandState::new(window, cx));
-        // Keyboard-opened input receives focus so typing starts immediately.
-        // Opened with the pointer, nothing is given a caret the person did not ask for.
-        if window.last_input_was_keyboard() {
-            self.state.update(cx, |state, cx| state.focus(window, cx));
-        } else {
-            self.handle.focus(window, cx);
-        }
+        #[cfg(feature = "boxes")]
+        self.handle.focus(window, cx);
+        #[cfg(not(feature = "boxes"))]
+        self.state.focus_handle(cx).focus(window, cx);
         cx.notify();
+    }
+
+    /// Closes the palette when the page on screen is not the one it opened over.
+    #[cfg(not(feature = "boxes"))]
+    pub fn follow_page(
+        &mut self,
+        shown: &sakura_core::tabs::Page,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.is_open() && self.page.as_ref() != Some(shown) {
+            self.close(window, cx);
+        }
     }
 
     /// Takes the palette off the screen and gives the keyboard back.
@@ -137,6 +167,7 @@ impl Palette {
             .as_ref()
             .and_then(|listed| listed.get(path.section)?.entries.get(path.row));
         let run = entry.map(|entry| entry.run.clone());
+        let is_new_tab = std::mem::take(&mut self.is_new_tab) || window.modifiers().platform;
         self.close(window, cx);
         let Some(Run::Ask(ask)) = run else {
             return;
@@ -146,7 +177,7 @@ impl Palette {
             .as_ref()
             .is_none_or(|now| is_offered(&now(cx), &Run::Ask(ask.clone())));
         if is_current {
-            cx.emit(PaletteEvent::Asked(ask));
+            cx.emit(PaletteEvent::Asked(ask.in_new_tab(is_new_tab)));
         }
     }
 }
@@ -161,21 +192,38 @@ impl Render for Palette {
         let panel = div()
             .id("palette-panel")
             .debug_selector(|| "palette-panel".into())
-            .w(px(WIDTH))
+            .w(px(COMMAND_WIDTH))
             .max_w(viewport.width - px(SIDE_MARGIN * 2.))
             .rounded(cx.theme().radius_lg)
             .shadow_lg()
             .track_focus(&self.handle)
-            .on_key_down(cx.listener(|palette, event: &KeyDownEvent, window, cx| {
-                // Only when the palette itself has the keyboard: the field has its own Esc.
-                let is_mine = palette.handle.is_focused(window);
-                if is_mine && event.keystroke.key == ESCAPE {
+            .on_action(cx.listener(|palette, _: &ChooseInNewTab, window, cx| {
+                palette.is_new_tab = true;
+                window.dispatch_action(Box::new(Confirm { secondary: false }), cx);
+            }))
+            // The capture phase, so that the field's own Esc (which only clears what was typed) never
+            // answers first: the first Esc leaves the palette, with words typed or not.
+            .capture_action(cx.listener(
+                |palette, _: &gpui_component::input::Escape, window, cx| palette.close(window, cx),
+            ))
+            .capture_key_down(cx.listener(|palette, event: &KeyDownEvent, window, cx| {
+                if event.keystroke.key == ESCAPE {
+                    cx.stop_propagation();
                     palette.close(window, cx);
                 }
             }))
             // A press on the panel is not a press outside it.
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(list(&self.state, listed, &me));
+            .child(at_rem(
+                LIST_REM,
+                list(
+                    &self.state,
+                    listed,
+                    &me,
+                    self.state.read(cx).selected_index(),
+                    list_height(viewport.height),
+                ),
+            ));
         let placed = anchored()
             .position(point(px(0.), px(0.)))
             .child(scrim(viewport, self.panel_left, me).child(panel));
@@ -183,14 +231,29 @@ impl Render for Palette {
     }
 }
 
-/// The dimmed layer over the whole window, with the panel near its top and centred across the desk's
-/// panel, which starts `panel_left` from the window's left edge; a press on it closes the palette.
+/// Where the panel's top stands: a fixed distance from the window's top in the engine's window; in the
+/// other build the middle of the window's height at its tallest.
+fn top(window_height: Pixels) -> Pixels {
+    #[cfg(not(feature = "boxes"))]
+    {
+        let _ = (window_height, FULL_HEIGHT, SIDE_MARGIN);
+        px(COMMAND_TOP)
+    }
+    #[cfg(feature = "boxes")]
+    {
+        centred::overlay_top(window_height, px(FULL_HEIGHT), px(SIDE_MARGIN))
+    }
+}
+
+/// The dimmed layer over the whole window, with the panel centred across the desk's panel, which
+/// starts `panel_left` from the window's left edge, and standing where it is in the middle of the
+/// window's height at its tallest; a press on it closes the palette.
 fn scrim(
     viewport: Size<Pixels>,
     panel_left: Pixels,
     palette: WeakEntity<Palette>,
 ) -> Stateful<Div> {
-    div()
+    let scrim = div()
         .id("palette-scrim")
         .debug_selector(|| "palette-scrim".into())
         .occlude()
@@ -200,22 +263,51 @@ fn scrim(
         .flex()
         .justify_center()
         .items_start()
-        .pt(px(TOP))
-        .pl(centred::panel_offset(panel_left) * 2.)
-        .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-            drop(palette.update(cx, |palette, cx| palette.close(window, cx)));
-        })
+        .pt(top(viewport.height));
+    // The engine's window centres the palette on the window; the file list's window centres it on its panel.
+    #[cfg(feature = "boxes")]
+    let scrim = scrim.pl(centred::panel_offset(panel_left) * 2.);
+    #[cfg(not(feature = "boxes"))]
+    let _ = panel_left;
+    scrim.on_mouse_down(MouseButton::Left, move |_, window, cx| {
+        drop(palette.update(cx, |palette, cx| palette.close(window, cx)));
+    })
+}
+
+/// How high the list may grow: in the engine's window every group stands in view while the window has the
+/// room (the Projects group is the last, and was cut at the bottom edge); in the other build a fixed height.
+fn list_height(window_height: Pixels) -> Pixels {
+    #[cfg(not(feature = "boxes"))]
+    {
+        let room = window_height - px(COMMAND_TOP) - px(COMMAND_BOTTOM_MARGIN);
+        room.clamp(px(LIST_MAX_HEIGHT), px(COMMAND_LIST_MAX_HEIGHT))
+    }
+    #[cfg(feature = "boxes")]
+    {
+        let _ = window_height;
+        px(LIST_MAX_HEIGHT)
+    }
 }
 
 /// The kit's command list over `listed`, telling the palette what was chosen and when Esc asks to leave.
-fn list(state: &Entity<CommandState>, listed: &[Group], palette: &WeakEntity<Palette>) -> Command {
-    let (chosen, left) = (palette.clone(), palette.clone());
+fn list(
+    state: &Entity<CommandState>,
+    listed: &[Group],
+    palette: &WeakEntity<Palette>,
+    selected: Option<IndexPath>,
+    max_height: Pixels,
+) -> Command {
+    let (chosen, left, moved) = (palette.clone(), palette.clone(), palette.clone());
     let command = Command::new(state)
         .placeholder(tr(PLACEHOLDER))
-        .max_h(px(LIST_MAX_HEIGHT))
+        .max_h(max_height)
         .empty(|_, _, cx| nothing_found(cx))
         .on_confirm(move |path, window, cx| {
             drop(chosen.update(cx, |palette, cx| palette.chosen(path, window, cx)));
+        })
+        .on_select(move |_, _, cx| {
+            // The row that shows Return follows the highlight: the palette draws again.
+            drop(moved.update(cx, |_, cx| cx.notify()));
         })
         .on_cancel(move |window, cx| {
             // The list is in the middle of its own update: the palette leaves right after it.
@@ -224,40 +316,77 @@ fn list(state: &Entity<CommandState>, listed: &[Group], palette: &WeakEntity<Pal
                 drop(left.update(cx, |palette, cx| palette.close(window, cx)));
             });
         });
-    listed
-        .iter()
-        .fold(command, |command, group| command.group(kit_group(group)))
+    let groups = listed.iter().enumerate();
+    groups.fold(command, |command, (section, group)| {
+        command.group(kit_group(group, section, selected))
+    })
 }
 
-fn kit_group(group: &Group) -> CommandGroup {
+fn kit_group(group: &Group, section: usize, selected: Option<IndexPath>) -> CommandGroup {
+    let item = |(row, entry): (usize, &Entry)| {
+        let is_selected = selected.is_some_and(|at| at.section == section && at.row == row);
+        kit_item(entry, is_selected, format!("palette-row-{section}-{row}"))
+    };
     CommandGroup::new()
         .label(group.label.clone())
-        .items(group.entries.iter().map(kit_item))
+        .items(group.entries.iter().enumerate().map(item))
 }
 
-/// The entry as the kit's item: a command of the window carries its action, whose key the row then shows.
-fn kit_item(entry: &Entry) -> CommandItem {
+/// What stands at the end of a line: the key of a command of the window, else, on the highlighted line of
+/// any other command, Return, the key that chooses it.
+enum Trailing {
+    Action(Box<dyn gpui::Action>),
+    Return,
+    Nothing,
+}
+
+/// The entry as the kit's item, drawn by the kit's command row so that every line is as high as the scale's
+/// large control: a command of the window carries its action, which the list carries out, and its key.
+fn kit_item(entry: &Entry, is_selected: bool, selector: String) -> CommandItem {
     let item = CommandItem::new()
         .label(entry.label.clone())
         .checked(entry.is_current);
-    match entry.run {
-        Run::NewTask => item.action(Box::new(NewTask)),
-        Run::OpenFile => item.action(Box::new(ToggleQuickOpen)),
-        Run::Language(LanguageChoice::Automatic) => item.action(Box::new(LanguageAutomatic)),
-        Run::Language(LanguageChoice::Is(Language::English)) => {
-            item.action(Box::new(LanguageEnglish))
-        }
-        Run::Language(LanguageChoice::Is(Language::Italian)) => {
-            item.action(Box::new(LanguageItalian))
-        }
-        Run::ToggleSidebar => item.action(Box::new(ToggleSidebar)),
-        Run::ToggleChanges => item.action(Box::new(ToggleChanges)),
-        Run::CloseTab => item.action(Box::new(CloseTab)),
-        Run::StartPlay => item.action(Box::new(StartPlay)),
-        Run::StopPlay => item.action(Box::new(StopPlay)),
-        Run::Settings => item.action(Box::new(ShowSettings)),
-        Run::Ask(_) => item,
-    }
+    let action = action_of(&entry.run);
+    let is_lane = entry.glyph.is_some();
+    let trailing = match &action {
+        Some(action) if !is_lane => Trailing::Action(action.boxed_clone()),
+        _ if is_selected && (is_lane || !entry.is_current) => Trailing::Return,
+        _ => Trailing::Nothing,
+    };
+    let (glyph, icon) = (entry.glyph, icon_of(&entry.run));
+    let label: SharedString = entry.label.clone().into();
+    let item = match action {
+        Some(action) => item.action(action),
+        None => item,
+    };
+    item.child(move |window, cx| {
+        let palette = Theme::palette(cx);
+        let ink = match is_selected {
+            true => cx.theme().accent_foreground,
+            false => cx.theme().muted_foreground,
+        };
+        let lead = match (glyph, icon) {
+            (Some(glyph), _) => Some(glyph.paint(px(GLYPH_SIZE), &palette).into_any_element()),
+            (None, Some(icon)) => Some(Icon::new(icon).size_4().text_color(ink).into_any_element()),
+            (None, None) => None,
+        };
+        let key = match &trailing {
+            Trailing::Action(action) => Kbd::binding_for_action(action.as_ref(), None, window),
+            Trailing::Return => Keystroke::parse(RETURN).map(Kbd::new).ok(),
+            Trailing::Nothing => None,
+        };
+        let frame = window.rem_size() * LIBRARY_LINE_FRAME_REMS;
+        command_row(
+            lead,
+            label.clone(),
+            key.map(IntoElement::into_any_element),
+            frame,
+        )
+        .debug_selector({
+            let selector = selector.clone();
+            move || selector.clone()
+        })
+    })
 }
 
 fn nothing_found(cx: &gpui::App) -> AnyElement {

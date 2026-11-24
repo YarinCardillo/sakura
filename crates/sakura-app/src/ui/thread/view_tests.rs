@@ -39,6 +39,8 @@ fn host(seen: Rc<Seen>, runtime: tokio::runtime::Handle, program: &'static [&'st
                 workspace: "/work/demo".into(),
                 deadlines: Deadlines::default(),
                 max_unread_bytes: sakura_acp::transport::MAX_UNREAD_BYTES,
+                asks_beyond_workspace: false,
+                session: sakura_acp::connection::SessionSetup::default(),
             };
             let (agent, events) = Agent::start(config, &runtime);
             Launched::Started(agent, events)
@@ -288,7 +290,7 @@ fn permission_request_tells_the_header_and_shows_a_button_per_choice(cx: &mut Te
     let heard = told.clone();
     let _subscription = opened.cx.update(|_, cx| {
         cx.subscribe(&opened.view, move |_, event: &ThreadViewEvent, _| {
-            heard.borrow_mut().push(*event);
+            heard.borrow_mut().push(event.clone());
         })
     });
     apply(
@@ -762,7 +764,7 @@ fn click_start_of(cx: &mut VisualTestContext, selector: &'static str) {
 }
 
 #[gpui::test]
-fn link_in_an_answer_opens_only_a_web_address(cx: &mut TestAppContext) {
+fn an_address_in_an_answer_opens_only_when_it_is_http_or_https(cx: &mut TestAppContext) {
     let mut opened = open(cx);
     let said = |text: &str| {
         vec![
@@ -771,32 +773,54 @@ fn link_in_an_answer_opens_only_a_web_address(cx: &mut TestAppContext) {
             ThreadEvent::TurnEnded(sakura_acp::model::StopReason::EndTurn),
         ]
     };
-    apply(&mut opened, said("[the password file](file:///etc/passwd)"));
-    click_start_of(opened.cx, "thread-answer-1-0");
-    assert_eq!(
-        opened.cx.opened_url(),
-        None,
-        "a file address is never opened"
-    );
+    // Each answer is one more entry after the person's message, so the answers are 1, 3 and 5.
+    let addresses = [
+        ("[il file](file:///etc/passwd)", None),
+        ("<x-apple-systempreferences:com.apple.x>", None),
+        (
+            "<https://example.com/guida>",
+            Some("https://example.com/guida"),
+        ),
+    ];
+    for (at, (written, opens)) in addresses.into_iter().enumerate() {
+        apply(&mut opened, said(written));
+        let part = Box::leak(format!("thread-answer-{}-0", 1 + 2 * at).into_boxed_str());
+        click_start_of(opened.cx, part);
+        assert_eq!(opened.cx.opened_url().as_deref(), opens, "{written}");
+    }
+}
+
+#[gpui::test]
+fn an_image_in_an_answer_is_made_text_before_it_is_drawn(cx: &mut TestAppContext) {
+    let mut opened = open(cx);
     apply(
         &mut opened,
-        said("[un programma](x-apple-systempreferences:com.apple.x)"),
+        vec![
+            ThreadEvent::Prompted("vai".into()),
+            ThreadEvent::Update(Update::AgentText(
+                "Here ![pixel](https://tracker.example/p.png?id=1) <img src=\"x\">".to_string(),
+            )),
+            ThreadEvent::TurnEnded(sakura_acp::model::StopReason::EndTurn),
+        ],
     );
-    click_start_of(opened.cx, "thread-answer-3-0");
-    assert_eq!(
-        opened.cx.opened_url(),
-        None,
-        "nor another program's address"
+    draw(opened.cx);
+    let part = opened.view.read_with(opened.cx, |view, _| {
+        let id = view.thread.entries()[1].id;
+        match view.rows.get(&id) {
+            Some(super::RowState::Markdown(answer)) => answer.parts()[0].clone(),
+            _ => panic!("the answer is drawn"),
+        }
+    });
+    let drawn = opened.cx.update(|_, cx| {
+        part.update(cx, |part, cx| part.select_all(cx));
+        part.read(cx).selected_text()
+    });
+    assert!(!drawn.contains("!["), "{drawn}");
+    assert!(
+        drawn.contains("https://tracker.example/p.png?id=1"),
+        "{drawn}"
     );
-    apply(
-        &mut opened,
-        said("[la documentazione](https://example.com/guida)"),
-    );
-    click_start_of(opened.cx, "thread-answer-5-0");
-    assert_eq!(
-        opened.cx.opened_url().as_deref(),
-        Some("https://example.com/guida")
-    );
+    assert!(drawn.contains("<img"), "the tag is read as text: {drawn}");
 }
 
 /// The problem a test shows: a refusal with the provider's own words.
@@ -920,5 +944,398 @@ fn kept_conversation_is_asked_for_once_by_being_shown(cx: &mut TestAppContext) {
         opened.seen.launches.get(),
         1,
         "looking again starts nothing"
+    );
+}
+
+#[gpui::test]
+fn a_session_that_could_not_be_opened_leaves_connecting_and_shows_the_refusal(
+    cx: &mut TestAppContext,
+) {
+    let opened = open_with(cx, SILENT_PROGRAM);
+    opened.view.update_in(opened.cx, |view, window, cx| {
+        view.write("wave", window, cx);
+        view.send(window, cx);
+    });
+    draw(opened.cx);
+    opened.view.read_with(opened.cx, |view, _| {
+        assert_eq!(
+            view.phase(),
+            &Phase::Connecting,
+            "the message waits for a session"
+        );
+    });
+    let problem = sakura_acp::thread::Problem {
+        kind: ProblemKind::RequestFailed,
+        detail: "session/set_mode: Invalid Mode".to_string(),
+    };
+    opened.view.update(opened.cx, |view, cx| {
+        let failed = sakura_acp::thread::ThreadEvent::Failed(problem.clone());
+        view.receive(vec![sakura_acp::connection::AgentEvent::Thread(failed)], cx);
+    });
+    draw(opened.cx);
+    opened.view.read_with(opened.cx, |view, _| {
+        assert_eq!(view.phase(), &Phase::Ended(problem.clone()));
+        assert_eq!(
+            view.thread.turn(),
+            Turn::Idle,
+            "the message that waited is not pending"
+        );
+        assert!(
+            view.waiting_prompt.is_none(),
+            "and is never sent to a session that was not opened"
+        );
+        let last = view.thread.entries().last().expect("the refusal is shown");
+        assert!(matches!(last.kind, EntryKind::Problem(_)));
+    });
+    assert!(
+        opened.cx.debug_bounds("thread-restart").is_some(),
+        "the way to start again is offered"
+    );
+}
+
+#[gpui::test]
+fn a_message_written_while_the_conversation_loads_says_it_is_sent_when_it_has(
+    cx: &mut TestAppContext,
+) {
+    let opened = open(cx);
+    opened.view.update_in(opened.cx, |view, window, cx| {
+        view.phase = Phase::Loading;
+        view.write("wave", window, cx);
+    });
+    draw(opened.cx);
+    assert!(
+        opened.cx.debug_bounds("thread-composer-hold").is_some(),
+        "the composer says the message goes when the conversation has loaded"
+    );
+    assert!(opened
+        .view
+        .read_with(opened.cx, |view, cx| view.can_send(cx)));
+    opened
+        .view
+        .update(opened.cx, |view, _| view.phase = Phase::Ready);
+    draw(opened.cx);
+    assert!(opened.cx.debug_bounds("thread-composer-hold").is_none());
+}
+
+/// The person's messages of the thread, in order.
+fn said_by_the_person(opened: &Opened) -> Vec<String> {
+    opened.view.read_with(opened.cx, |view, _| {
+        view.thread
+            .entries()
+            .iter()
+            .filter_map(|entry| match &entry.kind {
+                sakura_acp::thread::EntryKind::User(text) => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    })
+}
+
+#[gpui::test]
+fn a_send_pressed_while_the_conversation_loads_is_kept_and_sent_when_it_is_ready(
+    cx: &mut TestAppContext,
+) {
+    let opened = open(cx);
+    opened.view.update_in(opened.cx, |view, window, cx| {
+        view.phase = Phase::Loading;
+        view.write("wave", window, cx);
+        view.send(window, cx);
+    });
+    draw(opened.cx);
+    assert_eq!(
+        said_by_the_person(&opened),
+        Vec::<String>::new(),
+        "nothing is sent yet"
+    );
+    assert!(
+        opened.cx.debug_bounds("thread-composer-hold").is_some(),
+        "the person is told the message waits"
+    );
+    assert!(!opened
+        .view
+        .read_with(opened.cx, |view, cx| view.can_send(cx)));
+    let opening = sakura_acp::connection::AgentEvent::SessionOpened {
+        session_id: "stored".into(),
+        is_loaded: true,
+    };
+    opened
+        .view
+        .update(opened.cx, |view, cx| view.receive(vec![opening], cx));
+    draw(opened.cx);
+    assert_eq!(
+        said_by_the_person(&opened),
+        ["wave"],
+        "sent once it is ready"
+    );
+    assert!(opened.cx.debug_bounds("thread-composer-hold").is_none());
+}
+
+#[gpui::test]
+fn a_message_held_for_the_conversation_comes_back_to_the_composer_when_the_agent_ends(
+    cx: &mut TestAppContext,
+) {
+    let opened = open(cx);
+    opened.view.update_in(opened.cx, |view, window, cx| {
+        view.phase = Phase::Loading;
+        view.write("wave", window, cx);
+        view.send(window, cx);
+    });
+    opened.view.update(opened.cx, |view, cx| {
+        view.receive(vec![sakura_acp::connection::AgentEvent::Ended(None)], cx)
+    });
+    draw(opened.cx);
+    assert_eq!(said_by_the_person(&opened), Vec::<String>::new());
+    let written = opened
+        .view
+        .read_with(opened.cx, |view, cx| super::composed(&view.composer, cx));
+    assert_eq!(written, "wave", "the message was not lost");
+}
+
+#[gpui::test]
+fn an_empty_composer_while_the_conversation_loads_says_nothing_of_waiting(cx: &mut TestAppContext) {
+    let opened = open(cx);
+    opened
+        .view
+        .update(opened.cx, |view, _| view.phase = Phase::Loading);
+    draw(opened.cx);
+    assert!(opened.cx.debug_bounds("thread-composer-hold").is_none());
+}
+
+/// The words of the clipboard, if it holds any.
+fn copied(cx: &mut VisualTestContext) -> String {
+    cx.read_from_clipboard()
+        .and_then(|item| item.text())
+        .unwrap_or_default()
+}
+
+/// Presses at `from`, drags in steps to `to` and lets go, as a person selects text with the mouse.
+fn drag_select(
+    cx: &mut VisualTestContext,
+    from: gpui::Point<gpui::Pixels>,
+    to: gpui::Point<gpui::Pixels>,
+) {
+    cx.simulate_mouse_down(from, gpui::MouseButton::Left, Modifiers::none());
+    for step in 1..=8 {
+        let share = step as f32 / 8.;
+        let at = point(
+            from.x + (to.x - from.x) * share,
+            from.y + (to.y - from.y) * share,
+        );
+        cx.simulate_mouse_move(at, Some(gpui::MouseButton::Left), Modifiers::none());
+    }
+    cx.simulate_mouse_up(to, gpui::MouseButton::Left, Modifiers::none());
+    draw(cx);
+}
+
+#[gpui::test]
+fn a_drag_across_two_paragraphs_of_an_answer_copies_the_words_of_both(cx: &mut TestAppContext) {
+    let mut opened = open(cx);
+    apply(&mut opened, vec![ThreadEvent::Prompted("explain".into())]);
+    for chunk in answer_in_chunks("Prima frase del first paragrafo.\n\n```rust\nfn sort() {}\n```\n\nSeconda frase del second paragrafo.\n\nUltima frase.") {
+        apply(&mut opened, vec![chunk]);
+    }
+    apply(
+        &mut opened,
+        vec![ThreadEvent::TurnEnded(
+            sakura_acp::model::StopReason::EndTurn,
+        )],
+    );
+    let first = opened
+        .cx
+        .debug_bounds("thread-answer-1-0")
+        .expect("the first part");
+    let last = opened
+        .cx
+        .debug_bounds("thread-answer-1-2")
+        .expect("the third part");
+    drag_select(
+        opened.cx,
+        point(first.left() + px(1.), first.top() + px(4.)),
+        point(last.right() - px(1.), last.bottom() - px(2.)),
+    );
+    opened.cx.simulate_keystrokes("cmd-c");
+    let words = copied(opened.cx);
+    assert!(
+        words.contains("Prima frase del first paragrafo."),
+        "{words:?}"
+    );
+    assert!(
+        words.contains("Seconda frase del second paragrafo."),
+        "{words:?}"
+    );
+}
+
+#[gpui::test]
+fn a_drag_over_the_persons_message_copies_it(cx: &mut TestAppContext) {
+    let mut opened = open(cx);
+    apply(
+        &mut opened,
+        vec![ThreadEvent::Prompted(
+            "Sposta il bottone a destra e poi rilancia i test".into(),
+        )],
+    );
+    let block = opened
+        .cx
+        .debug_bounds("thread-prompt")
+        .expect("the message");
+    drag_select(
+        opened.cx,
+        point(block.left() + px(24.), block.top() + px(18.)),
+        point(block.right() - px(2.), block.bottom() - px(2.)),
+    );
+    opened.cx.simulate_keystrokes("cmd-c");
+    let words = copied(opened.cx);
+    assert!(words.contains("bottone a destra"), "{words:?}");
+}
+
+#[gpui::test]
+fn scrolling_down_after_reading_up_reaches_the_last_line_of_the_chat(cx: &mut TestAppContext) {
+    let mut opened = open(cx);
+    for turn in 0..6 {
+        apply(
+            &mut opened,
+            vec![ThreadEvent::Prompted(format!("domanda {turn}"))],
+        );
+        apply(&mut opened, chunks(120));
+        apply(
+            &mut opened,
+            vec![ThreadEvent::TurnEnded(
+                sakura_acp::model::StopReason::EndTurn,
+            )],
+        );
+    }
+    apply(
+        &mut opened,
+        vec![ThreadEvent::Prompted("ultima domanda".into())],
+    );
+    let scroller = opened
+        .view
+        .read_with(opened.cx, |view, _| view.scroller.clone());
+    let wheel = |delta: f32| ScrollEvent {
+        position: point(px(300.), px(300.)),
+        delta: ScrollDelta::Pixels(point(px(0.), px(delta))),
+        ..ScrollEvent::default()
+    };
+    for _ in 0..8 {
+        opened.cx.simulate_event(wheel(500.));
+        draw(opened.cx);
+    }
+    assert!(scroller.read_with(opened.cx, |scroller, _| scroller.is_scrolled_up()));
+    for _ in 0..60 {
+        opened.cx.simulate_event(wheel(-500.));
+        draw(opened.cx);
+    }
+    scroller.read_with(opened.cx, |scroller, _| {
+        assert!(
+            !scroller.is_scrolled_up(),
+            "the wheel brought the list back to its end"
+        );
+    });
+    let last = opened
+        .cx
+        .debug_bounds("thread-prompt")
+        .expect("the last message is drawn");
+    let list = opened.cx.debug_bounds("thread").expect("the chat");
+    assert!(
+        last.bottom() <= list.bottom() + px(1.),
+        "the last message is in view: {last:?} in {list:?}"
+    );
+}
+
+#[gpui::test]
+fn the_wheel_over_a_code_block_scrolls_the_chat_like_anywhere_else(cx: &mut TestAppContext) {
+    let mut opened = open(cx);
+    apply(&mut opened, vec![ThreadEvent::Prompted("explain".into())]);
+    let block = "```rust\nfn sort() { let molte_parole_in_una_riga_molto_lunga = 1; let altre_parole_ancora_piu_lunghe_della_colonna = 2; }\n```\n\n";
+    let text = block.repeat(12);
+    for chunk in answer_in_chunks(&text) {
+        apply(&mut opened, vec![chunk]);
+    }
+    apply(
+        &mut opened,
+        vec![ThreadEvent::TurnEnded(
+            sakura_acp::model::StopReason::EndTurn,
+        )],
+    );
+    let scroller = opened
+        .view
+        .read_with(opened.cx, |view, _| view.scroller.clone());
+    let wheel = |delta: f32| ScrollEvent {
+        position: point(px(300.), px(300.)),
+        delta: ScrollDelta::Pixels(point(px(0.), px(delta))),
+        ..ScrollEvent::default()
+    };
+    for _ in 0..6 {
+        opened.cx.simulate_event(wheel(400.));
+        draw(opened.cx);
+    }
+    assert!(scroller.read_with(opened.cx, |scroller, _| scroller.is_scrolled_up()));
+    for _ in 0..40 {
+        opened.cx.simulate_event(wheel(-400.));
+        draw(opened.cx);
+    }
+    scroller.read_with(opened.cx, |scroller, _| {
+        assert!(
+            !scroller.is_scrolled_up(),
+            "the wheel reached the end over code blocks too"
+        );
+    });
+}
+
+/// An answer of `lines` short paragraphs, "line 0" to "line N", in one message: far taller than the window.
+fn long_answer(lines: usize) -> Vec<ThreadEvent> {
+    let text: String = (0..lines).map(|n| format!("line {n}\n\n")).collect();
+    vec![
+        ThreadEvent::Prompted("tell me".into()),
+        ThreadEvent::Update(Update::AgentText(text)),
+    ]
+}
+
+#[gpui::test]
+fn a_drag_held_below_the_chat_scrolls_it_and_selects_to_the_last_line_of_a_message_taller_than_the_view(
+    cx: &mut TestAppContext,
+) {
+    let mut opened = open(cx);
+    apply(&mut opened, long_answer(120));
+    let scroller = opened
+        .view
+        .read_with(opened.cx, |view, _| view.scroller.clone());
+    scroller.update(opened.cx, |scroller, cx| {
+        scroller.scroll_to_item(1, cx);
+    });
+    draw(opened.cx);
+    let window = opened.cx.update(|window, _| window.viewport_size());
+    let first = opened
+        .cx
+        .debug_bounds("thread-answer-1-0")
+        .expect("the first line");
+    let start = point(first.left() + px(4.), first.top() + px(8.));
+    opened
+        .cx
+        .simulate_mouse_down(start, gpui::MouseButton::Left, Modifiers::none());
+    let below = point(first.left() + px(40.), window.height - px(6.));
+    opened
+        .cx
+        .simulate_mouse_move(below, Some(gpui::MouseButton::Left), Modifiers::none());
+    for _ in 0..150 {
+        opened
+            .cx
+            .executor()
+            .advance_clock(Duration::from_millis(16));
+        draw(opened.cx);
+    }
+    opened
+        .cx
+        .simulate_mouse_up(below, gpui::MouseButton::Left, Modifiers::none());
+    opened.cx.simulate_keystrokes("cmd-c");
+    let copied = opened
+        .cx
+        .read_from_clipboard()
+        .and_then(|item| item.text())
+        .unwrap_or_default();
+    assert!(
+        copied.contains("line 119") && copied.contains("line 60"),
+        "the selection ran from the first to the last line: {} characters copied",
+        copied.len()
     );
 }

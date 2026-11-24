@@ -1,4 +1,4 @@
-//! The "Al lavoro" breath, drawn so that its tick repaints only what breathes.
+//! The "Working" breath, drawn so that its tick repaints only what breathes.
 //!
 //! GPUI redraws a view together with every view above it, so a breathing glyph that asked its own view to
 //! draw again redrew the sidebar and the page header on every tick (about 3 ms a frame). Now a breathing
@@ -14,19 +14,18 @@
 //! nothing ticks and the glyph draws its half in place, full and still.
 
 use super::glyph;
-use crate::data::facts::Facts;
 use crate::theme;
 use gpui::{
-    canvas, App, Bounds, ContentMask, Context, Entity, Global, Hsla, IntoElement, Pixels, Render,
-    Styled, Task, Window,
+    canvas, App, Bounds, ContentMask, Context, Global, Hsla, IntoElement, Pixels, Render, Styled,
+    Task, Window,
 };
-use sakura_core::model::{self, StateId};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::time::Instant;
 
 /// The view that drew a breathing glyph. Its marks are replaced each time it draws again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(not(feature = "boxes"), allow(dead_code))]
 pub enum Owner {
     Sidebar,
     Header,
@@ -110,28 +109,37 @@ impl Breath {
 
 /// Paints every breathing half on a tick of its own, while something breathes on screen.
 pub struct BreathLayer {
-    facts: Entity<Facts>,
-    /// The tick: it runs only while a lavoro works AND a breathing mark is on screen, so a page that
-    /// shows no working lavoro (the first page, an empty desk, a hidden sidebar) draws nothing again.
+    /// Whether anything is at work, the one thing the tick needs to know: read from the desk's own facts.
+    is_working: Box<dyn Fn(&App) -> bool>,
+    /// The tick: it runs only while a task works AND a breathing mark is on screen, so a page that
+    /// shows no working task (the first page, an empty desk, a hidden sidebar) draws nothing again.
     tick: Option<Task<()>>,
 }
 
 impl BreathLayer {
-    /// The layer of a desk over `facts`.
-    pub fn new(facts: Entity<Facts>, cx: &mut Context<Self>) -> Self {
+    /// The layer of a desk whose facts say through `is_working` whether anything is at work.
+    pub fn new(is_working: Box<dyn Fn(&App) -> bool>, cx: &mut Context<Self>) -> Self {
         cx.default_global::<BreathMarks>().layer = Some(cx.weak_entity());
-        Self { facts, tick: None }
+        Self {
+            is_working,
+            tick: None,
+        }
     }
 
     /// Whether the layer's tick runs.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "boxes"))]
     pub fn is_ticking(&self) -> bool {
         self.tick.is_some()
     }
 
+    /// Whether anything may breathe: something at work, and motion allowed.
+    fn is_needed(&self, cx: &App) -> bool {
+        !cx.reduce_motion() && (self.is_working)(cx)
+    }
+
     /// Starts the tick after a frame that left a mark, if it does not run and something breathes.
     fn wake(&mut self, cx: &mut Context<Self>) {
-        if self.tick.is_none() && is_needed(self.facts.read(cx), cx) {
+        if self.tick.is_none() && self.is_needed(cx) {
             self.tick = Some(cx.spawn(tick));
         }
     }
@@ -139,7 +147,7 @@ impl BreathLayer {
     /// One tick: draws the marks again, or ends the tick when nothing on screen breathes any more.
     /// The marks are counted here, between frames, where every owner has left its own.
     fn beat(&mut self, cx: &mut Context<Self>) -> bool {
-        let is_kept = BreathMarks::count(cx) > 0 && is_needed(self.facts.read(cx), cx);
+        let is_kept = BreathMarks::count(cx) > 0 && self.is_needed(cx);
         if is_kept {
             cx.notify();
         } else {
@@ -152,7 +160,7 @@ impl BreathLayer {
 impl Render for BreathLayer {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         crate::snapshot::count_render("breath layer");
-        if !is_needed(self.facts.read(cx), cx) {
+        if !self.is_needed(cx) {
             self.tick = None;
         }
         canvas(|_, _, _| (), |_, (), window, cx| paint_marks(window, cx))
@@ -200,21 +208,6 @@ async fn tick(layer: gpui::WeakEntity<BreathLayer>, cx: &mut gpui::AsyncApp) {
             return;
         }
     }
-}
-
-/// Whether anything may breathe: an agent at work or a verification running, and motion allowed.
-pub fn is_needed(facts: &Facts, cx: &App) -> bool {
-    if cx.reduce_motion() {
-        return false;
-    }
-    let is_working = facts
-        .rows()
-        .iter()
-        .any(|row| model::task_state(&row.task).id == StateId::Working);
-    let is_verifying = facts
-        .runner()
-        .is_some_and(|runner| runner.current.is_some());
-    is_working || is_verifying
 }
 
 #[cfg(test)]

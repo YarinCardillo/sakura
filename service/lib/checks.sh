@@ -73,7 +73,7 @@ changes_json() {
   echo "$json"
 }
 
-# ---- test counts ------------------------------------------------------------------------
+# Test counts.
 
 # What is kept of the log of a job; the runner drops what a job prints beyond it. A log that
 # reached the limit was cut and is not parsed. Reading anything out of a log has a deadline.

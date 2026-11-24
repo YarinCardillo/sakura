@@ -50,7 +50,7 @@ pub fn of(task: &str, facts: &Facts, changes: &Changes) -> Pane {
     )
 }
 
-/// What is known of a task's changes without reading them: a lavoro that is being made has none yet (its
+/// What is known of a task's changes without reading them: a task that is being made has none yet (its
 /// folder is not there to read, which is not a fault), and one whose folder cannot be read has none to
 /// read.
 fn without_a_read(task: &sakura_core::models::Task) -> Option<Pane> {
@@ -155,7 +155,7 @@ mod tests {
         crate::l10n::set_for_test(crate::l10n::Language::Italian);
         assert_eq!(
             tr(PARTIAL_SENTENCE),
-            "Modifiche parziali: il servizio ne ha mostrato solo una parte"
+            "Modifiche parziali: il servizio ne ha restituito solo una parte"
         );
     }
 

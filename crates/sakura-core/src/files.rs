@@ -1,25 +1,32 @@
-//! The files of a lavoro, read through `box`: one directory level (`box tree`), the bytes of one file
+//! The files of a task, read through `box`: one directory level (`box tree`), the bytes of one file
 //! (`box file`) and file names for quick open (`box search`). The shapes are the ones `box` documents in
 //! its `docs/interface.md` ("Reading"). Everything read here was written by an agent: it is shown, never
 //! run, and every value that reaches an argument vector is checked first.
 
+mod fresh;
 mod marks;
 mod reference;
 mod tree;
 
+pub use fresh::{fresh_changes, FreshChange};
 pub use marks::{gutter_marks, GutterMark, MarkKind};
 pub use reference::{workspace_relative, Reference};
 pub use tree::{Children, Node, Tree};
 
+#[cfg(feature = "boxes")]
 use crate::box_cli::{BoxCli, Limit};
-use crate::error::{BridgeError, BridgeResult, ErrorCode};
+#[cfg(feature = "boxes")]
+use crate::error::ErrorCode;
+use crate::error::{BridgeError, BridgeResult};
 use crate::said::Said;
+#[cfg(feature = "boxes")]
 use crate::validate;
 use serde::Deserialize;
 
 /// The longest text `box search` takes, in characters.
 const QUERY_MAX_CHARS: usize = 200;
 /// What `box file` writes when a file is over its limit (exit 82); the line is kept as the error's details.
+#[cfg(feature = "boxes")]
 const TOO_LARGE_MARK: &str = "larger than 2 MiB";
 /// How much of a file is looked at to tell text from binary.
 const SNIFF_BYTES: usize = 8 * 1024;
@@ -63,10 +70,10 @@ pub struct Entry {
     pub removed: Option<u32>,
 }
 
-/// One directory level of a lavoro.
+/// One directory level of a task.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Level {
-    /// The directory, relative to the lavoro; empty for its root.
+    /// The directory, relative to the task; empty for its root.
     pub path: String,
     pub entries: Vec<Entry>,
     /// Whether `box` left entries out because the level is too long.
@@ -146,7 +153,16 @@ impl FileBody {
     }
 }
 
-/// A path inside a lavoro as `box` takes it: relative, without `..`, never read as a flag. Empty is the
+/// The folder the engine keeps its own files for a role in, inside a lane's copy: not the person's code, and
+/// gone once the role is done.
+const ROLE_FOLDER: &str = ".sakura-role";
+
+/// Whether `path` is one of the engine's own role files, which no view follows an agent into.
+pub fn is_role_file(path: &str) -> bool {
+    path.split('/').any(|part| part == ROLE_FOLDER)
+}
+
+/// A path inside a task as `box` takes it: relative, without `..`, never read as a flag. Empty is the
 /// root, which only a directory may be.
 pub fn relative_path(value: &str) -> BridgeResult<&str> {
     let climbs = value.split('/').any(|part| part == "..");
@@ -171,6 +187,7 @@ pub fn query(value: &str) -> BridgeResult<&str> {
 }
 
 /// `box tree <task> [--path <dir>] --json`: the level of `dir` (empty for the root).
+#[cfg(feature = "boxes")]
 pub async fn read_level(cli: &BoxCli, task: &str, dir: &str) -> BridgeResult<Level> {
     let (task, dir) = (validate::task(task)?, relative_path(dir)?);
     let mut args = vec!["tree", task];
@@ -183,6 +200,7 @@ pub async fn read_level(cli: &BoxCli, task: &str, dir: &str) -> BridgeResult<Lev
 }
 
 /// `box file <task> <path>`: the body of one file. A file over the limit is an answer, not a failure.
+#[cfg(feature = "boxes")]
 pub async fn read_file(cli: &BoxCli, task: &str, path: &str) -> BridgeResult<FileBody> {
     let (task, path) = (validate::task(task)?, relative_path(path)?);
     if path.is_empty() {
@@ -196,6 +214,7 @@ pub async fn read_file(cli: &BoxCli, task: &str, path: &str) -> BridgeResult<Fil
 }
 
 /// `box search <task> <text> --json`: the files whose path holds `text`.
+#[cfg(feature = "boxes")]
 pub async fn search(cli: &BoxCli, task: &str, text: &str) -> BridgeResult<Matches> {
     let (task, text) = (validate::task(task)?, query(text)?);
     cli.run_json(&["search", task, text, "--json"], Limit::Read)
@@ -207,10 +226,11 @@ fn not_a_path(value: &str) -> BridgeError {
 }
 
 /// Whether `error` is `box file` refusing a file over its limit.
+#[cfg(feature = "boxes")]
 fn is_too_large(error: &BridgeError) -> bool {
     let line = error.details.as_deref().unwrap_or_default();
     error.code == ErrorCode::BoxFailed && line.contains(TOO_LARGE_MARK)
 }
 
-#[cfg(test)]
+#[cfg(all(feature = "boxes", test))]
 mod tests;

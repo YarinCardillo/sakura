@@ -1,0 +1,102 @@
+{
+  "actions": [
+    {
+      "confirm": false,
+      "key": "read",
+      "label": "Mark read",
+      "needs": [],
+      "optional": []
+    },
+    {
+      "confirm": false,
+      "key": "unread",
+      "label": "Mark unread",
+      "needs": [],
+      "optional": []
+    },
+    {
+      "confirm": false,
+      "key": "snooze",
+      "label": "Snooze",
+      "needs": [
+        "until"
+      ],
+      "optional": []
+    },
+    {
+      "confirm": false,
+      "key": "start",
+      "label": "Start a lane",
+      "needs": [
+        "op"
+      ],
+      "optional": [
+        "project",
+        "preset",
+        "account",
+        "title"
+      ]
+    },
+    {
+      "confirm": false,
+      "key": "dismiss",
+      "label": "Dismiss",
+      "needs": [],
+      "optional": []
+    }
+  ],
+  "author": "",
+  "choices": [],
+  "detail": "A new release was announced.",
+  "digest": null,
+  "findings": [],
+  "folder_missing": false,
+  "group": {
+    "id": "[\"scheduled\",\"6b62276661a8e26cb8b3ac114c292ec3\"]",
+    "label": "Orchard news"
+  },
+  "id": "[\"wait\",\"/\",\"9d6b8a5d47d3f1ff43c56d52a7da3e9a\",\"proposal\",\"9d6b8a5d47d3f1ff43c56d52a7da3e9a\"]",
+  "is_read": false,
+  "is_snoozed": false,
+  "key": [
+    "wait",
+    "/",
+    "9d6b8a5d47d3f1ff43c56d52a7da3e9a",
+    "proposal",
+    "9d6b8a5d47d3f1ff43c56d52a7da3e9a"
+  ],
+  "kind": "proposal",
+  "lane_title": "Orchard news",
+  "links": [
+    {
+      "label": "News",
+      "url": "https://example.com/release"
+    }
+  ],
+  "project": "",
+  "proposal": {
+    "account": null,
+    "op": "proposal-168c85ec83e2a2cb5bcfbe25fc417b8d",
+    "origin": {
+      "at": "2026-11-18T08:00:00.000000+00:00",
+      "source": "News",
+      "task_id": "6b62276661a8e26cb8b3ac114c292ec3",
+      "title": "Orchard news"
+    },
+    "preset": null,
+    "project": null,
+    "run_id": "d2af374b956ac22731ad573b255c1975",
+    "title": "Review the release"
+  },
+  "repo": "/",
+  "resolution": "open",
+  "section": "triage",
+  "since": "2026-11-18T08:00:00Z",
+  "snoozed_until": null,
+  "source": "scheduled",
+  "subkind": "proposal",
+  "task": "9d6b8a5d47d3f1ff43c56d52a7da3e9a",
+  "technical": "",
+  "title": "Review the release",
+  "wants_note": false
+}

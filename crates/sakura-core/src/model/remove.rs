@@ -1,4 +1,4 @@
-//! The remove rule: "Elimina lavoro" removes a task at once only when nothing in it would be lost; otherwise
+//! The remove rule: "Archive" removes a task at once only when nothing in it would be lost; otherwise
 //! a hold confirms it (`box rm --force`) and the reason is written beside the button.
 
 use super::take::is_taken_at_head;

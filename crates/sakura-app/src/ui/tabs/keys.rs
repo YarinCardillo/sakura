@@ -43,7 +43,7 @@ pub fn install(strip: &Entity<Strip>, cx: &mut App) {
     select::<SelectTab6>(strip, 6, cx);
     select::<SelectTab7>(strip, 7, cx);
     select::<SelectTab8>(strip, 8, cx);
-    select::<SelectLastTab>(strip, sakura_core::tabs::LAST_TAB_DIGIT, cx);
+    select::<SelectLastTab>(strip, crate::ui::tabs::model::LAST_TAB_DIGIT, cx);
     let strip = strip.downgrade();
     cx.on_action(move |_: &CloseTab, cx| {
         drop(strip.update(cx, |strip, cx| strip.close_active(cx)));

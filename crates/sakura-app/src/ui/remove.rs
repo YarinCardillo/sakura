@@ -8,7 +8,7 @@ use super::hold::HoldButton;
 use super::verify::secondary_variant;
 use crate::l10n::{tr, Key};
 use gpui::{div, AnyElement, Context, Entity, IntoElement, ParentElement, SharedString};
-use gpui::{InteractiveElement as _, StatefulInteractiveElement as _};
+use gpui::{InteractiveElement as _, StatefulInteractiveElement as _, Styled as _};
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::tooltip::Tooltip;
 
@@ -34,7 +34,8 @@ pub fn confirm(
     let name = task.to_string();
     let cancel = Button::new("remove-cancel")
         .debug_selector(|| "remove-cancel".into())
-        .custom(secondary_variant(cx));
+        .custom(secondary_variant(cx))
+        .bg(crate::theme::Theme::palette(cx).fill);
     let cancel = control(cancel, tr(CANCEL), &[tr(CANCEL)])
         .on_click(cx.listener(move |desk, _, _, cx| desk.cancel_remove(&name, cx)));
     vec![

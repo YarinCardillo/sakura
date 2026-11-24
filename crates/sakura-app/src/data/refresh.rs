@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 /// A running agent that no terminal of the window is attached to is read again when its facts are older
 /// than this, so an agent that exits on its own (which no file tells, only a `box facts` call) leaves "Al
-/// lavoro" within about a minute. It is the only read requested by time.
+/// task" within about a minute. It is the only read requested by time.
 pub const RUNNING_FACTS_MAX_AGE: Duration = Duration::from_secs(60);
 
 /// What the journal events since the last look ask for.

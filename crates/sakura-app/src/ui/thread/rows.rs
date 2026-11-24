@@ -7,6 +7,7 @@ use crate::l10n::tr;
 use crate::theme::thread as tokens;
 use crate::theme::{self, Palette, Theme};
 use crate::ui::chrome::{tabular, text, DETAILS};
+use crate::ui::inert_markdown::open;
 use gpui::{
     div, AnyElement, Context, Div, FontWeight, InteractiveElement as _, IntoElement, ParentElement,
     SharedString, Stateful, StatefulInteractiveElement as _, StyleRefinement, Styled, Window,
@@ -41,6 +42,16 @@ pub(super) fn waiting_label(words: impl Into<SharedString>, palette: &Palette) -
         .into_any_element()
 }
 
+/// How visible the "Jump to the end" pill is meant to be: shown while the person is away from the end, and
+/// put away while the slash menu is open, which stands over the bottom of the transcript where the pill is.
+fn jump_target(is_away: bool, is_slash_open: bool) -> f32 {
+    if is_away && !is_slash_open {
+        1.
+    } else {
+        0.
+    }
+}
+
 impl ThreadView {
     /// What fills the space above the composer: the state of an empty conversation, or the transcript.
     pub(super) fn body(
@@ -59,13 +70,58 @@ impl ThreadView {
             }
             Phase::Connecting if is_empty => self.waiting(tr(copy::CONNECTING), palette),
             // The composer says what to do: the empty conversation says only where it stands.
+            #[cfg(not(feature = "boxes"))]
+            Phase::Idle | Phase::Ready if is_empty => self.starters(palette, cx),
+            #[cfg(feature = "boxes")]
             Phase::Idle if is_empty => states::quiet(tr(copy::NO_SESSION), None, palette),
+            #[cfg(feature = "boxes")]
             Phase::Ready if is_empty => states::quiet(tr(copy::EMPTY_READY), None, palette),
             Phase::SignIn | Phase::NoAccount | Phase::NoConversation if is_empty => {
                 div().flex_1().into_any_element()
             }
             _ => self.transcript(palette, window, cx),
         }
+    }
+
+    /// An empty conversation: one line on what to ask, and two requests to start from, which fill the box
+    /// without sending it.
+    #[cfg(not(feature = "boxes"))]
+    fn starters(&self, palette: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let examples = [
+            ("thread-example-0", copy::START_LABEL, copy::EXAMPLE_START),
+            ("thread-example-1", copy::STATUS_LABEL, copy::EXAMPLE_STATUS),
+        ];
+        let buttons = examples.map(|(id, label, prompt)| {
+            let words = tr(prompt);
+            states::button(id, tr(label), states::Face::Secondary, palette)
+                .debug_selector(move || id.into())
+                .on_click(cx.listener(move |this, _, window, cx| this.write(words, window, cx)))
+        });
+        div()
+            .debug_selector(|| "thread-empty".into())
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap(theme::GAP_WIDE)
+            .px(theme::GAP)
+            .child(
+                text(theme::TEXT_BODY, palette.text_secondary)
+                    .text_center()
+                    .child(tr(copy::ASK_MASTER)),
+            )
+            .child(
+                div()
+                    .w_full()
+                    .flex()
+                    .flex_wrap()
+                    .justify_center()
+                    .gap(theme::GAP)
+                    .children(buttons),
+            )
+            .into_any_element()
     }
 
     /// The waiting state of an empty conversation: the connecting sign over its words while the agent
@@ -101,10 +157,12 @@ impl ThreadView {
             .with_list_style(StyleRefinement::default().py(tokens::TRANSCRIPT_PADDING_Y))
             .with_row_style(StyleRefinement::default().px_0().pb_0());
         div()
+            .debug_selector(|| "thread-transcript".into())
             .flex_1()
             .min_h_0()
             .relative()
             .child(list)
+            .child(self.drag_scroll.watcher())
             .children(self.jump_button(palette, window, cx))
             .into_any_element()
     }
@@ -117,7 +175,7 @@ impl ThreadView {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let is_away = self.scroller.read(cx).is_scrolled_up();
-        let target = if is_away { 1. } else { 0. };
+        let target = jump_target(is_away, self.slash_is_open(cx));
         let fade = Transition::new(theme::DURATION_BASE);
         let opacity: f32 = transition("thread-jump", target, fade, window, cx);
         if opacity <= 0. {
@@ -162,9 +220,15 @@ impl ThreadView {
             return div().into_any_element();
         };
         let content = match &entry.kind {
-            EntryKind::User(words) => prompt(words, &palette),
-            EntryKind::Assistant(_) => self.answer_part(entry, part, &palette),
+            EntryKind::User(words) => prompt(entry.id, words, self.master.is_some(), &palette),
+            EntryKind::Assistant(_) if self.held == Some(entry.id) => {
+                self.held_answer(entry, &palette, cx)
+            }
+            EntryKind::Assistant(_) => self.answer_part(entry, part, &palette, cx),
             EntryKind::Thought(message) => self.thought(entry, message, &palette, cx),
+            EntryKind::Tool(_) if self.is_grouped(index_of(&self.thread, entry.id)) => {
+                self.tool_group(index_of(&self.thread, entry.id), &palette, window, cx)
+            }
             EntryKind::Tool(call) => self.tool(entry, call, &palette, window, cx),
             EntryKind::Plan(steps) => self.plan(entry, steps, &palette, cx),
             EntryKind::Permission(permission) => self.permission(permission, &palette, cx),
@@ -185,7 +249,13 @@ impl ThreadView {
 
     /// One part of an answer: its markdown, selectable. A link in it is the agent's text: a click opens
     /// it only through [`open_link`].
-    fn answer_part(&self, entry: &Entry, part: usize, palette: &Palette) -> AnyElement {
+    fn answer_part(
+        &self,
+        entry: &Entry,
+        part: usize,
+        palette: &Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let view = match self.rows.get(&entry.id) {
             Some(RowState::Markdown(answer)) => answer.parts().get(part),
             _ => None,
@@ -196,6 +266,7 @@ impl ThreadView {
         let id = entry.id;
         div()
             .debug_selector(move || format!("thread-answer-{id}-{part}"))
+            .capture_any_mouse_down(cx.listener(move |view, _, _, cx| view.hold_answer(id, cx)))
             .w_full()
             .text_size(theme::TEXT_BODY)
             .line_height(tokens::MESSAGE_LINE_HEIGHT)
@@ -203,9 +274,25 @@ impl ThreadView {
             .child(
                 TextView::new(view)
                     .selectable(true)
-                    .on_link_click(|address, _, _, cx| open_link(address, cx)),
+                    .on_link_click(|address, _, _, cx| open(address, cx)),
             )
             .into_any_element()
+    }
+
+    /// The answer the person pressed on, whole in one row: its parts a paragraph gap apart.
+    fn held_answer(&self, entry: &Entry, palette: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let parts = match self.rows.get(&entry.id) {
+            Some(RowState::Markdown(answer)) => answer.parts().len(),
+            _ => 0,
+        };
+        let column = (0..parts).fold(column(), |column, part| {
+            let shown = self.answer_part(entry, part, palette, cx);
+            match part {
+                0 => column.child(shown),
+                _ => column.child(div().pt(tokens::ANSWER_PART_GAP).child(shown)),
+            }
+        });
+        column.into_any_element()
     }
 
     /// Whether a row that opens is open: the person's choice, else `by_default`.
@@ -226,7 +313,6 @@ impl ThreadView {
         line_row()
             .id(SharedString::from(format!("thread-fold-{id}")))
             .debug_selector(move || format!("thread-fold-{id}"))
-            .cursor_pointer()
             .on_click(cx.listener(move |view, _, _, cx| view.toggle(id, is_open, cx)))
     }
 
@@ -344,11 +430,17 @@ impl ThreadView {
     }
 }
 
-/// The person's message: a filled block, never an outline.
-fn prompt(words: &str, palette: &Palette) -> AnyElement {
-    div()
-        .debug_selector(|| "thread-prompt".to_string())
-        .w_full()
+/// The person's message: a filled block, never an outline, its words selectable and copyable. `id` names the
+/// message among the others in the window.
+pub(crate) fn prompt(id: u64, words: &str, is_aside: bool, palette: &Palette) -> AnyElement {
+    let block = div().debug_selector(|| "thread-prompt".to_string());
+    // The master's conversation sets the person's words at the right, in a block no wider than most of
+    // the column, as a chat does; any other conversation fills the column.
+    let block = match is_aside {
+        true => block.max_w(gpui::relative(tokens::ASIDE_PROMPT_SHARE)),
+        false => block.w_full(),
+    };
+    let block = block
         .px(tokens::PROMPT_PADDING_X)
         .py(tokens::PROMPT_PADDING_Y)
         .rounded(theme::RADIUS_CARD)
@@ -356,8 +448,24 @@ fn prompt(words: &str, palette: &Palette) -> AnyElement {
         .text_size(theme::TEXT_BODY)
         .line_height(tokens::MESSAGE_LINE_HEIGHT)
         .text_color(palette.text)
-        .child(copy::shown(words))
-        .into_any_element()
+        .child(TextView::markdown(
+            gpui::ElementId::Name(format!("thread-prompt-words-{id}").into()),
+            plain_markdown(&copy::shown(words)),
+        ));
+    match is_aside {
+        true => div()
+            .w_full()
+            .flex()
+            .justify_end()
+            .child(block)
+            .into_any_element(),
+        false => block.into_any_element(),
+    }
+}
+
+/// The words as the markdown view reads them as themselves: every mark escaped, a line break kept as one.
+fn plain_markdown(words: &str) -> String {
+    crate::ui::inert_markdown::escaped(words).replace('\n', "  \n")
 }
 
 /// One step of the plan: its state as a glyph, and its words in the weight of that state.
@@ -384,16 +492,42 @@ fn plan_step(step: &PlanEntry, palette: &Palette) -> AnyElement {
         .into_any_element()
 }
 
-/// Opens the address of a link the person clicked in the agent's words, when it is a web address. The
-/// words of a link say nothing about where it goes, and an address may name a file or another program:
-/// only `http` and `https` are ever handed to the system, by the rule terminals follow for a Cmd+click.
-fn open_link(address: &str, cx: &mut gpui::App) {
-    match sakura_core::links::web_url(address) {
-        Some(address) => cx.open_url(&address),
-        None => {
-            eprintln!(
-                "sakura: a link in the agent's answer is not a web address and was not opened"
-            )
-        }
+/// Where the entry `id` stands in the thread.
+fn index_of(thread: &sakura_acp::thread::Thread, id: u64) -> usize {
+    thread
+        .entries()
+        .iter()
+        .position(|entry| entry.id == id)
+        .unwrap_or_default()
+}
+
+#[cfg(not(feature = "boxes"))]
+pub(in crate::ui) fn saved_message(
+    entry: &sakura_core::engine::scheduled::ConversationEntry,
+    palette: &Palette,
+) -> AnyElement {
+    match entry.kind.as_str() {
+        "prompt" => prompt(entry.sequence, &entry.text, true, palette),
+        "response" => text(theme::TEXT_BODY, palette.text)
+            .child(TextView::markdown(
+                gpui::ElementId::Name(format!("scheduled-response-{}", entry.sequence).into()),
+                crate::ui::inert_markdown::inert(&entry.text),
+            ))
+            .into_any_element(),
+        _ => text(theme::TEXT_SMALL, palette.text_secondary)
+            .child(entry.text.clone())
+            .into_any_element(),
+    }
+}
+
+#[cfg(test)]
+mod jump_tests {
+    use super::jump_target;
+
+    #[test]
+    fn the_jump_pill_stands_aside_for_the_slash_menu() {
+        assert_eq!(jump_target(true, false), 1.);
+        assert_eq!(jump_target(true, true), 0.);
+        assert_eq!(jump_target(false, false), 0.);
     }
 }

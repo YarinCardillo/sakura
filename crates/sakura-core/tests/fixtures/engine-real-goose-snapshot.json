@@ -1,0 +1,716 @@
+{
+  "accounts": [
+    {
+      "actions": [
+        {
+          "confirm": false,
+          "key": "l",
+          "label": "Rename",
+          "needs": [
+            "label"
+          ],
+          "optional": []
+        },
+        {
+          "confirm": true,
+          "key": "n",
+          "label": "Disable",
+          "needs": [],
+          "optional": []
+        },
+        {
+          "confirm": false,
+          "key": "e",
+          "label": "Enable",
+          "needs": [],
+          "optional": []
+        },
+        {
+          "confirm": true,
+          "key": "X",
+          "label": "Remove",
+          "needs": [],
+          "optional": []
+        }
+      ],
+      "enabled": true,
+      "exhausts_at": "2026-11-21T11:43:03Z",
+      "five_hour_pct": 33,
+      "forecast_at_reset_pct": 103.8,
+      "hidden": false,
+      "id": "studio",
+      "key": "studio",
+      "label": "Studio",
+      "open_alerts": 0,
+      "plan": "max",
+      "plan_choice_labels": {
+        "max20x": "Claude Max 20x",
+        "max5x": "Claude Max 5x",
+        "pro": "Claude Pro"
+      },
+      "plan_choices": [],
+      "plan_label": "Claude Max",
+      "plans": [],
+      "provider": "claude",
+      "reserve_week_pct": null,
+      "reserve_week_pct_own": null,
+      "stale": false,
+      "state": "ok",
+      "stop_at_pct": null,
+      "target": "[\"account\",\"claude\",\"studio\"]",
+      "week_pct": 61,
+      "week_resets_at": "2026-11-21T17:00:00Z"
+    },
+    {
+      "actions": [
+        {
+          "confirm": false,
+          "key": "l",
+          "label": "Rename",
+          "needs": [
+            "label"
+          ],
+          "optional": []
+        },
+        {
+          "confirm": true,
+          "key": "n",
+          "label": "Disable",
+          "needs": [],
+          "optional": []
+        },
+        {
+          "confirm": false,
+          "key": "e",
+          "label": "Enable",
+          "needs": [],
+          "optional": []
+        },
+        {
+          "confirm": true,
+          "key": "X",
+          "label": "Remove",
+          "needs": [],
+          "optional": []
+        }
+      ],
+      "enabled": true,
+      "exhausts_at": null,
+      "five_hour_pct": null,
+      "forecast_at_reset_pct": null,
+      "hidden": false,
+      "id": "archive",
+      "key": "archive",
+      "label": "Archive",
+      "open_alerts": 0,
+      "plan": null,
+      "plan_choice_labels": {
+        "plus": "Codex Plus",
+        "pro": "Codex Pro",
+        "prolite": "Codex Pro Lite"
+      },
+      "plan_choices": [],
+      "plan_label": "",
+      "plans": [],
+      "provider": "codex",
+      "reserve_week_pct": null,
+      "reserve_week_pct_own": null,
+      "stale": true,
+      "state": "ok",
+      "stop_at_pct": null,
+      "target": "[\"account\",\"codex\",\"archive\"]",
+      "week_pct": null,
+      "week_resets_at": null
+    },
+    {
+      "actions": [
+        {
+          "confirm": false,
+          "key": "l",
+          "label": "Rename",
+          "needs": [
+            "label"
+          ],
+          "optional": []
+        },
+        {
+          "confirm": true,
+          "key": "n",
+          "label": "Disable",
+          "needs": [],
+          "optional": []
+        },
+        {
+          "confirm": false,
+          "key": "e",
+          "label": "Enable",
+          "needs": [],
+          "optional": []
+        },
+        {
+          "confirm": true,
+          "key": "X",
+          "label": "Remove",
+          "needs": [],
+          "optional": []
+        }
+      ],
+      "enabled": false,
+      "exhausts_at": null,
+      "five_hour_pct": null,
+      "forecast_at_reset_pct": null,
+      "hidden": true,
+      "id": "spare",
+      "key": "spare",
+      "label": "Spare",
+      "open_alerts": 0,
+      "plan": null,
+      "plan_choice_labels": {
+        "max20x": "Claude Max 20x",
+        "max5x": "Claude Max 5x",
+        "pro": "Claude Pro"
+      },
+      "plan_choices": [],
+      "plan_label": "",
+      "plans": [],
+      "provider": "claude",
+      "reserve_week_pct": null,
+      "reserve_week_pct_own": null,
+      "stale": false,
+      "state": "disabled",
+      "stop_at_pct": null,
+      "target": "[\"account\",\"claude\",\"spare\"]",
+      "week_pct": null,
+      "week_resets_at": null
+    },
+    {
+      "actions": [
+        {
+          "confirm": false,
+          "key": "l",
+          "label": "Rename",
+          "needs": [
+            "label"
+          ],
+          "optional": []
+        },
+        {
+          "confirm": true,
+          "key": "n",
+          "label": "Disable",
+          "needs": [],
+          "optional": []
+        },
+        {
+          "confirm": false,
+          "key": "e",
+          "label": "Enable",
+          "needs": [],
+          "optional": []
+        },
+        {
+          "confirm": true,
+          "key": "X",
+          "label": "Remove",
+          "needs": [],
+          "optional": []
+        },
+        {
+          "confirm": false,
+          "key": "accountcheck",
+          "label": "Check connection",
+          "needs": [],
+          "optional": []
+        }
+      ],
+      "enabled": true,
+      "five_hour_pct": null,
+      "forecast_available": false,
+      "id": "goose-fixture",
+      "key": "goose:goose-fixture",
+      "label": "Local models",
+      "open_alerts": 0,
+      "plan_choice_labels": {},
+      "plan_choices": [],
+      "plan_label": "",
+      "plans": [],
+      "provider": "goose",
+      "provider_config": {
+        "provider": "ollama"
+      },
+      "readiness": "unknown",
+      "reason": "connection_required",
+      "reserve_week_pct": null,
+      "reserve_week_pct_own": null,
+      "state": "ok",
+      "stop_at_pct": null,
+      "target": "[\"account\",\"goose\",\"goose-fixture\"]",
+      "week_pct": null,
+      "week_resets_at": null
+    }
+  ],
+  "api": 1,
+  "automations": {
+    "actions": [
+      {
+        "confirm": false,
+        "key": "A",
+        "label": "Automation on or off",
+        "needs": [
+          "name",
+          "on"
+        ],
+        "optional": []
+      }
+    ],
+    "items": [
+      {
+        "description": "Resume lanes after a restart",
+        "enabled": false,
+        "installed": false,
+        "last_result": null,
+        "last_run_at": null,
+        "name": "keeper",
+        "schedule_text": "always on"
+      },
+      {
+        "description": "Serve the phone page",
+        "enabled": true,
+        "installed": true,
+        "last_result": null,
+        "last_run_at": null,
+        "name": "phone-page",
+        "schedule_text": "always on"
+      }
+    ],
+    "target": "[\"host\",\"automations\"]"
+  },
+  "connector_controls": {
+    "actions": [
+      {
+        "confirm": true,
+        "key": "connectoradd",
+        "label": "Add connector",
+        "needs": [
+          "op",
+          "choices"
+        ],
+        "optional": []
+      },
+      {
+        "confirm": true,
+        "key": "connectoredit",
+        "label": "Edit connector",
+        "needs": [
+          "op",
+          "name",
+          "revision",
+          "choices"
+        ],
+        "optional": []
+      },
+      {
+        "confirm": true,
+        "key": "connectordisconnect",
+        "label": "Disconnect connector",
+        "needs": [
+          "op",
+          "name",
+          "revision"
+        ],
+        "optional": []
+      },
+      {
+        "confirm": true,
+        "key": "connectorreplace",
+        "label": "Review replacement",
+        "needs": [
+          "op",
+          "name",
+          "revision",
+          "candidate",
+          "candidate_revision"
+        ],
+        "optional": []
+      }
+    ],
+    "target": "[\"host\",\"connectors\"]",
+    "version": 1
+  },
+  "connectors": [],
+  "decided": [],
+  "deferred": [],
+  "digest": {
+    "account": "",
+    "actions": [
+      {
+        "confirm": false,
+        "key": "I",
+        "label": "Digest settings",
+        "needs": [],
+        "optional": [
+          "at",
+          "lookback_hours",
+          "language",
+          "model",
+          "account"
+        ]
+      },
+      {
+        "confirm": false,
+        "key": "J",
+        "label": "Digest source on or off",
+        "needs": [
+          "name",
+          "on"
+        ],
+        "optional": []
+      }
+    ],
+    "at": "07:30",
+    "connect": {
+      "actions": [
+        {
+          "confirm": false,
+          "key": "O",
+          "label": "Connect",
+          "needs": [
+            "kind"
+          ],
+          "optional": [
+            "label",
+            "address"
+          ]
+        },
+        {
+          "confirm": false,
+          "key": "o",
+          "label": "Disconnect",
+          "needs": [
+            "name"
+          ],
+          "optional": []
+        }
+      ],
+      "target": "[\"host\",\"connectors\"]"
+    },
+    "language": "en",
+    "last_run_at": null,
+    "lookback_hours": 24,
+    "model": "sonnet",
+    "next_at": "2026-11-23T06:30:00Z",
+    "sources": [],
+    "target": "[\"host\",\"digest-settings\"]"
+  },
+  "engine": {
+    "actions": [
+      {
+        "confirm": false,
+        "key": "K",
+        "label": "Set rule",
+        "needs": [
+          "rule",
+          "value"
+        ],
+        "optional": []
+      },
+      {
+        "confirm": false,
+        "key": "U",
+        "label": "Use preset",
+        "needs": [
+          "preset"
+        ],
+        "optional": []
+      },
+      {
+        "confirm": false,
+        "key": "V",
+        "label": "Save rules as preset",
+        "needs": [
+          "name"
+        ],
+        "optional": []
+      },
+      {
+        "confirm": false,
+        "key": "Q",
+        "label": "Set pace",
+        "needs": [
+          "level"
+        ],
+        "optional": []
+      },
+      {
+        "confirm": false,
+        "key": "setupapply",
+        "label": "Apply first-launch choices",
+        "needs": [
+          "op",
+          "choices"
+        ],
+        "optional": []
+      },
+      {
+        "confirm": false,
+        "key": "M",
+        "label": "Refresh models",
+        "needs": [],
+        "optional": [
+          "provider",
+          "account"
+        ]
+      },
+      {
+        "confirm": false,
+        "key": "F",
+        "label": "Allow device on the phone page",
+        "needs": [
+          "device"
+        ],
+        "optional": []
+      },
+      {
+        "confirm": false,
+        "key": "Z",
+        "label": "Remove device from the phone page",
+        "needs": [
+          "device"
+        ],
+        "optional": []
+      },
+      {
+        "confirm": false,
+        "key": "E",
+        "label": "Set phone page port",
+        "needs": [
+          "port"
+        ],
+        "optional": []
+      },
+      {
+        "confirm": false,
+        "key": "g",
+        "label": "Make a login folder for an account",
+        "needs": [
+          "provider"
+        ],
+        "optional": []
+      },
+      {
+        "confirm": false,
+        "key": "j",
+        "label": "Add account",
+        "needs": [
+          "folder",
+          "provider",
+          "label"
+        ],
+        "optional": [
+          "choices"
+        ]
+      },
+      {
+        "confirm": false,
+        "key": "Y",
+        "label": "Give priority to my sessions",
+        "needs": [
+          "on"
+        ],
+        "optional": []
+      }
+    ],
+    "edited": false,
+    "id": "[\"host\",\"engine\"]",
+    "keeper": {
+      "actions": [
+        {
+          "confirm": false,
+          "key": "B",
+          "label": "Always-on service",
+          "needs": [
+            "name",
+            "on"
+          ],
+          "optional": []
+        }
+      ],
+      "last_restart": null,
+      "needs_person": [],
+      "on": false,
+      "phone_page": true,
+      "since": null,
+      "target": "[\"host\",\"services\"]"
+    },
+    "key": [
+      "host",
+      "engine"
+    ],
+    "lanes": 3,
+    "lanes_min": 1,
+    "master_account": {
+      "id": "goose-fixture",
+      "provider": "goose"
+    },
+    "master_launch_route": "acp",
+    "pace": "normal",
+    "pace_accounts": {},
+    "preset": "standard",
+    "preset_label": "Standard",
+    "presets": [
+      {
+        "chosen": false,
+        "description": "One agent, no subagents, no reviewer or evaluator; contract and gates stay.",
+        "label": "Solo",
+        "name": "solo"
+      },
+      {
+        "chosen": true,
+        "description": "Planner, parallel builders and a blocking reviewer; no evaluator.",
+        "label": "Standard",
+        "name": "standard"
+      },
+      {
+        "chosen": false,
+        "description": "Standard plus an evaluator that proves each contract row with evidence.",
+        "label": "Verified",
+        "name": "verified"
+      },
+      {
+        "chosen": false,
+        "description": "Plan, build, one review of the whole branch, deliver: no plan or task reviews, no checks.",
+        "label": "Lean",
+        "name": "lean"
+      }
+    ],
+    "target": "[\"host\",\"engine\"]",
+    "target_pct": 90,
+    "yield_to_person": false,
+    "yielding": false
+  },
+  "events": [],
+  "groups": [],
+  "host": {
+    "actions": [
+      {
+        "confirm": false,
+        "key": "G",
+        "label": "Digest now",
+        "needs": [],
+        "optional": []
+      }
+    ],
+    "id": "[\"host\",\"digest\"]",
+    "key": [
+      "host",
+      "digest"
+    ]
+  },
+  "items": [],
+  "load": {
+    "loadavg": [
+      9.74560546875,
+      12.2783203125,
+      15.4052734375
+    ],
+    "queue": [],
+    "slots_in_use": 0,
+    "slots_total": 3
+  },
+  "mode": "day",
+  "problems": [],
+  "projects": [],
+  "scheduled": {
+    "actions": [
+      {
+        "confirm": false,
+        "key": "scheduledcreate",
+        "label": "Create task",
+        "needs": [
+          "definition",
+          "op"
+        ],
+        "optional": []
+      }
+    ],
+    "target": "[\"host\",\"scheduled\"]",
+    "tasks": [],
+    "templates": [
+      {
+        "definitions": {
+          "en": {
+            "account": null,
+            "connector_ids": [],
+            "enabled": false,
+            "may_start_lanes": false,
+            "preset": null,
+            "project": null,
+            "prompt": "Summarize what changed in my selected sources. Propose actionable findings in Inbox.",
+            "title": "Morning summary",
+            "when": {
+              "kind": "daily",
+              "time": "07:30",
+              "timezone": "Europe/Rome"
+            }
+          },
+          "it": {
+            "account": null,
+            "connector_ids": [],
+            "enabled": false,
+            "may_start_lanes": false,
+            "preset": null,
+            "project": null,
+            "prompt": "Riassumi le novit\u00e0 nelle fonti selezionate. Proponi in Posta in arrivo gli elementi che richiedono un'azione.",
+            "title": "Riepilogo del mattino",
+            "when": {
+              "kind": "daily",
+              "time": "07:30",
+              "timezone": "Europe/Rome"
+            }
+          }
+        },
+        "id": "morning-summary",
+        "labels": {
+          "en": "Morning summary",
+          "it": "Riepilogo del mattino"
+        }
+      }
+    ]
+  },
+  "usage": {
+    "as_of": "2026-11-18T07:55:00Z",
+    "now": "2026-11-18T08:00:00Z",
+    "providers": [
+      {
+        "account": "studio",
+        "account_label": "Studio",
+        "agents": [],
+        "period_start": null,
+        "projection": {
+          "at_reset": 1.038,
+          "current": 0.61,
+          "limit_at": "2026-11-21T11:43:03Z",
+          "trend": "rising"
+        },
+        "provider": "claude",
+        "resets_at": "2026-11-21T17:00:00Z",
+        "totals": null,
+        "utilization": 0.61,
+        "utilization_at": "2026-11-18T07:55:00Z"
+      },
+      {
+        "account": "archive",
+        "account_label": "Archive",
+        "agents": [],
+        "period_start": null,
+        "projection": null,
+        "provider": "codex",
+        "resets_at": null,
+        "totals": null,
+        "utilization": null,
+        "utilization_at": null
+      }
+    ]
+  },
+  "waits": []
+}

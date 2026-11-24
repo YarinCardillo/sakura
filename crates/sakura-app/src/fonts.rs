@@ -8,7 +8,11 @@
 //! what is installed is looked at once, at start.
 
 use crate::theme;
-use gpui::{font, px, App, FontFallbacks, SharedString, TextSystem};
+use gpui::App;
+#[cfg(any(feature = "boxes", test))]
+use gpui::SharedString;
+#[cfg(feature = "boxes")]
+use gpui::{font, px, FontFallbacks, TextSystem};
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::sync::OnceLock;
@@ -35,9 +39,11 @@ thread_local! {
 }
 
 /// The terminal's font: its family and size, and the families tried after it for a glyph it lacks.
+#[cfg(any(feature = "boxes", test))]
 pub struct TerminalFont {
     pub family: SharedString,
     pub size: f32,
+    #[cfg(feature = "boxes")]
     pub fallbacks: Option<FontFallbacks>,
 }
 
@@ -50,6 +56,7 @@ pub fn choose_terminal(family: Option<String>, size: Option<u8>) {
 
 /// The installed families whose letters all have one width, by name: what a terminal can be set in.
 /// Every family is measured, which takes a moment: call it off the main thread.
+#[cfg(feature = "boxes")]
 pub fn monospaced_families(text: &TextSystem) -> Vec<String> {
     let size = px(theme::TERMINAL_TEXT);
     let is_monospaced = |family: &String| {
@@ -78,15 +85,19 @@ pub fn register(cx: &App) {
     INSTALLED_NERD_FONT.get_or_init(|| nerd_font(&cx.text_system().all_font_names()));
 }
 
-/// The font every terminal is drawn in. This is the one place that decides it: the family and size the
-/// person chose in Settings, else Sakura's own, with the installed Nerd Font after it.
+/// Use the stored choice or Geist Mono, with the installed Nerd Font as a symbol fallback.
+#[cfg(any(feature = "boxes", test))]
 pub fn terminal_font() -> TerminalFont {
-    let nerd = INSTALLED_NERD_FONT.get().cloned().flatten();
     let (family, size) = CHOSEN.with(|chosen| chosen.borrow().clone());
     TerminalFont {
         family: family.map_or(theme::FONT_MONO.into(), SharedString::from),
         size: size.map_or(theme::TERMINAL_TEXT, f32::from),
-        fallbacks: nerd.map(|nerd| FontFallbacks::from_fonts(vec![nerd])),
+        #[cfg(feature = "boxes")]
+        fallbacks: INSTALLED_NERD_FONT
+            .get()
+            .cloned()
+            .flatten()
+            .map(|nerd| FontFallbacks::from_fonts(vec![nerd])),
     }
 }
 

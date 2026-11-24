@@ -4,6 +4,7 @@
 //! diffs as hunks (`diff`), where a path is relative to the workspace (`paths`), the session id of each task
 //! (`store`), and the stdio transport.
 
+pub mod attachment;
 pub mod connection;
 mod convert;
 pub mod diff;

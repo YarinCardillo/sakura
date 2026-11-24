@@ -1,5 +1,5 @@
-//! The projects a lavoro can be made in, and the branches each can start from: read when they are
-//! needed (when the window has no lavoro to show, when "New task" opens), never at rest. A `box` that
+//! The projects a task can be made in, and the branches each can start from: read when they are
+//! needed (when the window has no task to show, when "New task" opens), never at rest. A `box` that
 //! has no projects is told apart from one whose answer failed.
 
 use super::source::Source;
@@ -53,7 +53,7 @@ impl Projects {
         }
     }
 
-    /// The projects a lavoro can be made in: those `box` can use.
+    /// The projects a task can be made in: those `box` can use.
     pub fn usable(&self) -> Vec<&Project> {
         match &self.listed {
             Listed::Loaded(projects) => projects.iter().filter(|p| p.error.is_none()).collect(),
@@ -61,7 +61,7 @@ impl Projects {
         }
     }
 
-    /// The branches of `project` a lavoro can start from, once read.
+    /// The branches of `project` a task can start from, once read.
     pub fn branches(&self, project: &str) -> Option<&[String]> {
         self.branches.get(project).map(Vec::as_slice)
     }

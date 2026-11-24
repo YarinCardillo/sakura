@@ -11,15 +11,24 @@ license.workspace = true
 name = "sakura-fake-agent"
 path = "src/bin/sakura-fake-agent/main.rs"
 
+# The fake Codex app-server the tests talk to, for the master's other agent. A development tool too.
+[[bin]]
+name = "sakura-fake-codex"
+path = "src/bin/sakura-fake-codex/main.rs"
+
 [dependencies]
 sakura-core = { path = "../sakura-core" }
 # Pinned exactly: the SDK publishes a major version every week or two. Only `connection` and `convert` use it.
 agent-client-protocol = "=5.1.0"
+base64 = "0.22.1"
 futures = "0.3.34"
+libc = "0.2.191"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 similar = "3.2.1"
 tokio = { version = "1.53.3", features = ["rt", "rt-multi-thread", "process", "io-util", "time", "macros", "sync"] }
 
 [dev-dependencies]
+nix = { version = "0.28", default-features = false, features = ["fs"] }
+rustix = { version = "1.1.6", features = ["process"] }
 tempfile = "3.27.0"

@@ -128,7 +128,7 @@ impl DeviceRect {
 
 /// One rectangle per run of lit cells, for a drawing whose corner is at `corner` and whose cells are
 /// `cell` device pixels a side.
-fn quads(rows: &Rows, (left, top): (i32, i32), cell: u32) -> Vec<DeviceRect> {
+pub(super) fn quads(rows: &Rows, (left, top): (i32, i32), cell: u32) -> Vec<DeviceRect> {
     let of_row = |(row, lit): (usize, &u32)| {
         let top = top + (row as u32 * cell) as i32;
         runs(*lit).map(move |(start, length)| DeviceRect {

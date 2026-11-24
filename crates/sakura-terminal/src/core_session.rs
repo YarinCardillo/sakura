@@ -48,22 +48,22 @@ impl CoreRouter {
     }
 
     fn deliver(&self, event: TerminalEvent<'_>) {
-        let (id, output) = match event {
-            TerminalEvent::Data { id, bytes } => (id.to_string(), Ok(bytes.to_vec())),
-            TerminalEvent::Exit(exit) => (exit.id, Err(exit.exit_code)),
+        let (id, output) = match &event {
+            TerminalEvent::Data { id, bytes } => (*id, Ok(*bytes)),
+            TerminalEvent::Exit(exit) => (exit.id.as_str(), Err(exit.exit_code)),
         };
         let sink = {
             let mut state = lock(&self.state);
-            match state.sinks.get(&id) {
+            match state.sinks.get(id) {
                 Some(sink) => sink.clone(),
                 None => {
-                    keep_pending(state.pending.entry(id).or_default(), output);
+                    keep_pending(state.pending.entry(id.to_string()).or_default(), output);
                     return;
                 }
             }
         };
         match output {
-            Ok(bytes) => sink.bytes(&bytes),
+            Ok(bytes) => sink.bytes(bytes),
             Err(code) => sink.exited(code),
         }
     }
@@ -97,10 +97,10 @@ impl CoreRouter {
     }
 }
 
-fn keep_pending(pending: &mut Pending, output: Result<Vec<u8>, Option<i32>>) {
+fn keep_pending(pending: &mut Pending, output: Result<&[u8], Option<i32>>) {
     match output {
         Ok(bytes) => {
-            pending.bytes.extend_from_slice(&bytes);
+            pending.bytes.extend_from_slice(bytes);
             let excess = pending.bytes.len().saturating_sub(MAX_PENDING_BYTES);
             pending.bytes.drain(..excess);
         }

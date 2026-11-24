@@ -1,4 +1,4 @@
-//! The two panes of the desk that hide and come back: the sidebar (cmd-b) and the right pane of a lavoro's
+//! The two panes of the desk that hide and come back: the sidebar (cmd-b) and the right pane of a task's
 //! page (cmd-alt-b). Each has a button in the status bar, a key and a menu item under "Finestra", all one
 //! action; the state is kept in the preferences. Hiding changes only the layout: the terminal, its session and its scrollback
 //! are the same entities before and after.

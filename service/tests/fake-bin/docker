@@ -234,6 +234,8 @@ case "$1" in
   inspect)
     case "$*" in
       *agentbox-agent-* | *agentbox-acp-*) fake_agent_inspect "$@" ;;
+      # The proxy runs once "compose up" started it, until its state file is removed.
+      *agentbox-proxy*) if [ -f "${FAKE_DOCKER_LOG}.proxy" ]; then echo true; else echo false; fi ;;
       *State.ExitCode*agentbox-job-*) cat "${FAKE_DOCKER_LOG}.exit.${*: -1}" 2>/dev/null ;;
       *) echo false ;;
     esac
@@ -241,6 +243,10 @@ case "$1" in
     ;;
   build)
     if [ "${2:-}" = -t ]; then : >"${FAKE_DOCKER_LOG}.image.$3"; fi
+    exit 0
+    ;;
+  compose)
+    if [[ " $* " == *" up "* ]]; then : >"${FAKE_DOCKER_LOG}.proxy"; fi
     exit 0
     ;;
   image)

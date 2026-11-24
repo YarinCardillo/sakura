@@ -19,6 +19,13 @@ impl Patch {
         parse::parse(text)
     }
 
+    /// Reads the patch of the one file at `path`, as the engine's changes list sends it: the git headers and
+    /// the hunk line may be missing (an added file arrives as `--- /dev/null`, `+++ b/path` and its lines).
+    /// A text that is a whole git diff is read as it is.
+    pub fn parse_file(path: &str, text: &str) -> Patch {
+        parse::parse(&parse::complete_file_patch(path, text))
+    }
+
     /// Added lines over every file.
     pub fn added(&self) -> u64 {
         self.files.iter().map(|file| u64::from(file.added)).sum()

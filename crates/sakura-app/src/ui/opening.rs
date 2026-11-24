@@ -1,5 +1,5 @@
-//! What the window opens on: the task it showed last when it still exists, else the first row of "Da
-//! guardare", else the first row. The choice is made once, as soon as it can be made rightly: the last task
+//! What the window opens on: the task it showed last when it still exists, else the first row of "Needs
+//! you", else the first row. The choice is made once, as soon as it can be made rightly: the last task
 //! is known from its name alone; the groups only once every row's facts were read.
 
 use crate::data::facts::Row;
@@ -30,7 +30,7 @@ pub fn opening(last: Option<&str>, rows: &[Row]) -> Opening {
     }
     let to_review = rows
         .iter()
-        .find(|row| model::group_of(&row.task) == Group::DaGuardare);
+        .find(|row| model::group_of(&row.task) == Group::ServeTe);
     let first = to_review.unwrap_or(&rows[0]);
     Opening::Show(first.task.name.clone())
 }
@@ -71,7 +71,7 @@ mod tests {
     }
 
     #[test]
-    fn without_a_last_task_the_first_row_of_da_guardare_opens() {
+    fn without_a_last_task_the_first_row_of_needs_you_opens() {
         let rows = rows();
         assert_eq!(rows[0].task.name, "sample-folders", "not the first row");
         assert_eq!(opening(None, &rows), show("sample-accent"));
@@ -86,7 +86,7 @@ mod tests {
     fn with_nothing_to_look_at_the_first_row_opens() {
         let rows: Vec<Row> = rows()
             .into_iter()
-            .filter(|row| model::group_of(&row.task) != Group::DaGuardare)
+            .filter(|row| model::group_of(&row.task) != Group::ServeTe)
             .collect();
         assert_eq!(opening(None, &rows), show(&rows[0].task.name));
     }

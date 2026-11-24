@@ -342,6 +342,11 @@ itertools 0.11.0 (MIT OR Apache-2.0) https://crates.io/crates/itertools/0.11.0
 itertools 0.13.0 (MIT OR Apache-2.0) https://crates.io/crates/itertools/0.13.0
 itertools 0.14.0 (MIT OR Apache-2.0) https://crates.io/crates/itertools/0.14.0
 itoa 1.0.19 (MIT OR Apache-2.0) https://crates.io/crates/itoa/1.0.19
+jiff 0.2.42 (Unlicense OR MIT) https://crates.io/crates/jiff/0.2.42
+jiff-core 0.1.4 (Unlicense OR MIT) https://crates.io/crates/jiff-core/0.1.4
+jiff-static 0.2.42 (Unlicense OR MIT) https://crates.io/crates/jiff-static/0.2.42
+jiff-tzdb 0.1.9 (Unlicense OR MIT) https://crates.io/crates/jiff-tzdb/0.1.9
+jiff-tzdb-platform 0.1.3 (Unlicense OR MIT) https://crates.io/crates/jiff-tzdb-platform/0.1.3
 jni-sys 0.3.1 (MIT OR Apache-2.0) https://crates.io/crates/jni-sys/0.3.1
 jni-sys 0.4.1 (MIT OR Apache-2.0) https://crates.io/crates/jni-sys/0.4.1
 jni-sys-macros 0.4.1 (MIT OR Apache-2.0) https://crates.io/crates/jni-sys-macros/0.4.1
@@ -667,10 +672,13 @@ unicode-vo 0.1.0 (MIT/Apache-2.0) https://crates.io/crates/unicode-vo/0.1.0
 unicode-width 0.2.3 (MIT OR Apache-2.0) https://crates.io/crates/unicode-width/0.2.3
 unicode-xid 0.2.6 (MIT OR Apache-2.0) https://crates.io/crates/unicode-xid/0.2.6
 untrusted 0.9.0 (ISC) https://crates.io/crates/untrusted/0.9.0
+ureq 3.5.1 (MIT OR Apache-2.0) https://crates.io/crates/ureq/3.5.1
+ureq-proto 0.7.1 (MIT OR Apache-2.0) https://crates.io/crates/ureq-proto/0.7.1
 url 2.5.8 (MIT OR Apache-2.0) https://crates.io/crates/url/2.5.8
 usvg 0.45.1 (Apache-2.0 OR MIT) https://crates.io/crates/usvg/0.45.1
 usvg 0.46.0 (Apache-2.0 OR MIT) https://crates.io/crates/usvg/0.46.0
 utf-8 0.7.6 (MIT OR Apache-2.0) https://crates.io/crates/utf-8/0.7.6
+utf8-zero 0.8.1 (MIT OR Apache-2.0) https://crates.io/crates/utf8-zero/0.8.1
 utf8_iter 1.1.0 (Apache-2.0 OR MIT) https://crates.io/crates/utf8_iter/1.1.0
 utf_types 1.0.0 (Apache-2.0 OR MIT) https://crates.io/crates/utf_types/1.0.0
 uuid 1.29.2 (Apache-2.0 OR MIT) https://crates.io/crates/uuid/1.29.2
@@ -699,6 +707,7 @@ wayland-scanner 0.31.11 (MIT) https://crates.io/crates/wayland-scanner/0.31.11
 wayland-sys 0.31.11 (MIT) https://crates.io/crates/wayland-sys/0.31.11
 web-sys 0.3.107 (MIT OR Apache-2.0) https://crates.io/crates/web-sys/0.3.107
 web-time 1.1.0 (MIT OR Apache-2.0) https://crates.io/crates/web-time/1.1.0
+webpki-roots 1.0.12 (CDLA-Permissive-2.0) https://crates.io/crates/webpki-roots/1.0.12
 weezl 0.1.12 (MIT OR Apache-2.0) https://crates.io/crates/weezl/0.1.12
 wgpu 30.0.1 (MIT OR Apache-2.0) https://crates.io/crates/wgpu/30.0.1
 wgpu-core 30.0.1 (MIT OR Apache-2.0) https://crates.io/crates/wgpu-core/30.0.1

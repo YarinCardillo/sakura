@@ -4,6 +4,7 @@
 
 use super::metrics::TOOLTIP_DELAY;
 use super::strip::Strip;
+use crate::ui::tabs::model::TabId;
 use gpui::{
     div, App, Bounds, Context, InteractiveElement as _, IntoElement as _, Keystroke,
     ParentElement as _, Pixels, SharedString, Window,
@@ -11,7 +12,6 @@ use gpui::{
 use gpui_base::{Placement, TooltipOverlay, TooltipRequest};
 use gpui_component::kbd::Kbd;
 use gpui_component::tooltip::Tooltip;
-use sakura_core::tabs::TabId;
 
 /// The overlay: a tooltip appears and changes place without animation.
 pub(super) fn overlay() -> TooltipOverlay {

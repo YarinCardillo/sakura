@@ -1,5 +1,7 @@
-//! The diffs of one lavoro, "Changes" in the right pane: every changed file in one virtualised scroll.
-//! Files start closed and open in place. Open files and the scroll position are kept by path, so a refresh
+//! The diffs of one task, "Changes" in the right pane: every changed file in one virtualised scroll.
+//! A file's diff starts open unless it is too long to be read at a glance ([`theme::DIFF_OPEN_MAX_LINES`]),
+//! and opens or closes in place. What the person opened or closed and the scroll position are kept by
+//! path, so a refresh
 //! of the patch moves nothing the person set. A line too long for the list wraps to its width (see [`super::wrap`]): the list
 //! is built once its width is known, row heights follow the wrap, and nothing scrolls sideways.
 
@@ -16,6 +18,7 @@ use crate::data::facts::Facts;
 use crate::l10n::Said;
 use crate::theme::{self, Palette, Theme};
 use crate::ui::chrome::{mono_features, tabular};
+use crate::ui::patience::Patience;
 use gpui::{
     canvas, div, point, prelude::FluentBuilder as _, px, size, AnyElement, App, Bounds, Context,
     Entity, FocusHandle, Font, InteractiveElement as _, IntoElement, MouseButton, ParentElement,
@@ -23,9 +26,9 @@ use gpui::{
 };
 use gpui_base::{Scrollbar, VirtualListScrollHandle};
 use gpui_component::input::Copy;
-use sakura_core::patch::Patch;
+use sakura_core::patch::{FilePatch, Patch};
 use std::cell::Cell;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -50,8 +53,8 @@ pub struct ChangesList {
     pub(super) patch: Option<Arc<Patch>>,
     pub(super) rows: Rc<Vec<Row>>,
     sizes: Rc<Vec<Size<Pixels>>>,
-    /// The paths of the files that are open.
-    toggled: HashSet<String>,
+    /// The files the person opened or closed, by path, and whether each is open.
+    chosen: HashMap<String, bool>,
     /// Where each row starts, from the top of the list, and how tall it is with the wrap of now.
     pub(super) origins: Rc<Vec<f32>>,
     heights: Vec<f32>,
@@ -68,6 +71,8 @@ pub struct ChangesList {
     pub(super) focus: FocusHandle,
     /// The list's bounds in the window at the last paint.
     pub(super) body: Rc<Cell<Bounds<Pixels>>>,
+    /// When the patch began to be read: its line shows only for a slow read.
+    patience: Patience,
     #[cfg(feature = "measure")]
     probe: Option<crate::snapshot::ScrollProbe>,
     _observer: Subscription,
@@ -89,7 +94,10 @@ impl ChangesList {
             patch: None,
             rows: Rc::default(),
             sizes: Rc::default(),
-            toggled: crate::snapshot::open_files().into_iter().collect(),
+            chosen: crate::snapshot::open_files()
+                .into_iter()
+                .map(|path| (path, true))
+                .collect(),
             origins: Rc::default(),
             heights: Vec::new(),
             line_columns: Vec::new(),
@@ -100,6 +108,7 @@ impl ChangesList {
             shapes: ShapeCache::default(),
             focus: cx.focus_handle(),
             body: Rc::new(Cell::new(Bounds::default())),
+            patience: Patience::default(),
             #[cfg(feature = "measure")]
             probe: crate::snapshot::ScrollProbe::from_environment(),
             _observer: observer,
@@ -152,22 +161,19 @@ impl ChangesList {
 
     /// Opens or closes `file` in place.
     pub fn toggle(&mut self, file: usize, cx: &mut Context<Self>) {
-        let Some(path) = self.path_of(file) else {
+        let Some(file) = self.patch.as_ref().and_then(|patch| patch.files.get(file)) else {
             return;
         };
-        if !self.toggled.remove(&path) {
-            self.toggled.insert(path);
-        }
+        let is_open = !self.is_open(file);
+        self.chosen.insert(file.path.clone(), is_open);
         self.rebuild_rows();
         cx.notify();
     }
 
-    fn path_of(&self, file: usize) -> Option<String> {
-        Some(self.patch.as_ref()?.files.get(file)?.path.clone())
-    }
-
-    fn is_open(&self, path: &str) -> bool {
-        self.toggled.contains(path)
+    /// Whether `file` is open: as the person left it, or open unless its diff is long.
+    fn is_open(&self, file: &FilePatch) -> bool {
+        let is_short = file.line_count() <= theme::DIFF_OPEN_MAX_LINES;
+        self.chosen.get(&file.path).copied().unwrap_or(is_short)
     }
 }
 
@@ -220,7 +226,7 @@ impl ChangesList {
 
     fn rebuild_rows(&mut self) {
         let rows = match &self.patch {
-            Some(patch) => rows::rows(patch, |path| self.is_open(path)),
+            Some(patch) => rows::rows(patch, |file| self.is_open(file)),
             None => Vec::new(),
         };
         self.line_columns = rows.iter().map(|row| self.columns_of(*row)).collect();
@@ -386,8 +392,7 @@ impl ChangesList {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let palette = layout.palette;
-        let path = &patch.files[file].path;
-        let is_open = self.is_open(path);
+        let is_open = self.is_open(&patch.files[file]);
         let hover = palette.hover;
         div()
             .id(("header", file))
@@ -415,11 +420,20 @@ impl Render for ChangesList {
             probe.tick(&self.scroll, height, _window);
         }
         let palette = Theme::palette(cx);
-        match state::of(&self.task, self.facts.read(cx), self.changes.read(cx)) {
+        let pane = state::of(&self.task, self.facts.read(cx), self.changes.read(cx));
+        let shows_reading = match pane {
+            state::Pane::Loading => self.patience.shows(cx),
+            _ => {
+                self.patience.reset();
+                false
+            }
+        };
+        match pane {
             state::Pane::Files {
                 failure,
                 is_partial,
             } => self.render_list(failure, is_partial, &palette, cx),
+            state::Pane::Loading if !shows_reading => div().into_any_element(),
             sentence => state::sentence_view(sentence, &palette),
         }
     }

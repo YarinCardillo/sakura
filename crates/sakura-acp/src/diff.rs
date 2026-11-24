@@ -3,7 +3,7 @@
 //! so the comparison is bounded in size and in time.
 
 use sakura_core::patch::{Body, Change, FilePatch, Hunk, Line, LineKind};
-use similar::{ChangeTag, DiffOp, TextDiff};
+use similar::{udiff::UnifiedDiffHunk, ChangeTag, DiffOp, TextDiff};
 use std::ops::Range;
 use std::time::Duration;
 
@@ -25,9 +25,10 @@ pub fn file_patch(path: &str, old: Option<&str>, new: &str) -> Option<FilePatch>
         .timeout(DIFF_TIMEOUT)
         .diff_lines(old_text, new);
     let hunks: Vec<Hunk> = diff
-        .grouped_ops(CONTEXT_LINES)
-        .iter()
-        .map(|group| hunk(&diff, group))
+        .unified_diff()
+        .context_radius(CONTEXT_LINES)
+        .iter_hunks()
+        .map(hunk)
         .collect();
     let count = |kind| {
         let lines = hunks.iter().flat_map(|hunk| &hunk.lines);
@@ -50,10 +51,9 @@ pub fn file_patch(path: &str, old: Option<&str>, new: &str) -> Option<FilePatch>
     })
 }
 
-fn hunk<'a>(diff: &TextDiff<'a, 'a, str>, group: &[DiffOp]) -> Hunk {
-    let lines: Vec<Line> = group
-        .iter()
-        .flat_map(|op| diff.iter_changes(op))
+fn hunk(diff: UnifiedDiffHunk<'_, '_, '_, str>) -> Hunk {
+    let lines: Vec<Line> = diff
+        .iter_changes()
         .map(|change| {
             let text = change.value();
             Line {
@@ -66,7 +66,7 @@ fn hunk<'a>(diff: &TextDiff<'a, 'a, str>, group: &[DiffOp]) -> Hunk {
         })
         .collect();
     Hunk {
-        header: header(group),
+        header: header(diff.ops()),
         lines,
     }
 }

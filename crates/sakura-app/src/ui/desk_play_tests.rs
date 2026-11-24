@@ -1,6 +1,6 @@
 //! Play in the desk, on the real chain of reads with a fake service script: the header's control
 //! starts and stops it, the port is a link, the right pane's view shows the log, the status bar says
-//! it runs, and at rest nothing is asked. A project without a run command and a lavoro in a box say
+//! it runs, and at rest nothing is asked. A project without a run command and a task in a box say
 //! why they cannot play; the sample data has no Play at all.
 
 use super::desk::Desk;
@@ -11,24 +11,34 @@ use gpui::{Entity, TestAppContext, VisualTestContext};
 use std::path::PathBuf;
 use std::time::Duration;
 
-/// The lavoro these tests put on the Mac, and one that stays in a box.
+/// The task these tests put on the Mac, and one that stays in a box.
 const ON_THE_MAC: &str = "headings-26";
 const IN_A_BOX: &str = "sample-accent";
 
-/// What the fake service answers for the projects and for Play, in the shapes the service prints.
-const CASES: &str = r#"  projects) cat "$d/projects.json" ;;
+/// What the fake service answers for the projects (after `delay` seconds) and for Play, in the shapes
+/// the service prints.
+fn cases(delay: &str) -> String {
+    format!(
+        r#"  projects) sleep {delay}; cat "$d/projects.json" ;;
   play) case "$3" in
     log) printf 'ready on http://localhost:56000\n' ;;
     start) touch "$d/playing"
-      printf '{"task":"%s","running":true,"pid":4711,"ports":[56000,56001],"since":null}' "$2" ;;
+      printf '{{"task":"%s","running":true,"pid":4711,"ports":[56000,56001],"since":null}}' "$2" ;;
     stop) rm -f "$d/playing"
-      printf '{"task":"%s","running":false,"pid":null,"ports":[56000,56001],"since":null}' "$2" ;;
-    status) printf '{"task":"%s","running":false,"pid":null,"ports":[],"since":null}' "$2" ;;
-  esac ;;"#;
+      printf '{{"task":"%s","running":false,"pid":null,"ports":[56000,56001],"since":null}}' "$2" ;;
+    status) printf '{{"task":"%s","running":false,"pid":null,"ports":[],"since":null}}' "$2" ;;
+  esac ;;"#
+    )
+}
 
 /// A service whose one project runs `run`, with [`ON_THE_MAC`] living on the Mac.
 fn service(run: Option<&str>) -> (tempfile::TempDir, PathBuf) {
-    let (dir, script) = fake_agentbox(Names::Listed, "0", CASES);
+    service_after(run, "0")
+}
+
+/// The same service, whose projects come after `delay` seconds.
+fn service_after(run: Option<&str>, delay: &str) -> (tempfile::TempDir, PathBuf) {
+    let (dir, script) = fake_agentbox(Names::Listed, "0", &cases(delay));
     let on_the_mac = |task: &mut serde_json::Value| {
         if task["name"] == ON_THE_MAC {
             task["where"] = "mac".into();
@@ -174,6 +184,56 @@ fn the_sample_data_has_no_play(cx: &mut TestAppContext) {
         is_on_screen(cx, "pane-view-git"),
         "the other views are there"
     );
+}
+
+/// The header and the row of views before and after the projects are read: nothing moves.
+fn assert_nothing_moves_when_the_projects_come(cx: &mut TestAppContext, run: Option<&str>) {
+    let (_dir, script) = service_after(run, "2");
+    let (cx, desk, _) = open_live(cx, script, Some(ON_THE_MAC), false);
+    wait_for(cx, "the header and the row of views", |cx| {
+        is_on_screen(cx, "task-menu") && is_on_screen(cx, "pane-view-git")
+    });
+    let parts = [
+        "pane-view-play",
+        "pane-view-git",
+        "play-control",
+        "task-menu",
+        "header-glyph",
+        "header-branch",
+    ];
+    let place = |cx: &mut VisualTestContext, selector: &'static str| {
+        cx.debug_bounds(selector)
+            .unwrap_or_else(|| panic!("{selector} is not on screen yet"))
+    };
+    assert!(
+        desk.read_with(cx, |desk, _| desk.plays.of(ON_THE_MAC).is_none()),
+        "the projects are not read yet"
+    );
+    let before = parts.map(|part| place(cx, part));
+    match run {
+        Some(_) => wait_for_play(cx, &desk),
+        None => wait_for(cx, "the Play", |cx| {
+            desk.read_with(cx, |desk, _| desk.plays.of(ON_THE_MAC).is_some())
+        }),
+    }
+    draw(cx);
+    assert_eq!(
+        parts.map(|part| place(cx, part)),
+        before,
+        "nothing moved when the projects came"
+    );
+}
+
+in_every_language! {
+fn the_five_views_and_play_stand_from_the_first_frame_and_nothing_moves(cx: &mut TestAppContext) {
+    assert_nothing_moves_when_the_projects_come(cx, Some("npm run dev"));
+}
+}
+
+in_every_language! {
+fn a_project_without_a_run_command_moves_nothing_when_it_is_read(cx: &mut TestAppContext) {
+    assert_nothing_moves_when_the_projects_come(cx, None);
+}
 }
 
 in_every_language! {

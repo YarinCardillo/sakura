@@ -24,7 +24,7 @@ const TAG: &str = "sakura.task.";
 /// Which news the person wants to be told by the system. The badge counts whatever is wanted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Wanted {
-    /// A lavoro that starts to need the person.
+    /// A task that starts to need the person.
     pub needs_person: bool,
     /// An agent that finished.
     pub finished: bool,
@@ -59,21 +59,33 @@ impl Notifications {
     }
 
     /// What the badge shows now.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "boxes"))]
     pub fn badge(&self) -> Option<&str> {
         self.shown.as_deref()
     }
 
     /// Takes in the tasks as they are now and whether Sakura is in front: posts what is news and
     /// writes the badge when its count changed.
+    #[cfg(any(test, feature = "boxes"))]
     pub fn observe(&mut self, lavori: &[Lavoro], is_in_front: bool, cx: &App) {
+        self.observe_with_titles(lavori, is_in_front, str::to_owned, cx);
+    }
+
+    /// Posts news using display titles while keeping stable task identities in the tags.
+    pub(super) fn observe_with_titles(
+        &mut self,
+        lavori: &[Lavoro],
+        is_in_front: bool,
+        title: impl Fn(&str) -> String,
+        cx: &App,
+    ) {
         let decision = self.notifier.observe(lavori, is_in_front);
         let is_wanted = |note: &&Note| match note.kind {
             NoteKind::NeedsPerson => self.wanted.needs_person,
             NoteKind::Finished => self.wanted.finished,
         };
         for note in decision.notes.iter().filter(is_wanted) {
-            cx.show_system_notification(notification(note));
+            cx.show_system_notification(notification(note, title(&note.task)));
         }
         let label = badge_label(decision.badge);
         if label != self.shown {
@@ -84,14 +96,14 @@ impl Notifications {
 }
 
 /// The notification of `note`: the task's name, and what happened in the interface's language.
-fn notification(note: &Note) -> SystemNotification {
+fn notification(note: &Note, title: String) -> SystemNotification {
     let body = match note.kind {
         NoteKind::NeedsPerson => Key("notify.needs_person"),
         NoteKind::Finished => Key("notify.finished"),
     };
     SystemNotification {
         tag: SharedString::from(format!("{TAG}{}", note.task)),
-        title: note.task.clone().into(),
+        title: title.into(),
         body: tr(body).into(),
         actions: Vec::new(),
     }

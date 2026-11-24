@@ -3,10 +3,13 @@
 
 use super::fixture_changes;
 use crate::l10n::Key;
-use sakura_acp::connection::{Agent, AgentConfig, AgentEvent, Deadlines};
+use sakura_acp::connection::{Agent, AgentConfig, AgentEvent, Deadlines, SessionSetup};
 use sakura_core::box_cli::BoxCli;
+use sakura_core::direct::{Readers, TaskReader};
 use sakura_core::error::{BridgeError, BridgeResult, ErrorCode};
-use sakura_core::models::{Account, BoxStatus, Commit, JournalEvent, Machine, Task, TaskSummary};
+use sakura_core::models::{
+    Account, BoxReadiness, BoxStatus, Commit, JournalEvent, Machine, Place, Task, TaskSummary,
+};
 use sakura_core::patch::Patch;
 use sakura_core::projects::{Branch, Branches, Detected, NewLavoro, NewProject, Project};
 use sakura_core::said::Said;
@@ -57,6 +60,9 @@ enum Kind {
 pub struct Source {
     kind: Kind,
     runtime: Arc<Runtime>,
+    /// The in-process readers of the tasks' files and history; none on the sample data, and in the
+    /// tests that drive a fake `box`.
+    readers: Option<Arc<Readers>>,
     /// In tests, actions are recorded and never answer instead of being refused.
     #[cfg(test)]
     recorder: Option<Arc<Recorder>>,
@@ -120,6 +126,7 @@ impl Source {
                 let source = Source {
                     kind: Kind::Fixture(status),
                     runtime,
+                    readers: None,
                     #[cfg(test)]
                     recorder: None,
                 };
@@ -159,13 +166,15 @@ impl Source {
     }
 
     /// Starts the agent of `task`'s conversation, `box acp <task> [<account>]`, working in `workspace`,
-    /// and gives its handle and its events. None on the sample data, which has no `box`, and for names
+    /// and gives its handle and its events. On the Mac (`place`) the agent asks before what leaves the
+    /// workspace, whatever its login allows. None on the sample data, which has no `box`, and for names
     /// `box` would not take.
     pub fn agent(
         &self,
         task: &str,
         account: Option<&str>,
         workspace: &str,
+        place: Place,
     ) -> Option<(Agent, Receiver<AgentEvent>)> {
         self.note_read(format!("acp {task}"));
         let Kind::Live(core) = &self.kind else {
@@ -184,17 +193,24 @@ impl Source {
             workspace: workspace.into(),
             deadlines: Deadlines::default(),
             max_unread_bytes: sakura_acp::transport::MAX_UNREAD_BYTES,
+            asks_beyond_workspace: place == Place::Mac,
+            session: SessionSetup::default(),
         };
         Some(Agent::start(config, self.runtime.handle()))
     }
 
-    /// The `box` the window talks to, for the views that read through it (the files of a lavoro, the
+    /// The `box` the window talks to, for the views that read through it (the files of a task, the
     /// graph of a project); none on the sample data, which has no `box`.
     pub fn cli(&self) -> Option<&BoxCli> {
         match &self.kind {
             Kind::Live(core) => Some(core.cli()),
             Kind::Fixture(_) => None,
         }
+    }
+
+    /// The in-process readers of the tasks' files and history; none on the sample data.
+    pub fn readers(&self) -> Option<&Arc<Readers>> {
+        self.readers.as_ref()
     }
 
     /// The runtime the calls run on.
@@ -233,13 +249,23 @@ impl Source {
         }
     }
 
-    /// `box diff <task> [--commit <sha>]`, parsed into files off the UI thread.
+    /// The patch of `task` (one commit, or the work tree against its base), parsed into files off the UI
+    /// thread: read in-process, through `box diff` for a repository the in-process reader does not read.
     pub fn patch(&self, task: String, commit: Option<String>) -> Pending<Patch> {
         match &self.kind {
             Kind::Live(core) => {
-                let core = core.clone();
+                let (core, wanted) = (core.clone(), commit.clone());
+                let read = self.direct(task.clone(), move |reader| match &wanted {
+                    Some(sha) => reader.commit_patch(sha),
+                    None => reader.working_patch(),
+                });
                 self.spawn(async move {
-                    let text = core.task_diff(&task, commit.as_deref()).await?;
+                    let text = match read.await {
+                        Err(error) if error.code == ErrorCode::Unsupported => {
+                            core.task_diff(&task, commit.as_deref()).await?
+                        }
+                        answer => answer?,
+                    };
                     Ok(Patch::parse(&text))
                 })
             }
@@ -250,12 +276,21 @@ impl Source {
         }
     }
 
-    /// `box log <task> --json`: the commits ahead of the base, newest first.
+    /// The commits of `task` ahead of its base, newest first: read in-process, through `box log` for a
+    /// repository the in-process reader does not read.
     pub fn commits(&self, task: String) -> Pending<Vec<Commit>> {
         match &self.kind {
             Kind::Live(core) => {
                 let core = core.clone();
-                self.spawn(async move { core.task_log(&task).await })
+                let read = self.direct(task.clone(), |reader| reader.log());
+                self.spawn(async move {
+                    match read.await {
+                        Err(error) if error.code == ErrorCode::Unsupported => {
+                            core.task_log(&task).await
+                        }
+                        answer => answer,
+                    }
+                })
             }
             Kind::Fixture(_) => ready(fixture_changes::log(&task)),
         }
@@ -316,8 +351,8 @@ impl Source {
         }
     }
 
-    /// `box projects --json`: the projects a lavoro can be made in; `None` on a `box` that has none of
-    /// the verbs (an older one). The sample data has one project, the one its lavori name.
+    /// `box projects --json`: the projects a task can be made in; `None` on a `box` that has none of
+    /// the verbs (an older one). The sample data has one project, the one its tasks name.
     pub fn projects(&self) -> Pending<Option<Vec<Project>>> {
         self.note_read("projects".to_string());
         match &self.kind {
@@ -345,7 +380,7 @@ impl Source {
         self.live(move |core| async move { core.project_add(&project).await })
     }
 
-    /// `box branches <project> --json`: the branches a lavoro of the project can start from. The sample
+    /// `box branches <project> --json`: the branches a task of the project can start from. The sample
     /// data has none to offer beside the project's own.
     pub fn branches(&self, project: String) -> Pending<Branches> {
         self.note_read(format!("branches {project}"));
@@ -360,7 +395,7 @@ impl Source {
 
     /// Starts `box new <task> <project>` (with the base and the place the person chose) as a job of the
     /// core and answers at once: the task is listed as being created from then on. With `account`, the
-    /// project is first told to use it (`box project set <project> --account`), so that the lavoro is
+    /// project is first told to use it (`box project set <project> --account`), so that the task is
     /// made with it.
     pub fn new_task(
         &self,
@@ -423,6 +458,22 @@ impl Source {
             Kind::Fixture(_) => ready(fixture_accounts(
                 std::env::var(FIXTURE_ACCOUNTS_VAR).ok().as_deref(),
             )),
+        }
+    }
+
+    /// Whether a box can be used now (`box up --check`). The fixture has no box to wait for: it is ready.
+    pub fn boxes(&self) -> Pending<BoxReadiness> {
+        match &self.kind {
+            Kind::Live(core) => {
+                let core = core.clone();
+                self.spawn(async move { core.boxes().await })
+            }
+            Kind::Fixture(_) => ready(Ok(BoxReadiness {
+                docker: true,
+                image: true,
+                proxy: true,
+                ready: true,
+            })),
         }
     }
 
@@ -493,6 +544,7 @@ impl Source {
         let source = Source {
             kind: Kind::Fixture(status),
             runtime,
+            readers: None,
             recorder: Some(recorder),
         };
         Started {
@@ -520,6 +572,7 @@ impl Source {
                 notify,
             )),
             runtime,
+            readers: None,
             recorder: Some(recorder),
         };
         Started {
@@ -540,6 +593,24 @@ impl Source {
             Kind::Live(core) => self.spawn(call(core.clone())),
             Kind::Fixture(_) => ready(Err(BridgeError::invalid(FIXTURE_REFUSAL))),
         }
+    }
+
+    /// Reads `task` in-process on a blocking thread of the runtime. Without readers (a test on a fake
+    /// `box`) the answer is `Unsupported`, and the caller asks `box`.
+    fn direct<T: Send + 'static>(
+        &self,
+        task: String,
+        read: impl Fn(&TaskReader) -> BridgeResult<T> + Send + 'static,
+    ) -> Pending<T> {
+        let Some(readers) = self.readers.clone() else {
+            let unsupported =
+                BridgeError::new(ErrorCode::Unsupported, Said::new("error.box.unsupported"));
+            return ready(Err(unsupported));
+        };
+        let handle = self
+            .runtime
+            .spawn_blocking(move || readers.with_task(&task, read));
+        Box::pin(async move { handle.await.unwrap_or_else(|error| Err(joined(error))) })
     }
 
     fn spawn<T: Send + 'static>(
@@ -573,6 +644,7 @@ fn start_live(
     let source = Source {
         kind: Kind::Live(core),
         runtime,
+        readers: Some(Arc::new(Readers::new(watcher::agentbox_home()))),
         #[cfg(test)]
         recorder: None,
     };
@@ -614,8 +686,8 @@ fn fixture_accounts(json: Option<&str>) -> BridgeResult<Vec<Account>> {
     })
 }
 
-/// The projects of the sample data: one per project its lavori name, in a box, starting from the base
-/// of its first lavoro.
+/// The projects of the sample data: one per project its tasks name, in a box, starting from the base
+/// of its first task.
 fn fixture_projects(status: &BoxStatus) -> Vec<Project> {
     let mut projects: Vec<Project> = Vec::new();
     for task in &status.tasks {

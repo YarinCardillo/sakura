@@ -3,13 +3,14 @@
 //! failure, in the sentence `box` printed, is written under the header.
 
 use super::chrome::keep_click;
+pub use super::chrome::quiet_variant;
 use super::desk::Desk;
 use crate::data::actions::{ActionKey, Actions};
 use crate::l10n::{tr, Key};
-use crate::theme::{self, Palette, Theme};
+use crate::theme::{self, Theme};
 use gpui::InteractiveElement as _;
 use gpui::{div, px, AnyElement, Context, Entity, IntoElement, ParentElement, Styled};
-use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
+use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use sakura_core::model::{self, RemoveRule};
 use sakura_core::models::Task;
@@ -101,13 +102,4 @@ fn dots(colour: gpui::Hsla) -> impl IntoElement {
         .flex_none()
         .w(theme::ICON_SIZE)
         .child(crate::ui::glyph::overflow(colour))
-}
-
-/// No fill at rest, the secondary fill under the pointer and while the menu is open.
-pub fn quiet_variant(palette: &Palette, cx: &gpui::App) -> ButtonCustomVariant {
-    ButtonCustomVariant::new(cx)
-        .color(gpui::transparent_black())
-        .foreground(palette.text_secondary)
-        .hover(palette.fill)
-        .active(palette.fill_hover)
 }

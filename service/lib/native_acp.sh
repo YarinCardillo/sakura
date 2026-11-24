@@ -1,10 +1,10 @@
 # shellcheck shell=bash
-# box acp <task> [<account>] for a lavoro on the Mac: the Claude ACP adapter, run natively in
+# box acp <task> [<account>] for a task on the Mac: the Claude ACP adapter, run natively in
 # the worktree as the person, with CLAUDE_CONFIG_DIR set to the config directory of the account.
 # The adapter is installed once, at a pinned version, under $AGENTBOX_HOME/tools (not fetched at
 # every start). It talks to the client through the same filter as the conversation of a box
 # (acp_proxy.pl: client capabilities stripped, the agent's requests limited, bounded lines, the
-# deadlines), its standard error goes to the same bounded log, and one front end per lavoro is
+# deadlines), its standard error goes to the same bounded log, and one front end per task is
 # open at a time. The adapter and everything it starts live in one process group, which is
 # ended when the channel closes: nothing keeps running afterwards.
 
@@ -50,7 +50,7 @@ clean_environment() {
   exec "$TRUSTED_ENV" -i "${assignments[@]}" "$@"
 }
 
-# ---- the adapter, installed once --------------------------------------------------------------
+# The adapter, installed once.
 
 # The file that names the node and the npm the adapter was installed with, as absolute paths.
 native_acp_runtime() {
@@ -97,9 +97,9 @@ install_native_acp() {
   fi
 }
 
-# ---- the conversation -------------------------------------------------------------------------
+# The conversation.
 
-# One front end per lavoro. The lock is held by this process and by the supervisor of the
+# One front end per task. The lock is held by this process and by the supervisor of the
 # session (the relay, which is started with the descriptor open): when box acp is killed
 # outright the supervisor still holds it, and lets go only after it has ended the adapter. The
 # adapter itself never gets the descriptor.
@@ -175,7 +175,7 @@ run_native_acp() {
   exec 4<>"$life"
   start_log_reader "$pipe" "$log" "$ended"
   limiter="$LOG_READER_PID"
-  (cd "$LAVORO_DIR" && clean_environment "$ADAPTER_ENVIRONMENT" "PATH=$PERSON_PATH" "PWD=$LAVORO_DIR" ${config_assignment:+"$config_assignment"} "BOX_ACP_LIFETIME_FD=4" -- "$TRUSTED_PERL" "$ACP_PROXY" "$ACP_MAX_LINE_BYTES" \
+  (cd "$LAVORO_DIR" && clean_environment "$ADAPTER_ENVIRONMENT" "PATH=$PERSON_PATH" "PWD=$LAVORO_DIR" ${config_assignment:+"$config_assignment"} "BOX_ACP_LIFETIME_FD=4" "BOX_ACP_AGE_FILE=$TASKS_DIR/$task.age" -- "$TRUSTED_PERL" "$ACP_PROXY" "$ACP_MAX_LINE_BYTES" \
     "$ACP_END_SECONDS" "$ACP_STALL_SECONDS" "$report" "$TRUSTED_PERL" "$NATIVE_RUN" --keep-stdin 0 "$pid_file" "$node" "$(native_acp_command)") \
     <&3 3<&- 4<"$life" 5>&- 2>"$pipe" &
   child=$!
@@ -217,7 +217,7 @@ end_conversation() {
 }
 readonly CONVERSATION_END_TICKS=50
 
-# box stop <task> for a lavoro on the Mac: the open conversation is told to end.
+# box stop <task> for a task on the Mac: the open conversation is told to end.
 stop_on_mac() {
   local task="$1" group
   conversation_is_open "$task" || die "no conversation is open for task '$task'"

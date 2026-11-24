@@ -1,6 +1,7 @@
-//! The terminals of a lavoro's centre: one console of the agent (its terminal, or the login requested there)
-//! and, beside it, one terminal of the lavoro's own (a shell). Each has its place: opening one never
-//! replaces, hides for good or ends the other. They are kept while the app runs, so switching lavori or
+//! The terminals of a task's centre: one console of the agent (its terminal, or the login requested there)
+//! and, beside it, one terminal of the task's own (a shell). Each has its place: opening one never
+//! replaces, hides for good or ends the other. A sign-in asked while no task is on screen has a place of
+//! its own, the window's centre. They are kept while the app runs, so switching tasks or
 //! views never attaches again and never loses scrollback. A console goes when its task is removed, when
 //! facts read after its end say the agent is gone, when the person closes it, when its shell ends, or with
 //! the app: every session is closed when it quits. A session is opened on the background executor,
@@ -54,7 +55,13 @@ pub struct LoginDone {
     pub account: String,
 }
 
-/// Emitted when the shell of a lavoro's own terminal ended (an `exit`, or anything else): the terminal
+/// Emitted when `box up` ended well at `at`: the boxes can be used, and what waited there goes on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoxesReady {
+    pub at: At,
+}
+
+/// Emitted when the shell of a task's own terminal ended (an `exit`, or anything else): the terminal
 /// is gone, and only the terminal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalEnded {
@@ -107,10 +114,30 @@ impl Console {
     }
 }
 
-/// A console's key: its task and its place there.
-type At = (String, Place);
+/// Where a console is: in one of the two places of a task's centre, or in the centre of the window
+/// itself, where a sign-in asked while no task is on screen is shown.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum At {
+    Task(String, Place),
+    Window,
+}
 
-/// Every console of the window, by task name and place.
+impl At {
+    /// Where a console of `kind` goes in `task`'s centre.
+    pub fn task(task: &str, kind: &ConsoleKind) -> Self {
+        At::Task(task.to_string(), kind.place())
+    }
+
+    /// The task whose centre it is in; none for the window's own.
+    fn lavoro(&self) -> Option<&str> {
+        match self {
+            At::Task(task, _) => Some(task),
+            At::Window => None,
+        }
+    }
+}
+
+/// Every console of the window, by where it is.
 pub struct Consoles {
     terminals: Option<Terminals>,
     router: CoreRouter,
@@ -122,6 +149,7 @@ pub struct Consoles {
 }
 
 impl EventEmitter<LoginDone> for Consoles {}
+impl EventEmitter<BoxesReady> for Consoles {}
 impl EventEmitter<TerminalEnded> for Consoles {}
 
 impl Consoles {
@@ -178,27 +206,25 @@ impl Consoles {
 
     /// The agent's console of `task` (its terminal, or a login), if one is open or ended.
     pub fn get(&self, task: &str) -> Option<&Console> {
-        self.consoles.get(&(task.to_string(), Place::Agent))
+        self.consoles.get(&At::Task(task.to_string(), Place::Agent))
     }
 
-    /// The lavoro's own terminal, if one is open.
+    /// The task's own terminal, if one is open.
     pub fn terminal(&self, task: &str) -> Option<&Console> {
-        self.consoles.get(&(task.to_string(), Place::Terminal))
+        self.consoles
+            .get(&At::Task(task.to_string(), Place::Terminal))
     }
 
-    /// Opens a console of `kind` in its place in `task`'s centre, closing the one it replaces there; the
-    /// console in the other place is not touched. The pane shows it opening at once; the session is
-    /// opened on the background executor.
-    pub fn open(
-        &mut self,
-        task: &str,
-        kind: ConsoleKind,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    /// The sign-in in the window's own centre, if one is open or ended.
+    pub fn in_window(&self) -> Option<&Console> {
+        self.consoles.get(&At::Window)
+    }
+
+    /// Opens a console of `kind` at `at`, closing the one it replaces there; a console anywhere else is
+    /// not touched. The pane shows it opening at once; the session is opened on the background executor.
+    pub fn open(&mut self, at: At, kind: ConsoleKind, window: &mut Window, cx: &mut Context<Self>) {
         self.next_generation += 1;
         let generation = self.next_generation;
-        let at = (task.to_string(), kind.place());
         let state = match &self.terminals {
             Some(terminals) => {
                 self.begin_opening(&at, &kind, generation, terminals.clone(), window, cx);
@@ -218,17 +244,13 @@ impl Consoles {
         cx.notify();
     }
 
-    /// Closes the agent's console of `task`; its process is hung up.
-    pub fn close(&mut self, task: &str, cx: &mut Context<Self>) {
-        self.close_at(&(task.to_string(), Place::Agent), cx);
-    }
-
-    /// Closes the lavoro's own terminal; its shell is hung up.
+    /// Closes the task's own terminal; its shell is hung up.
     pub fn close_terminal(&mut self, task: &str, cx: &mut Context<Self>) {
-        self.close_at(&(task.to_string(), Place::Terminal), cx);
+        self.close(&At::Task(task.to_string(), Place::Terminal), cx);
     }
 
-    fn close_at(&mut self, at: &At, cx: &mut Context<Self>) {
+    /// Closes the console at `at`; its process is hung up.
+    pub fn close(&mut self, at: &At, cx: &mut Context<Self>) {
         if self.consoles.remove(at).is_some() {
             self.tell_attached(cx);
             cx.notify();
@@ -245,7 +267,8 @@ impl Consoles {
             .consoles
             .iter()
             .filter(|(_, console)| is_attached(console));
-        let names = attached.map(|((task, _), _)| task.clone()).collect();
+        let names = attached.filter_map(|(at, _)| at.lavoro().map(str::to_string));
+        let names = names.collect();
         self.facts.update(cx, |facts, _| facts.set_attached(names));
     }
 
@@ -260,7 +283,7 @@ impl Consoles {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
-        let request = request(&at.0, kind);
+        let request = request(at, kind);
         let opener = terminals.clone();
         let opening = cx.background_spawn(async move { opener.open(&request) });
         let at = at.clone();
@@ -332,9 +355,9 @@ impl Consoles {
                 consoles.exited(&ended, *code, last_line, cx);
             }
         });
-        let name = at.0.clone();
+        let printing = at.clone();
         let output = cx.observe(&terminal, move |consoles, terminal, cx| {
-            consoles.open_sign_in(&name, &terminal.read(cx).logical_lines(), cx);
+            consoles.open_sign_in(&printing, &terminal.read(cx).logical_lines(), cx);
         });
         (view, vec![exit, output])
     }
@@ -343,9 +366,8 @@ impl Consoles {
     /// container without a display, so its own attempt to open the browser does nothing. What a terminal
     /// prints is not trusted: only `sakura-core`'s rule decides what a sign-in address is, only a login's
     /// console is looked at, and a second address in the same session is never opened.
-    fn open_sign_in(&mut self, task: &str, lines: &[String], cx: &mut Context<Self>) {
-        let at = (task.to_string(), Place::Agent);
-        let Some(console) = self.consoles.get_mut(&at) else {
+    fn open_sign_in(&mut self, at: &At, lines: &[String], cx: &mut Context<Self>) {
+        let Some(console) = self.consoles.get_mut(at) else {
             return;
         };
         let is_login = matches!(console.kind, ConsoleKind::Login(_));
@@ -360,16 +382,16 @@ impl Consoles {
         cx.notify();
     }
 
-    /// Opens again the sign-in address of `task`'s login, when the app opened one.
-    pub fn reopen_sign_in(&self, task: &str, cx: &mut Context<Self>) {
-        let url = self.get(task).and_then(Console::sign_in);
+    /// Opens again the sign-in address of the login at `at`, when the app opened one.
+    pub fn reopen_sign_in(&self, at: &At, cx: &mut Context<Self>) {
+        let url = self.consoles.get(at).and_then(Console::sign_in);
         if let Some(url) = url {
             cx.open_url(url);
         }
     }
 
     /// Applies the end of the console at `at`, then reads again what its end may have changed. A shell
-    /// that ended takes its terminal away and nothing else: the lavoro is told, so it can say so.
+    /// that ended takes its terminal away and nothing else: the task is told, so it can say so.
     fn exited(
         &mut self,
         at: &At,
@@ -385,8 +407,10 @@ impl Consoles {
         match rules::outcome(&kind, code, last_line.as_deref()) {
             Outcome::Close(code) => {
                 self.consoles.remove(at);
-                let task = at.0.clone();
-                cx.emit(TerminalEnded { task, code });
+                if let Some(task) = at.lavoro() {
+                    let task = task.to_string();
+                    cx.emit(TerminalEnded { task, code });
+                }
             }
             Outcome::Ended(code) => console.state = ConsoleState::Ended { code, at: now },
             Outcome::LoginCheck => console.state = ConsoleState::Checking { at: now },
@@ -398,17 +422,30 @@ impl Consoles {
                 console.state = ConsoleState::Failed { reason, at: now };
                 console.view = None;
             }
+            Outcome::DockerDown => {
+                let reason = Failure {
+                    said: Said::new("boxes.docker_down"),
+                    details: None,
+                };
+                console.state = ConsoleState::Failed { reason, at: now };
+                console.view = None;
+            }
+            Outcome::BoxesReady => {
+                self.consoles.remove(at);
+                cx.emit(BoxesReady { at: at.clone() });
+            }
         }
         self.tell_attached(cx);
-        let task = at.0.clone();
-        match kind {
-            ConsoleKind::Agent => self
-                .facts
-                .update(cx, |facts, cx| facts.refresh_task(task, cx)),
-            ConsoleKind::Login(_) => self
+        match (kind, at.lavoro()) {
+            (ConsoleKind::Agent, Some(task)) => {
+                let task = task.to_string();
+                self.facts
+                    .update(cx, |facts, cx| facts.refresh_task(task, cx))
+            }
+            (ConsoleKind::Login(_), _) => self
                 .actions
                 .update(cx, |actions, cx| actions.reload_accounts(cx)),
-            ConsoleKind::Shell => {}
+            _ => {}
         }
         cx.notify();
     }
@@ -446,14 +483,18 @@ impl Consoles {
         }
     }
 
-    /// Puts away consoles of removed tasks, and agent consoles whose agent fresh facts say is gone.
+    /// Puts away consoles of removed tasks, and agent consoles whose agent fresh facts say is gone. The
+    /// window's own sign-in belongs to no task, and stays.
     fn prune(&mut self, cx: &mut Context<Self>) {
         let facts = self.facts.read(cx);
         if facts.phase() != &Phase::Ready {
             return;
         }
         let before = self.consoles.len();
-        self.consoles.retain(|(task, _), console| {
+        self.consoles.retain(|at, console| {
+            let Some(task) = at.lavoro() else {
+                return true;
+            };
             facts.row(task).is_some_and(|row| {
                 let is_running = is_agent_running(&row.task);
                 !rules::is_agent_gone(
@@ -515,12 +556,16 @@ fn close_session(terminals: &Terminals, id: &str) {
     }
 }
 
-/// The `sakura-core` request for a console of `kind` in `task`'s pane, at the grid's first size.
-fn request(task: &str, kind: &ConsoleKind) -> TerminalRequest {
+/// The `sakura-core` request for a console of `kind` at `at`, at the grid's first size: a login names its
+/// account, any other console its task.
+fn request(at: &At, kind: &ConsoleKind) -> TerminalRequest {
     let size = GridSize::default();
     TerminalRequest {
         kind: kind.terminal_kind(),
-        task: kind.account().is_none().then(|| task.to_string()),
+        task: at
+            .lavoro()
+            .filter(|_| kind.account().is_none() && *kind != ConsoleKind::BoxUp)
+            .map(str::to_string),
         account: kind.account().map(str::to_string),
         cols: size.columns,
         rows: size.rows,

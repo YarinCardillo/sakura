@@ -6,10 +6,10 @@ use super::haptics::{self, Haptics};
 use super::motion::Sprung;
 use super::paint::Prepared;
 use super::pointer::{Drag, Press};
+use crate::ui::tabs::model::{Placement, TabId, Tabs};
 use gpui::{point, px, AppContext as _, Context, Entity, EventEmitter, Pixels, Point};
 use gpui_base::TooltipOverlay;
 use sakura_core::model::TaskState;
-use sakura_core::tabs::{Placement, TabId, Tabs};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Instant;
@@ -26,8 +26,10 @@ pub enum StripEvent {
 /// The tab strip: the tabs and how they are drawn right now.
 pub struct Strip {
     pub(super) tabs: Tabs,
-    /// The state of each lavoro that has a tab, as the window shows it: its tab's mark.
+    /// The state of each task that has a tab, as the window shows it: its tab's mark.
     pub(super) states: HashMap<String, TaskState>,
+    /// Whether anything waits for the person: the pinned tab's mark.
+    pub(super) has_waits: bool,
     /// How far the first tab starts from the panel's left edge.
     pub(super) leading_inset: f32,
     /// How far each tab is drawn from its slot: stepping aside in a drag, gliding home after one.
@@ -79,6 +81,7 @@ impl Strip {
         Self {
             tabs,
             states: HashMap::new(),
+            has_waits: false,
             leading_inset: 0.,
             offsets: HashMap::new(),
             press: None,
@@ -106,11 +109,26 @@ impl Strip {
         &self.tabs
     }
 
-    /// Says the state of the lavori that have a tab, as the sidebar and the header show it: each tab's
-    /// mark is its lavoro's state.
+    /// Says the state of the tasks that have a tab, as the sidebar and the header show it: each tab's
+    /// mark is its task's state.
     pub fn set_states(&mut self, states: HashMap<String, TaskState>, cx: &mut Context<Self>) {
         if self.states != states {
             self.states = states;
+            cx.notify();
+        }
+    }
+
+    /// The state the window told for `task`.
+    #[cfg(all(test, not(feature = "boxes")))]
+    pub(in crate::ui) fn state_told(&self, task: &str) -> Option<TaskState> {
+        self.states.get(task).copied()
+    }
+
+    #[cfg(test)]
+    /// Says whether anything waits for the person: the pinned tab then carries the accent's dot.
+    pub fn set_has_waits(&mut self, has_waits: bool, cx: &mut Context<Self>) {
+        if self.has_waits != has_waits {
+            self.has_waits = has_waits;
             cx.notify();
         }
     }
@@ -161,13 +179,13 @@ impl Strip {
         self.haptics = haptics;
     }
 
-    /// Shows the lavoro `task` in the tab already on it, else in a new tab of its own (a click on a sidebar
-    /// row, a lavoro just made): one rule, and the lavoro on screen never loses its tab to another.
+    /// Shows the task `task` in the tab already on it, else in a new tab of its own (a click on a sidebar
+    /// row, a task just made): one rule, and the task on screen never loses its tab to another.
     pub fn show(&mut self, task: &str, cx: &mut Context<Self>) {
         self.open(task, Placement::Foreground, cx);
     }
 
-    /// Opens the lavoro `task` in a tab of its own (Cmd+click on a sidebar row).
+    /// Opens the task `task` in a tab of its own (Cmd+click on a sidebar row).
     pub fn open(&mut self, task: &str, placement: Placement, cx: &mut Context<Self>) {
         self.change(cx, |tabs| {
             let before = tabs.clone();
@@ -213,7 +231,7 @@ impl Strip {
     }
 
     /// Applies `act` to the tabs; when it changed them, any drag ends, the tabs glide from where they
-    /// stood, and the desk is told. A newly chosen tab is simply drawn as the one shown: nothing animates
+    /// stood, and the desk is told. A newly chosen tab is drawn as the one shown: nothing animates
     /// on a tab switch.
     pub(super) fn change(&mut self, cx: &mut Context<Self>, act: impl FnOnce(&mut Tabs) -> bool) {
         let stood = self.slot_lefts();

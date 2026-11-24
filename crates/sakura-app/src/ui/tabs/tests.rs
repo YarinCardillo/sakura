@@ -5,12 +5,12 @@ use super::haptics::Recorded;
 use super::keys;
 use super::strip::{Strip, StripEvent};
 use crate::theme::{Appearance, Theme};
+use crate::ui::tabs::model::{Placement, TabId, Tabs};
 use gpui::{
     div, point, px, AppContext as _, Context, Entity, IntoElement, Modifiers, MouseButton,
     ParentElement as _, Pixels, Point, Render, Styled as _, TestAppContext, VisualTestContext,
     Window,
 };
-use sakura_core::tabs::{Placement, TabId, Tabs};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
@@ -47,7 +47,7 @@ fn strip_the_panel_s_bottom_corner_lies_over_the_page_on_the_panel_s_edges(
     assert_eq!(corner.bottom(), window.height, "on the panel's bottom edge");
 }
 
-/// The lavoro every test strip opens first: its tab is the one shown, flush on the panel's corner.
+/// The task every test strip opens first: its tab is the one shown, flush on the panel's corner.
 const FIRST: &str = "capo";
 
 /// A strip with [`FIRST`] and one tab per name, in a test window, its first frame drawn. Motion is
@@ -696,7 +696,7 @@ fn strip_the_first_lavoro_shown_gets_the_first_tab_and_the_last_one_gone_leaves_
         "the tab is flush: the corner is square"
     );
     assert_eq!(told.get(), 1);
-    // The lavoro is removed: its tab goes although it is the last, and nothing is shown.
+    // The task is removed: its tab goes although it is the last, and nothing is shown.
     cx.update(|_, cx| strip.update(cx, |strip, cx| strip.retain_tasks(|_| false, cx)));
     draw(cx);
     assert!(order(&strip, cx).is_empty());
@@ -814,4 +814,150 @@ fn strip_no_tab_touches_the_strip_s_top_and_every_tab_stands_on_the_panel(cx: &m
     // The traffic lights are centred on the line the tabs are centred on.
     let lights = crate::theme::TRAFFIC_LIGHTS_Y + crate::theme::TRAFFIC_LIGHT_SIZE / 2.;
     assert_eq!(lights, px(TOP_INSET + TAB_HEIGHT / 2.));
+}
+
+/// A strip with the pinned Waiting tab and one tab per name, Waiting shown.
+fn open_pinned<'a>(
+    cx: &'a mut TestAppContext,
+    names: &[&str],
+) -> (&'a mut VisualTestContext, Entity<Strip>) {
+    let mut tabs = Tabs::with_waiting();
+    for name in names {
+        tabs.open(name, Placement::Background);
+    }
+    open_on(cx, tabs)
+}
+
+#[gpui::test]
+fn strip_pinned_tab_can_be_dragged_but_not_closed(cx: &mut TestAppContext) {
+    crate::l10n::set_for_test(crate::l10n::Language::English);
+    let (cx, strip) = open_pinned(cx, &["lane-a", "lane-b"]);
+    assert!(cx.debug_bounds("tab-close-1").is_none(), "Waiting has none");
+    cx.simulate_keystrokes("cmd-w");
+    draw(cx);
+    assert_eq!(order(&strip, cx).len(), 3, "Cmd+W leaves the pinned tab");
+    let middle_of_waiting = middle(&strip, 0, cx);
+    cx.simulate_mouse_down(middle_of_waiting, MouseButton::Middle, Modifiers::none());
+    cx.simulate_mouse_up(middle_of_waiting, MouseButton::Middle, Modifiers::none());
+    draw(cx);
+    assert_eq!(
+        order(&strip, cx).len(),
+        3,
+        "the middle button leaves it too"
+    );
+    let before = order(&strip, cx);
+    pick_up(&strip, 0, 300., cx);
+    let_go(&strip, cx);
+    let after = order(&strip, cx);
+    assert_ne!(after, before, "it is picked up and dropped like any tab");
+    assert_ne!(after[0], before[0], "it no longer stands first");
+    assert_eq!(after.len(), 3, "and nothing closed");
+}
+
+#[gpui::test]
+fn strip_a_lane_dragged_to_the_left_end_lands_first(cx: &mut TestAppContext) {
+    let (cx, strip) = open_pinned(cx, &["lane-a", "lane-b"]);
+    let before = order(&strip, cx);
+    pick_up(&strip, 2, -600., cx);
+    let_go(&strip, cx);
+    let after = order(&strip, cx);
+    assert_eq!(after, [before[2], before[0], before[1]]);
+}
+
+#[gpui::test]
+fn strip_the_waiting_tab_carries_the_accent_dot_only_while_something_waits(
+    cx: &mut TestAppContext,
+) {
+    let (cx, strip) = open_pinned(cx, &["lane-a"]);
+    assert!(
+        cx.debug_bounds("tab-needs-you-1").is_none(),
+        "nothing waits"
+    );
+    cx.update(|_, cx| strip.update(cx, |strip, cx| strip.set_has_waits(true, cx)));
+    draw(cx);
+    assert!(cx.debug_bounds("tab-needs-you-1").is_some(), "the dot");
+    cx.update(|_, cx| strip.update(cx, |strip, cx| strip.set_has_waits(false, cx)));
+    draw(cx);
+    assert!(cx.debug_bounds("tab-needs-you-1").is_none());
+}
+
+#[gpui::test]
+fn strip_cmd_one_selects_waiting(cx: &mut TestAppContext) {
+    let (cx, strip) = open_pinned(cx, &["lane-a"]);
+    cx.simulate_keystrokes("cmd-2");
+    draw(cx);
+    assert_eq!(active_place(&strip, cx), 1);
+    cx.simulate_keystrokes("cmd-1");
+    draw(cx);
+    assert_eq!(active_place(&strip, cx), 0);
+}
+
+#[test]
+fn selected_tab_radius_equals_panel_radius() {
+    use super::metrics::RADIUS;
+    use super::shape::{Fused, Step};
+    // A tab well inside the panel: the fillets on both sides, the tab's two top corners and the panel's right
+    // corner are one radius, the panel's.
+    let fused = Fused {
+        panel_left: 0.,
+        panel_right: 1000.,
+        panel_top: 36.,
+        tab_left: 300.,
+        tab_right: 420.,
+        tab_top: 4.,
+        morph: 1.,
+    };
+    assert_eq!(fused.left_radius(), RADIUS, "left of the tab");
+    assert_eq!(fused.right_radius(), RADIUS, "right of the tab");
+    for step in fused.outline(0.).iter() {
+        if let Step::Arc { radius, .. } = step {
+            assert_eq!(*radius, RADIUS);
+        }
+    }
+    // The first tab, flush on the panel's corner: its own top corner is the corner, and it is the panel's too.
+    let flush = Fused {
+        tab_left: 0.,
+        tab_right: 120.,
+        morph: 0.,
+        ..fused
+    };
+    let arcs: Vec<f32> = flush
+        .outline(0.)
+        .iter()
+        .filter_map(|step| match step {
+            Step::Arc { radius, .. } => Some(*radius),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !arcs.is_empty() && arcs.iter().all(|radius| *radius == RADIUS),
+        "{arcs:?}"
+    );
+}
+
+#[test]
+fn tab_hover_fill_radius_equals_selected_tab_radius() {
+    use super::metrics::{HOVER_RADIUS, RADIUS};
+    // The fill an unselected tab takes under the pointer, or in the hand, sits beside the selected tab
+    // and the panel: one radius, theirs.
+    assert_eq!(HOVER_RADIUS, RADIUS);
+}
+
+#[gpui::test]
+fn strip_hover_fill_is_tall_enough_for_the_selected_tabs_radius(cx: &mut TestAppContext) {
+    use super::metrics::{HOVER_RADIUS, RADIUS};
+    let (cx, strip) = open(cx, &["m1", "m2"]);
+    let id = cx.update(|_, cx| strip.read(cx).tabs().tabs()[1].id);
+    let fill = cx
+        .debug_bounds(Box::leak(
+            format!("tab-hover-fill-{}", id.as_u64()).into_boxed_str(),
+        ))
+        .expect("the unselected tab has its hover fill");
+    // A fill shorter than twice its radius is drawn with a smaller one (a pill), not the selected tab's.
+    assert_eq!(HOVER_RADIUS, RADIUS);
+    assert!(
+        fill.size.height >= px(2. * RADIUS),
+        "{:?} is too short for a radius of {RADIUS}",
+        fill.size.height
+    );
 }

@@ -1,0 +1,16 @@
+# Copy to ~/.config/sakura/quota.toml and adapt. Account ids are the ids of ~/.config/sakura/accounts.toml.
+# The weekly ceiling of an account is 100 minus its reserve_week_pct there (25 when it sets none).
+port = 8799
+
+# [roles]                    # model[:effort] replacing a built-in tier
+# planner = "opus"
+
+[[projects]]
+name = "work"
+paths = ["~/work/app"]       # a repository under one of these paths belongs to the project
+claude = ["work", "personal"]   # by preference: the work account first, the personal one when it is forecast over its ceiling
+codex = ["personal"]
+
+[default]                    # every other repository: personal accounts only
+claude = ["personal"]
+codex = ["personal"]

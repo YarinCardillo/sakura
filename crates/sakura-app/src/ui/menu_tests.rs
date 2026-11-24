@@ -182,7 +182,7 @@ fn the_commit_menu_s_trigger_is_a_quiet_control_with_its_words_on_the_pane_s_ins
 fn the_lavoro_s_menu_has_one_inset_all_round_and_nothing_under_its_last_item() {
     real_text::run(|cx| {
         let (cx, _dir) = open_changes(cx);
-        // A lavoro whose agent runs: every item of its menu can be pressed.
+        // A task whose agent runs: every item of its menu can be pressed.
         click(cx, "row-sample-folders");
         wait_for(cx, "its header", |cx| {
             cx.debug_bounds("task-menu").is_some()

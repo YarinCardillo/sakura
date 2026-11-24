@@ -1,12 +1,17 @@
 //! The scripted sessions. The first word of the prompt picks one: `plain`, `think`, `tools`, `diff`,
-//! `terminal`, `plan`, `permission`, `permission-safe`, `permission-twins`, `permission-late`, `slow`,
-//! `stream5000`, `crash`, `stall`, `stall-late`, `deaf`, `lines`, `fenced`, `refusal`; anything else plays the showcase, which strings
+//! `shell`, `terminal`, `plan`, `permission`, `permission-safe`, `permission-read`, `permission-read-outside`,
+//! `permission-mcp`, `permission-grep`, `permission-command`, `permission-twins`, `permission-late`, `slow`,
+//! `master` (what the engine's master does: starts a lane, reads files, proposes a note), `stream5000`, `crash`, `stall`, `stall-late`, `deaf`, `lines`, `fenced`, `refusal`; anything else plays the showcase, which strings
 //! most of them together. The scripted replies use neutral English examples.
 
 use serde_json::{json, Value};
 
-/// The workspace the fake agent pretends to work in.
+/// The workspace the fake agent pretends to work in, unless `WORKSPACE_VARIABLE` names one (a folder on
+/// disk, for a task on the Mac).
 const WORKSPACE: &str = "/work/demo";
+const WORKSPACE_VARIABLE: &str = "SAKURA_FAKE_WORKSPACE";
+/// A file of the person's outside the workspace, which a read must not reach unasked.
+const OUTSIDE_FILE: &str = "/home/person/.ssh/id_ed25519";
 /// Chunks of the long stream fixture.
 const STREAM_CHUNKS: usize = 5000;
 /// Chunks of the slow turn a cancel is meant to interrupt.
@@ -45,17 +50,33 @@ pub enum Step {
 
 /// The steps for a prompt, picked by its first word.
 pub fn for_prompt(text: &str) -> Vec<Step> {
+    // The master's messages start with the project they are about, on a line of its own: the script is
+    // picked by what follows.
+    let text = match text.strip_prefix("Project: ") {
+        Some(rest) => rest.split_once('\n').map_or(rest, |(_, after)| after),
+        None => text,
+    };
     let word = text.split_whitespace().next().unwrap_or("").to_lowercase();
     match word.as_str() {
         "plain" => plain(),
         "push" => pushed(),
+        "master" => master(),
         "think" => think(),
         "tools" => tools(),
         "diff" => diff(),
+        "shell" => shell(),
         "terminal" => terminal(),
         "plan" => plan(),
         "permission" => permission(),
         "permission-safe" => permission_safe(),
+        "permission-read" => permission_read(&path("src/folders/sort.rs")),
+        "permission-read-outside" => permission_read(OUTSIDE_FILE),
+        "permission-mcp" => permission_mcp(),
+        "permission-grep" => permission_grep(),
+        "permission-command" => permission_command(),
+        "permission-command-context" => {
+            permission_command_with_input(json!({ "command": "git status", "cwd": "relative" }))
+        }
         "permission-twins" => permission_twins(),
         "permission-late" => permission_late(),
         "slow" => stream(SLOW_CHUNKS),
@@ -67,6 +88,7 @@ pub fn for_prompt(text: &str) -> Vec<Step> {
         "lines" => vec![message(LINES)],
         "fenced" => fenced(),
         "refusal" => vec![message(REFUSAL), Step::Refuse],
+        _ if text.starts_with('/') => vec![message(&format!("Ran {text}."))],
         // A publishing request in any language names what it asks for.
         _ if text.to_lowercase().contains("pull request") => pushed(),
         _ => showcase(),
@@ -170,7 +192,8 @@ fn text_content(text: &str) -> Value {
 }
 
 fn path(relative: &str) -> String {
-    format!("{WORKSPACE}/{relative}")
+    let workspace = std::env::var(WORKSPACE_VARIABLE).unwrap_or_else(|_| WORKSPACE.to_string());
+    format!("{workspace}/{relative}")
 }
 
 /// What an agent that was asked to publish answers: the pull request it opened, then a last word.
@@ -188,6 +211,48 @@ fn plain() -> Vec<Step> {
          so `Élite` comes after `Zeta`. Compare the normalized form.",
         message,
     )
+}
+
+/// What the engine's master does in one turn: it starts a lane, reads files, and proposes a note to the
+/// knowledge. The lane and the note are the ones of the engine's test fixtures (`demo`, `note-1`). Its words
+/// are English, as the master's are.
+fn master() -> Vec<Step> {
+    let mut steps = words(
+        "Started a lane for it. The reviewer gates every step.",
+        message,
+    );
+    steps.push(tool_call(
+        "master-lane",
+        "mcp__sakura-master__lane_open",
+        "other",
+        "completed",
+        json!({
+            "rawInput": { "project": "repo", "text": "Make uploads retry with backoff" },
+            "content": text_content(r#"{"lane": "demo"}"#),
+        }),
+    ));
+    steps.push(tool_call(
+        "master-read",
+        "Read 6 files, searched the code twice",
+        "read",
+        "completed",
+        json!({ "content": text_content("src/upload.rs") }),
+    ));
+    steps.extend(words(
+        "This is the change I propose to the knowledge. It applies when you approve it, here or in the Inbox.",
+        message,
+    ));
+    steps.push(tool_call(
+        "master-note",
+        "mcp__sakura-master__knowledge_propose",
+        "other",
+        "completed",
+        json!({
+            "rawInput": { "path": "notes/parser.md", "text": "ignored, the engine's wait is what is shown" },
+            "content": text_content(r#"{"proposal": "note-1"}"#),
+        }),
+    ));
+    steps
 }
 
 fn think() -> Vec<Step> {
@@ -268,6 +333,23 @@ fn diff() -> Vec<Step> {
     ]
 }
 
+/// A command that changes a file and names none, as `printf ... >> README.md` does; the turn then goes on
+/// until it is cancelled, so what changed on disk is all that says where the agent is while it works.
+fn shell() -> Vec<Step> {
+    let command = "printf 'one line\\n' >> README.md";
+    vec![
+        tool_call(
+            "call-shell",
+            command,
+            "execute",
+            "completed",
+            json!({ "rawInput": { "command": command } }),
+        ),
+        message("Ho aggiunto one line al README."),
+        Step::Stall,
+    ]
+}
+
 /// A command whose output grows: each update carries the whole output so far. It is the call `tools`
 /// leaves running, so the showcase and the stored session see it through to its end.
 fn terminal() -> Vec<Step> {
@@ -340,6 +422,7 @@ fn permission() -> Vec<Step> {
         "kind": "fetch",
         "status": "pending",
         "rawInput": { "url": "https://crates.io/api/v1/crates/unicode-normalization" },
+        "_meta": claude_tool("WebFetch"),
     });
     vec![
         message("I need the current library version."),
@@ -362,6 +445,8 @@ fn permission_safe() -> Vec<Step> {
         "kind": "edit",
         "status": "pending",
         "locations": [{ "path": file }],
+        "rawInput": { "file_path": file, "old_string": "before", "new_string": "after" },
+        "_meta": claude_tool("Edit"),
     });
     vec![
         Step::Permission {
@@ -371,6 +456,98 @@ fn permission_safe() -> Vec<Step> {
         },
         message("Edited."),
     ]
+}
+
+/// A read of `file` by the Claude agent's Read tool, as its adapter reports one.
+fn permission_read(file: &str) -> Vec<Step> {
+    let call = json!({
+        "toolCallId": "call-read",
+        "title": format!("Read {file}"),
+        "kind": "read",
+        "status": "pending",
+        "locations": [{ "path": file }],
+        "rawInput": { "file_path": file },
+        "_meta": claude_tool("Read"),
+    });
+    vec![
+        Step::Permission {
+            request: json!({ "toolCall": call, "options": options() }),
+            allowed: json!({ "sessionUpdate": "tool_call_update", "toolCallId": "call-read", "status": "completed" }),
+            refused: json!({ "sessionUpdate": "tool_call_update", "toolCallId": "call-read", "status": "failed" }),
+        },
+        message("Letto."),
+    ]
+}
+
+/// A search of the workspace by the Claude agent's Grep, with a regular expression that looks like a
+/// path that climbs out.
+fn permission_grep() -> Vec<Step> {
+    let call = json!({
+        "toolCallId": "call-grep",
+        "name": "Grep",
+        "title": "grep -n \"\\.\\./\\.\\.\\(\"",
+        "kind": "search",
+        "status": "pending",
+        "rawInput": { "pattern": "\\.\\./\\.\\.\\(", "-n": true },
+        "_meta": claude_tool("Grep"),
+    });
+    vec![
+        Step::Permission {
+            request: json!({ "toolCall": call, "options": options() }),
+            allowed: json!({ "sessionUpdate": "tool_call_update", "toolCallId": "call-grep", "status": "completed" }),
+            refused: json!({ "sessionUpdate": "tool_call_update", "toolCallId": "call-grep", "status": "failed" }),
+        },
+        message("Cercato."),
+    ]
+}
+
+/// A known command by the Claude agent's Bash: a package script, whose behaviour the workspace decides.
+fn permission_command() -> Vec<Step> {
+    permission_command_with_input(json!({ "command": "npm run test" }))
+}
+
+fn permission_command_with_input(input: Value) -> Vec<Step> {
+    let call = json!({
+        "toolCallId": "call-command",
+        "title": "npm run test",
+        "kind": "execute",
+        "status": "pending",
+        "rawInput": input,
+        "_meta": claude_tool("Bash"),
+    });
+    vec![
+        Step::Permission {
+            request: json!({ "toolCall": call, "options": options() }),
+            allowed: json!({ "sessionUpdate": "tool_call_update", "toolCallId": "call-command", "status": "completed" }),
+            refused: json!({ "sessionUpdate": "tool_call_update", "toolCallId": "call-command", "status": "failed" }),
+        },
+        message("Done."),
+    ]
+}
+
+/// A tool of an MCP server the login configured, which the client knows nothing of.
+fn permission_mcp() -> Vec<Step> {
+    let call = json!({
+        "toolCallId": "call-mcp",
+        "title": "mcp__notes__export",
+        "kind": "other",
+        "status": "pending",
+        "rawInput": { "all": true },
+        "_meta": claude_tool("mcp__notes__export"),
+    });
+    vec![
+        Step::Permission {
+            request: json!({ "toolCall": call, "options": options() }),
+            allowed: json!({ "sessionUpdate": "tool_call_update", "toolCallId": "call-mcp", "status": "completed" }),
+            refused: json!({ "sessionUpdate": "tool_call_update", "toolCallId": "call-mcp", "status": "failed" }),
+        },
+        message("Esportato."),
+    ]
+}
+
+/// The `_meta` the Claude agent's adapter puts on a tool call: the name of the tool.
+fn claude_tool(name: &str) -> Value {
+    json!({ "claudeCode": { "toolName": name } })
 }
 
 /// The same safe edit, offered with two options under one id: allowing it once and allowing it always.

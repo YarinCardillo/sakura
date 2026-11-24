@@ -1,19 +1,21 @@
 //! The commits of a project to draw as a graph, read through `box graph`: the base branch and every
-//! lavoro's branch as lanes. The shape is the one `box` documents in its `docs/interface.md`. Subjects
+//! task's branch as lanes. The shape is the one `box` documents in its `docs/interface.md`. Subjects
 //! and branch names were written by agents: they are shown, never run.
 
 mod layout;
 
 pub use layout::{Layout, Row, Stroke};
 
+#[cfg(feature = "boxes")]
 use crate::box_cli::{BoxCli, Limit};
 use crate::error::{BridgeError, BridgeResult};
 use crate::said::Said;
 use serde::Deserialize;
 
-/// The longest name of a project or a lavoro `box graph` is asked about.
+/// The longest name of a project or a task `box graph` is asked about.
 const NAME_MAX_LEN: usize = 64;
 /// The most commits of the base branch `box graph` lists.
+#[cfg(feature = "boxes")]
 const LIMIT_MAX: u32 = 1000;
 /// The most commits, lanes and parents a graph is drawn from: the base's thousand and two hundred a
 /// task, with room. A reply over any of them is refused whole, before anything is laid out.
@@ -30,18 +32,18 @@ const HOURS_SAID: i64 = 48;
 /// The years a commit's time may be in: from the epoch to the last year of four digits.
 const YEARS: std::ops::RangeInclusive<i64> = 1970..=9999;
 
-/// One lane: the base branch (the first, with no lavoro) or the branch of a lavoro.
+/// One lane: the base branch (the first, with no task) or the branch of a task.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Lane {
     pub lavoro: Option<String>,
     pub branch: String,
-    /// Where the lavoro lives (`mac` or `box`); nothing for the base.
+    /// Where the task lives (`mac` or `box`); nothing for the base.
     #[serde(rename = "where", default)]
     pub place: Option<String>,
-    /// The lane's last commit; nothing when the lavoro cannot be read.
+    /// The lane's last commit; nothing when the task cannot be read.
     #[serde(default)]
     pub head: Option<String>,
-    /// The commit the lavoro started from.
+    /// The commit the task started from.
     #[serde(default)]
     pub base: Option<String>,
     #[serde(default)]
@@ -57,7 +59,7 @@ pub struct Commit {
     pub subject: String,
     /// The author time, ISO 8601 in UTC.
     pub time: String,
-    /// The lavoro the commit belongs to; nothing for a commit of the base branch.
+    /// The task the commit belongs to; nothing for a commit of the base branch.
     #[serde(default)]
     pub lavoro: Option<String>,
     /// The branches of the lanes whose head it is.
@@ -170,7 +172,7 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     era * DAYS_PER_ERA + day_of_era - EPOCH_SHIFT
 }
 
-/// The name of a project or of a lavoro as `box graph` takes it: never read as a flag.
+/// The name of a project or of a task as `box graph` takes it: never read as a flag.
 pub fn name(value: &str) -> BridgeResult<&str> {
     let is_word = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.');
     let starts_plain = value.starts_with(|c: char| c.is_ascii_alphanumeric());
@@ -183,6 +185,7 @@ pub fn name(value: &str) -> BridgeResult<&str> {
     }
 }
 
+#[cfg(feature = "boxes")]
 /// `box graph <project or lavoro> --json [--limit <n>]`.
 pub async fn read_graph(cli: &BoxCli, of: &str, limit: Option<u32>) -> BridgeResult<Graph> {
     let of = name(of)?;
@@ -195,5 +198,5 @@ pub async fn read_graph(cli: &BoxCli, of: &str, limit: Option<u32>) -> BridgeRes
     graph.checked()
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "boxes"))]
 mod tests;

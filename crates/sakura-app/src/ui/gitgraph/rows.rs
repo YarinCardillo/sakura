@@ -285,8 +285,18 @@ fn subject(subject: &str, sha: &str) -> Div {
 impl Render for GitGraph {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = Theme::palette(cx);
+        let shows_reading = match self.shown {
+            Shown::Reading => self.patience.shows(cx),
+            _ => {
+                self.patience.reset();
+                false
+            }
+        };
         match &self.shown {
-            Shown::Reading => sentence(tr(Key("graph.reading")), &palette).into_any_element(),
+            Shown::Reading if shows_reading => sentence(tr(Key("graph.reading")), &palette)
+                .debug_selector(|| "graph-reading".into())
+                .into_any_element(),
+            Shown::Reading => div().into_any_element(),
             Shown::Failed => self.unreadable(&palette, cx),
             Shown::Graph(drawn) if drawn.layout.rows.is_empty() => {
                 sentence(tr(Key("graph.none")), &palette).into_any_element()

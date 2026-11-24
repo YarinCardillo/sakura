@@ -75,7 +75,7 @@ acquire_runner_lock() {
   echo "$$" >"$RUNNER_LOCK_FILE"
 }
 
-# ---- heartbeat ----------------------------------------------------------------------------
+# Heartbeat.
 # A waiting `verify` (inside a container it sees only its task's results directory) cannot tell
 # whether a runner exists. The runner writes the epoch into <results>/<task>/.runner-alive every
 # few seconds, also while a long job runs, and the ticker ends when the runner does.
@@ -316,16 +316,17 @@ run_request() {
 
 finish_request() {
   local file="$1" task="$2" id="$3" verb="$4" sha="$5" exit_code="$6" started="$7" total="$8" log="$9"
-  local seconds peak timed_out=false oom key extras
+  local seconds peak timed_out=false oom key extras discarded=""
   key="$(request_key "$file")"
   seconds="$(host_number "$key" seconds "$total")"
   peak="$(host_number "$key" peak_bytes 0)"
   # A deadline is the runner's own measure: the job can choose its exit code, not the clock.
   [ "$exit_code" -eq "$TIMEOUT_EXIT_CODE" ] && [ "$seconds" -ge "$VERB_TIMEOUT_SECONDS" ] && timed_out=true
   oom="$(job_oom_killed "$key")"
+  IFS= read -r discarded <"$(request_host_dir "$key")/discarded" 2>/dev/null || discarded=""
   cleanup_request_objects "$key"
   if request_is_cancelled "$file"; then finish_cancelled "$file" "$total"; return 0; fi
-  extras="$(result_extras_json "$task" "$verb" "$sha" "$log")"
+  extras="$(with_discarded "$discarded" "$(result_extras_json "$task" "$verb" "$sha" "$log")")"
   with_queue_lock end_request_locked "$file" "$total" \
     write_result "$task" "$id" "$verb" "$sha" "$exit_code" "$seconds" "$peak" "$started" "$timed_out" "$oom" false "$extras"
   if [ "$(result_field "$(task_results_dir "$task")/$id.json" cancelled 2>/dev/null)" != "false" ]; then
@@ -360,7 +361,7 @@ finish_cancelled() {
   warn "request $key was cancelled"
 }
 
-# ---- what the runner measures itself -------------------------------------------------------
+# What the runner measures itself.
 # Nothing recorded about a job is produced inside its container, where the code of the commit
 # runs: the seconds come from the runner's clock around the container run, the peak memory from
 # readings taken through Docker, the exit code from Docker. They are kept in a host-private
@@ -368,6 +369,23 @@ finish_cancelled() {
 
 request_host_dir() {
   echo "$STAGE_DIR/$1.host"
+}
+
+# discard <key> <line>: the job of the request is set aside, not counted as a result of its commit.
+# The line ("[box] <reason>") goes to the log, and its reason is kept for the result to carry.
+discard() {
+  local dir
+  dir="$(request_host_dir "$1")"
+  echo "$2"
+  mkdir -p "$dir" && printf '%s\n' "${2#\[box\] }" | head -c "$DISCARDED_MAX_BYTES" >"$dir/discarded"
+}
+readonly DISCARDED_MAX_BYTES=1000
+
+# with_discarded <reason> <extras>: the extras of a result, with the reason its job was set aside
+# when there is one.
+with_discarded() {
+  [ -n "$1" ] || { echo "$2"; return 0; }
+  jq -c --arg reason "$1" '. + {discarded: $reason}' <<<"$2" 2>/dev/null || echo "$2"
 }
 
 # host_number <key> <name> <default>: a number the runner recorded for the request, else the
@@ -504,7 +522,7 @@ end_at_deadline() {
   kill -KILL "$child" 2>/dev/null || true
 }
 
-# ---- one job ----------------------------------------------------------------------------
+# One job.
 
 # Dependencies (for a project that installs any), checkout, job. The checkout step has no
 # network and sees the workspace read-only; the install step sees only package.json and the
@@ -518,7 +536,7 @@ run_job() {
   checkout_volume="$(checkout_volume "$id")"
   import_commit "$task" "$sha" || { echo "[box] the commit $sha could not be verified"; return 1; }
   problem="$(tree_problem "$task" "$sha")"
-  if [ -n "$problem" ]; then echo "[box] the commit was not checked: $problem"; return "$REJECTED_EXIT_CODE"; fi
+  if [ -n "$problem" ]; then discard "$id" "[box] the commit was not checked: $problem"; return "$REJECTED_EXIT_CODE"; fi
   if [ -n "$INSTALL" ]; then deps="$(prepare_dependencies "$task" "$id" "$sha")" || return 1; fi
   cancel_requested "$id" && return "$CANCELLED_EXIT_CODE"
   ensure_volume "$checkout_volume" "$task" || return 1

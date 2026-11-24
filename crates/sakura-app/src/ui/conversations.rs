@@ -1,8 +1,8 @@
-//! The conversation of each lavoro: the home of its page. One view per lavoro, made the first time its
-//! page is drawn and kept while the app runs, so a tab switch finds it as it was. Looking at a lavoro
-//! starts nothing: the agent (`box acp`) is started by the person's first message, or for the lavoro
+//! The conversation of each task: the home of its page. One view per task, made the first time its
+//! page is drawn and kept while the app runs, so a tab switch finds it as it was. Looking at a task
+//! starts nothing: the agent (`box acp`) is started by the person's first message, or for the task
 //! that is shown when a conversation is kept for it from before, which is then shown again. The desk gives the view what only it knows: how the agent is
-//! started and with which account, the session kept for the lavoro, the sign-in and the terminal.
+//! started and with which account, the session kept for the task, the sign-in and the terminal.
 
 use super::centre::CentreView;
 use super::chrome::text;
@@ -29,7 +29,7 @@ use sakura_core::{box_words, display};
 /// one, and it can be renamed where the accounts are kept.
 const FIRST_ACCOUNT: &str = "claude";
 
-/// A lavoro's conversation, and the watch on what it tells the desk.
+/// A task's conversation, and the watch on what it tells the desk.
 pub(super) struct Conversation {
     pub(super) view: Entity<ThreadView>,
     _watch: [Subscription; 2],
@@ -44,7 +44,7 @@ struct Lavoro {
     workspace: String,
 }
 
-/// What the facts say of the lavoro `name` now; nothing while it is not listed.
+/// What the facts say of the task `name` now; nothing while it is not listed.
 fn lavoro(facts: &Facts, name: &str) -> Option<Lavoro> {
     let task = &facts.row(name)?.task;
     Some(Lavoro {
@@ -70,7 +70,7 @@ pub(super) fn unavailable(task: &Task) -> Option<SharedString> {
     }
 }
 
-/// That a lavoro could not be made, with the reason `line` (what `box` wrote) gives, in Sakura's words.
+/// That a task could not be made, with the reason `line` (what `box` wrote) gives, in Sakura's words.
 fn creation_failed(line: &str) -> SharedString {
     could_not_create(&say(&box_words::said(line).said))
 }
@@ -80,8 +80,8 @@ fn could_not_create(reason: &str) -> SharedString {
     tr_with(Key("start.creation_failed"), &[("reason", &reason)])
 }
 
-/// Where the lavoro `name`, requested with a first message, stands: its creation could not start, it
-/// failed, it is still running, or the lavoro is there.
+/// Where the task `name`, requested with a first message, stands: its creation could not start, it
+/// failed, it is still running, or the task is there.
 fn readiness(name: &str, facts: &Facts, actions: &Actions) -> Readiness {
     let key = ActionKey::new_task(name);
     if let Some(said) = actions.error(&key) {
@@ -116,7 +116,7 @@ fn lowercase_first(sentence: &str) -> String {
     }
 }
 
-/// The sentence of a lavoro that has no conversation yet, in the middle of the centre.
+/// The sentence of a task that has no conversation yet, in the middle of the centre.
 pub(super) fn unavailable_view(sentence: SharedString, palette: &Palette) -> AnyElement {
     div()
         .size_full()
@@ -132,8 +132,8 @@ pub(super) fn unavailable_view(sentence: SharedString, palette: &Palette) -> Any
 }
 
 impl Desk {
-    /// The conversation of the lavoro `name`, made now when its page is drawn for the first time (or
-    /// when the lavoro is requested with a first message, before `box` lists it).
+    /// The conversation of the task `name`, made now when its page is drawn for the first time (or
+    /// when the task is requested with a first message, before `box` lists it).
     pub(super) fn conversation(
         &mut self,
         name: &str,
@@ -148,12 +148,20 @@ impl Desk {
         let task = name.to_string();
         let watch = cx.subscribe(
             &view,
-            move |desk, _, event: &ThreadViewEvent, cx| match *event {
+            move |desk, _, event: &ThreadViewEvent, cx| match event.clone() {
                 ThreadViewEvent::WaitsForPerson(waits) => desk.agent_waits(&task, waits, cx),
                 ThreadViewEvent::Live(live) => {
+                    if live == sakura_core::model::Live::Working {
+                        desk.agent_worked(&task);
+                    }
                     desk.facts
                         .update(cx, |facts, cx| facts.set_live(&task, live, cx));
                 }
+                // Only the master's composer asks for this.
+                ThreadViewEvent::StartFresh
+                | ThreadViewEvent::ProjectChosen
+                | ThreadViewEvent::CodexLoginRequested
+                | ThreadViewEvent::KeptSessionLost(_) => {}
             },
         );
         // The agent's tool calls say where it is: the right pane follows it from there.
@@ -176,15 +184,15 @@ impl Desk {
         Some(self.conversations.get(task)?.view.clone())
     }
 
-    /// The agent of `task` asked the person something, or was answered: the lavoro's state says so in
+    /// The agent of `task` asked the person something, or was answered: the task's state says so in
     /// the sidebar and the header, and its tab too (the desk tells the strip whenever the facts move).
     fn agent_waits(&mut self, task: &str, waits: bool, cx: &mut Context<Self>) {
         self.facts
             .update(cx, |facts, cx| facts.set_waiting(task, waits, cx));
     }
 
-    /// Tells the strip the state of every lavoro that has a tab, as the sidebar and the header show it,
-    /// and the facts which lavori have a conversation kept from before.
+    /// Tells the strip the state of every task that has a tab, as the sidebar and the header show it,
+    /// and the facts which tasks have a conversation kept from before.
     pub(super) fn tell_states(&mut self, cx: &mut Context<Self>) {
         let kept = self.sessions.tasks();
         self.facts.update(cx, |facts, cx| facts.set_kept(kept, cx));
@@ -212,7 +220,7 @@ impl Desk {
         }
     }
 
-    /// What the conversation of the lavoro `name` needs from the desk. Where the lavoro lives and its
+    /// What the conversation of the task `name` needs from the desk. Where the task lives and its
     /// folder are read from the facts when they are needed: a conversation can be made before them.
     fn host_of(&self, name: &str) -> Host {
         let (source, known) = (self.source.clone(), self.known());
@@ -226,7 +234,8 @@ impl Desk {
                 Err(NoStart::SignInFirst) => return Launched::SignInFirst,
                 Err(NoStart::NoAccount) => return Launched::NoAccount,
             };
-            match source.agent(&lavoro.name, Some(&account), &lavoro.workspace) {
+            let (name, workspace) = (&lavoro.name, &lavoro.workspace);
+            match source.agent(name, Some(&account), workspace, lavoro.place) {
                 Some((agent, events)) => Launched::Started(agent, events),
                 None => Launched::Unavailable,
             }
@@ -270,7 +279,7 @@ impl Desk {
         }
     }
 
-    /// Reads the session kept for the lavoro `name` with the account it would start with now.
+    /// Reads the session kept for the task `name` with the account it would start with now.
     fn kept_session(&self, name: &str) -> StoredSession {
         let (sessions, known) = (self.sessions.clone(), self.known());
         let name = name.to_string();
@@ -281,7 +290,7 @@ impl Desk {
         })
     }
 
-    /// Keeps the session that opened for the lavoro `name` with the account it started with.
+    /// Keeps the session that opened for the task `name` with the account it started with.
     fn keep_session(&self, name: &str) -> StoreSession {
         let (sessions, known) = (self.sessions.clone(), self.known());
         let name = name.to_string();
@@ -305,7 +314,7 @@ impl Desk {
         }
     }
 
-    /// Gives the project of the lavoro `name` the account the person chose for its agent.
+    /// Gives the project of the task `name` the account the person chose for its agent.
     fn choose_account(&self, name: &str) -> ChooseAccount {
         let (desk, task): (WeakEntity<Desk>, String) = (self.me.clone(), name.to_string());
         Box::new(move |account, cx| {
@@ -361,7 +370,7 @@ impl Desk {
     }
 
     /// A conversation moved: one that now waits for an account has the projects read, when they never
-    /// were, because the lavoro's project may name it.
+    /// were, because the task's project may name it.
     fn account_wanted(&mut self, task: &str, cx: &mut Context<Self>) {
         let needs = |conversation: &Conversation| conversation.view.read(cx).needs_account();
         if self.conversations.get(task).is_some_and(needs) {
@@ -380,9 +389,9 @@ impl Desk {
         })
     }
 
-    /// Opens the sign-in for the agent of `task`, in the agent's place: of the account it starts with
-    /// (its login no longer works), else of an account of the boxes that is not signed in, else of a
-    /// first one under a name nobody has to invent.
+    /// Opens the sign-in for the agent of `task`, in the agent's place, once the boxes are ready: of the
+    /// account it starts with (its login no longer works), else of an account of the boxes that is not
+    /// signed in, else of a first one under a name nobody has to invent.
     fn sign_in(&mut self, task: &str, window: &mut Window, cx: &mut Context<Self>) {
         let account = match self.actions.read(cx).accounts() {
             Accounts::Loaded(accounts) => {
@@ -392,8 +401,12 @@ impl Desk {
             Accounts::Loading | Accounts::Failed(_) => None,
         };
         let account = account.unwrap_or_else(|| FIRST_ACCOUNT.to_string());
-        self.open_console(task, ConsoleKind::Login(account), window, cx);
-        self.show_centre_view(task, CentreView::Agent, cx);
+        let task = task.to_string();
+        let sign_in = move |desk: &mut Desk, window: &mut Window, cx: &mut Context<Desk>| {
+            desk.open_console(&task, ConsoleKind::Login(account), window, cx);
+            desk.show_centre_view(&task, CentreView::Agent, cx);
+        };
+        self.with_boxes(Box::new(sign_in), window, cx);
     }
 
     /// Shows the terminal of `task`, opening one when it has none.
@@ -405,15 +418,15 @@ impl Desk {
     }
 }
 
-/// Why no agent can be started for a lavoro yet.
+/// Why no agent can be started for a task yet.
 enum NoStart {
     /// No account of the boxes is signed in: the person signs in first.
     SignInFirst,
-    /// No account is named for a lavoro on the Mac: the person chooses one.
+    /// No account is named for a task on the Mac: the person chooses one.
     NoAccount,
 }
 
-/// What says which account an agent starts with: the lavori, the accounts and the projects.
+/// What says which account an agent starts with: the tasks, the accounts and the projects.
 #[derive(Clone)]
 struct Known {
     facts: Entity<Facts>,
@@ -438,7 +451,7 @@ impl Known {
         box_account(accounts, preferred.as_deref()).ok_or(NoStart::SignInFirst)
     }
 
-    /// The person's login a lavoro on the Mac uses: the one its project names (when the projects were
+    /// The person's login a task on the Mac uses: the one its project names (when the projects were
     /// read), else the only one there is.
     fn mac_account(&self, lavoro: &Lavoro, cx: &App) -> Option<String> {
         let project = self.projects.read(cx).project(&lavoro.project);
@@ -447,8 +460,8 @@ impl Known {
     }
 }
 
-/// Under whose name a lavoro's session is kept: the account's in a box, where the session lives with
-/// the account; none on the Mac, where a lavoro has one conversation whatever its project is told later.
+/// Under whose name a task's session is kept: the account's in a box, where the session lives with
+/// the account; none on the Mac, where a task has one conversation whatever its project is told later.
 fn session_owner(place: Place, account: &str) -> &str {
     match place {
         Place::Box => account,

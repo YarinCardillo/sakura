@@ -1,0 +1,33 @@
+{
+  "api": 1,
+  "connectors": [{
+    "id": "connection-id",
+    "kind": "github",
+    "label": "Website PRs",
+    "connected": true,
+    "revision": 1,
+    "scope": {
+      "mode": "scoped",
+      "selectors": {"repo": "Acme/Website", "branch": "staging"},
+      "labels": {"resource": "Acme/Website", "branch": "staging"}
+    },
+    "reads": {
+      "key": "connector_reads_github",
+      "args": {"resource": "Acme/Website", "branch": "staging"}
+    },
+    "operations": ["read", "comment_pr"],
+    "events": ["check_failed"],
+    "status": "connected",
+    "dependent_tasks": [{"id": "task-id", "label": "Check the staging build"}]
+  }],
+  "connector_controls": {
+    "version": 1,
+    "target": "[\"host\",\"connectors\"]",
+    "actions": [
+      {"key":"connectoradd","label":"Add connector","needs":["op","choices"],"optional":[],"confirm":true},
+      {"key":"connectoredit","label":"Edit connector","needs":["op","name","revision","choices"],"optional":[],"confirm":true},
+      {"key":"connectordisconnect","label":"Disconnect connector","needs":["op","name","revision"],"optional":[],"confirm":true},
+      {"key":"connectorreplace","label":"Review replacement","needs":["op","name","revision","candidate","candidate_revision"],"optional":[],"confirm":true}
+    ]
+  }
+}

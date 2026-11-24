@@ -89,6 +89,7 @@ fn verb_reason(verb: &str, view: ResultView) -> Option<Said> {
         ResultView::Vecchio => "take.reason.check.old",
         ResultView::MaiEseguito => "take.reason.check.never",
         ResultView::Annullata => "take.reason.check.cancelled",
+        ResultView::Scartata => "take.reason.check.discarded",
     };
     Some(Said::new(key).text("verb", verb))
 }

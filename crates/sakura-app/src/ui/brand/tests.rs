@@ -199,6 +199,7 @@ fn the_about_action_opens_one_window_and_a_second_press_brings_it_forward(cx: &m
     let mut about_cx = VisualTestContext::from_window(window, cx);
     about_cx.update(|window, _| window.activate_window());
     draw(&mut about_cx);
+    assert!(about_cx.update(|window, cx| window.focused(cx).is_none()));
     about_cx.simulate_keystrokes("escape");
     cx.run_until_parked();
     assert_eq!(cx.windows().len(), 0, "Escape closes it");
@@ -225,7 +226,7 @@ fn the_about_column_says_the_version_built_and_its_link_opens_the_repository(
 ) {
     l10n::set_for_test(Language::English);
     prepare(cx);
-    let (_, cx) = cx.add_window_view(|_, cx| AboutView::new(cx));
+    let (_, cx) = cx.add_window_view(|_, _| AboutView);
     draw(cx);
     assert!(cx.debug_bounds("about-version").is_some());
     let link = cx.debug_bounds("about-repository").expect("the link");

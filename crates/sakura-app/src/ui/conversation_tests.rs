@@ -1,4 +1,4 @@
-//! The conversation as the home of a lavoro, on the real chain in a test window: a fake `box` whose `acp`
+//! The conversation as the home of a task, on the real chain in a test window: a fake `box` whose `acp`
 //! runs the fake agent of `sakura-acp` (built with the workspace's tests, or by
 //! `cargo build -p sakura-acp --bin sakura-fake-agent`). What `box` was asked is read back, so a test can say
 //! which processes a person's action started and which it did not.
@@ -15,9 +15,9 @@ use sakura_acp::thread::{EntryKind, Turn};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-/// A lavoro of the fixture that was taken: it is listed last, and has nothing to take.
+/// A task of the fixture that was taken: it is listed last, and has nothing to take.
 const TAKEN: &str = "headings-26";
-/// The lavoro of the fixture whose agent runs in a terminal.
+/// The task of the fixture whose agent runs in a terminal.
 const IN_TERMINAL: &str = "sample-folders";
 /// The account of the boxes that is signed in.
 const ACCOUNT: &str = "personal";
@@ -455,7 +455,7 @@ fn each_lavoro_has_its_own_agent_and_coming_back_finds_its_conversation_as_it_wa
         asked(&dir, &format!("acp {TAKEN} {ACCOUNT}")) == 1
     });
 
-    // Back on the first lavoro, then to its terminal and back to the agent: the same view, untouched.
+    // Back on the first task, then to its terminal and back to the agent: the same view, untouched.
     click(cx, "row-sample-accent");
     click(cx, "status-terminal");
     wait_for(cx, "the terminal", |cx| {
@@ -529,7 +529,7 @@ fn a_kept_conversation_is_loaded_when_its_lavoro_is_shown_and_only_for_the_one_s
     cx: &mut TestAppContext,
 ) {
     let (dir, script) = agent_box(FAST);
-    // The session the fake agent can replay, kept for two lavori by an earlier run.
+    // The session the fake agent can replay, kept for two tasks by an earlier run.
     kept(&dir, TASK, "fake-session-1");
     kept(&dir, TAKEN, "fake-session-1");
     untouched(&dir, TASK);
@@ -603,8 +603,8 @@ fn an_agent_that_runs_in_a_terminal_keeps_it_and_one_sentence_says_so(cx: &mut T
     assert!(processes[0].starts_with(&format!("attach {IN_TERMINAL}")));
 }
 
-/// Rewrites what the fake `box` says of `task` as a lavoro nothing was done in: no commit, no change, no
-/// agent the service knows of, never taken, no result (a lavoro on the Mac before its first answer).
+/// Rewrites what the fake `box` says of `task` as a task nothing was done in: no commit, no change, no
+/// agent the service knows of, never taken, no result (a task on the Mac before its first answer).
 fn untouched(dir: &tempfile::TempDir, task: &str) {
     let path = dir.path().join("status.json");
     let text = std::fs::read_to_string(&path).expect("the status");
@@ -646,12 +646,12 @@ fn the_header_the_sidebar_row_and_the_tab_show_one_state_and_the_group_follows_i
     untouched(&dir, TAKEN);
     let (cx, desk) = open(cx, script, TAKEN);
     let states = [
-        ((false, Live::Unknown), "not-started", "group-not-started"),
+        ((false, Live::Unknown), "not-started", "group-idle"),
         ((false, Live::Starting), "preparing", "group-preparing"),
         ((false, Live::Working), "working", "group-working"),
         ((true, Live::Working), "needs-you", "group-needs-you"),
         ((false, Live::Answered), "idle", "group-idle"),
-        ((false, Live::Stopped), "failed", "group-review"),
+        ((false, Live::Stopped), "failed", "group-needs-you"),
     ];
     for (said, state, group) in states {
         seen(cx, &desk, TAKEN, said);
@@ -666,9 +666,7 @@ fn the_header_the_sidebar_row_and_the_tab_show_one_state_and_the_group_follows_i
             "group-needs-you",
             "group-working",
             "group-preparing",
-            "group-review",
             "group-idle",
-            "group-not-started",
             "group-taken",
         ];
         let between = lower.into_iter().filter(|other| *other != group);
@@ -688,7 +686,7 @@ fn a_lavoro_whose_conversation_is_kept_from_before_reads_idle_not_as_never_start
 ) {
     let (dir, script) = agent_box(FAST);
     untouched(&dir, TAKEN);
-    // Opened on another lavoro: this one is only listed, no conversation of it is drawn.
+    // Opened on another task: this one is only listed, no conversation of it is drawn.
     let (cx, desk) = open(cx, script, TASK);
     assert!(is_on_screen(cx, "state-row-headings-26-not-started"));
     desk.update(cx, |desk, cx| {
@@ -707,7 +705,7 @@ fn a_lavoro_whose_conversation_is_kept_from_before_reads_idle_not_as_never_start
     );
 }
 
-/// The project of the fixture's lavori.
+/// The project of the fixture's tasks.
 const PROJECT: &str = "example-app";
 /// Two logins of the Mac: neither is "the only one".
 const TWO_OF_THE_MAC: &str = r#"[{"name":"mine","where":"mac","exists":true,"loggedIn":null},
@@ -810,7 +808,7 @@ fn a_kept_conversation_of_a_lavoro_on_the_mac_is_loaded_with_its_projects_accoun
     let project =
         format!(r#"[{{"name":"{PROJECT}","base":"main","where":"mac","account":"other"}}]"#);
     std::fs::write(dir.path().join("projects.json"), project).expect("the project");
-    // On the Mac a lavoro's conversation is kept under no account's name.
+    // On the Mac a task's conversation is kept under no account's name.
     let store = sakura_acp::store::SessionStore::new(dir.path());
     store
         .set(TASK, "", "fake-session-1")

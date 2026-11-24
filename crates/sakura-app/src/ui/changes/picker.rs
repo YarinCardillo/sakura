@@ -7,13 +7,13 @@ use crate::data::changes::{Changes, Scope};
 use crate::l10n::{tr, Key};
 use crate::theme::{self, Palette, Theme};
 use crate::ui::chrome::mono;
+use crate::ui::kit::{scroll_dropdown, ScrollMenu, ScrollMenuItem};
 use crate::ui::task_menu::quiet_variant;
 use gpui::{
     div, AnyElement, Context, Entity, InteractiveElement as _, IntoElement, ParentElement, Render,
     Styled, Subscription, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use sakura_core::model::SHORT_SHA;
 use sakura_core::models::Commit;
 use std::sync::Arc;
@@ -91,8 +91,10 @@ impl ReviewToolbar {
             .custom(quiet_variant(palette, cx))
             .h(theme::CONTROL_HEIGHT)
             .px(theme::CONTROL_PADDING_X)
-            .child(trigger)
-            .dropdown_menu(move |menu, _, _| menu_items(menu, &scope, &commits, &changes, &task));
+            .child(trigger);
+        let button = scroll_dropdown(button, gpui::Anchor::TopLeft, move |menu, _, _| {
+            menu_items(menu, &scope, &commits, &changes, &task)
+        });
         // A quiet control: its words sit on the content inset, its fill under the pointer reaches one
         // control padding past them.
         div()
@@ -140,31 +142,24 @@ fn commit_label(commit: &Commit, palette: &Palette) -> impl IntoElement {
 }
 
 fn menu_items(
-    menu: PopupMenu,
+    menu: ScrollMenu,
     scope: &Scope,
     commits: &Arc<Vec<Commit>>,
     changes: &Entity<Changes>,
     task: &str,
-) -> PopupMenu {
+) -> ScrollMenu {
     // Every choice is drawn by this view, the first as the commits are: one kind of item, so the kit
     // keeps the check's column for each and every label starts on one line.
-    let all = PopupMenuItem::element(|_, _| choice_label("all", div().child(tr(ALL_CHANGES))));
+    let all = ScrollMenuItem::element(|_, _| choice_label("all", div().child(tr(ALL_CHANGES))));
     let all = choice(all, Scope::All, scope, changes, task);
     let menu = menu
         .min_w(theme::PICKER_MENU_WIDTH)
         .max_w(theme::PICKER_MENU_WIDTH);
-    // The menu scrolls only when its choices do not fit. A menu that scrolls is scrolled by the kit to its
-    // checked choice as it opens, and one whose choices all fit was moved a few points by that: its first
-    // choice cut at the top, and room left under the last.
-    let is_long = commits.len() >= theme::PICKER_MENU_CHOICES;
-    let menu = match is_long {
-        true => menu.max_h(theme::PICKER_MENU_HEIGHT).scrollable(true),
-        false => menu,
-    };
+    let menu = menu.max_h(theme::PICKER_MENU_HEIGHT);
     let menu = menu.item(all);
     commits.iter().fold(menu, |menu, commit| {
         let shown = commit.clone();
-        let item = PopupMenuItem::element(move |_, cx| {
+        let item = ScrollMenuItem::element(move |_, cx| {
             let short: String = shown.sha.chars().take(SHORT_SHA).collect();
             choice_label(&short, commit_label(&shown, &Theme::palette(cx)))
         });
@@ -185,12 +180,12 @@ fn choice_label(name: &str, label: impl IntoElement) -> AnyElement {
 
 /// A menu item that shows `target`, checked when it is the current scope.
 fn choice(
-    item: PopupMenuItem,
+    item: ScrollMenuItem,
     target: Scope,
     current: &Scope,
     changes: &Entity<Changes>,
     task: &str,
-) -> PopupMenuItem {
+) -> ScrollMenuItem {
     let (changes, task) = (changes.clone(), task.to_string());
     item.checked(target == *current).on_click(move |_, _, cx| {
         changes.update(cx, |changes, cx| {

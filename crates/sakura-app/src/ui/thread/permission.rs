@@ -13,6 +13,7 @@ use crate::l10n::tr;
 use crate::theme::thread as tokens;
 use crate::theme::{self, Palette};
 use crate::ui::chrome::{mono, text};
+use crate::ui::kit;
 use gpui::{
     div, AnyElement, Context, InteractiveElement as _, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement as _, Styled,
@@ -136,16 +137,8 @@ impl ThreadView {
                     .font_weight(theme::WEIGHT_MEDIUM)
                     .child(tr(copy::permission_question(permission.reason))),
             );
-        div()
+        kit::card("thread-permission-card", palette)
             .w_full()
-            .p(tokens::CARD_PADDING)
-            .flex()
-            .flex_col()
-            .gap(tokens::CARD_GAP)
-            .debug_selector(|| "thread-permission-card".to_string())
-            .rounded(theme::RADIUS_CARD)
-            // A filled surface, the one the person's own message has: never an outline alone.
-            .bg(palette.fill)
             .child(question)
             .child(details(&lines, palette))
             .child(self.choices(permission, palette, cx))

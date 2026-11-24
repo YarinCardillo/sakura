@@ -1,4 +1,4 @@
-//! Which lines of an open file differ from the base, from the file's part of the lavoro's patch: the
+//! Which lines of an open file differ from the base, from the file's part of the task's patch: the
 //! marks the file view draws in its gutter. Lines are numbered as the file is now (the patch's new side).
 
 use crate::patch::{FilePatch, Hunk, LineKind};
@@ -52,7 +52,7 @@ impl Run {
 /// The line of the file as it is now that follows a hunk's place, from the new side of its header
 /// (`@@ -20,2 +19,0 @@`). A side of no lines names the line before it, so what was removed stood
 /// before the line after that one. Never before the first line; the view clamps it to the file's end.
-fn line_after(header: &str) -> u32 {
+pub(super) fn line_after(header: &str) -> u32 {
     let side = header.split(' ').find_map(|part| part.strip_prefix('+'));
     let (start, count) = side.map_or(("", ""), |side| side.split_once(',').unwrap_or((side, "1")));
     let start: u32 = start.parse().unwrap_or(0);

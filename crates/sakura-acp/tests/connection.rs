@@ -1,9 +1,11 @@
 //! The connection against the fake agent, as a child process over stdio: every scripted session ends in the
 //! entries the conversation shows, and every way the agent can fail ends in one typed event, never a hang.
 
-use sakura_acp::connection::{Agent, AgentConfig, AgentEvent, Deadlines};
+use sakura_acp::attachment::Attachment;
+use sakura_acp::connection::{Agent, AgentConfig, AgentEvent, Deadlines, SessionSetup};
 use sakura_acp::model::{
-    OptionKind, PlanStatus, StopReason, ToolContent, ToolKind, ToolStatus, Update,
+    OptionKind, PlanStatus, PromptSupport, SessionChoices, StopReason, ToolContent, ToolKind,
+    ToolStatus, Update,
 };
 use sakura_acp::policy::Reason;
 use sakura_acp::thread::{
@@ -24,6 +26,12 @@ struct Harness {
     thread: Thread,
     /// Chunks of the agent's answer seen so far.
     answer_chunks: usize,
+    /// What the session last said it lets the person pick.
+    choices: Option<SessionChoices>,
+    /// The commands the session last announced.
+    commands: Vec<sakura_acp::model::SlashCommand>,
+    /// The workspace on disk of a task on the Mac, held while the agent works in it.
+    _workspace: Option<tempfile::TempDir>,
 }
 
 fn config(flags: &[&str], deadlines: Deadlines) -> AgentConfig {
@@ -36,6 +44,8 @@ fn config(flags: &[&str], deadlines: Deadlines) -> AgentConfig {
         workspace: "/work/demo".into(),
         deadlines,
         max_unread_bytes: sakura_acp::transport::MAX_UNREAD_BYTES,
+        asks_beyond_workspace: false,
+        session: SessionSetup::default(),
     }
 }
 
@@ -51,6 +61,9 @@ impl Harness {
             events,
             thread: Thread::new(),
             answer_chunks: 0,
+            choices: None,
+            commands: Vec::new(),
+            _workspace: None,
         }
     }
 
@@ -62,6 +75,12 @@ impl Harness {
             .expect("the connection has not ended without its last event");
         if let AgentEvent::Thread(event) = &event {
             self.thread.apply(event.clone());
+        }
+        if let AgentEvent::Choices(choices) = &event {
+            self.choices = Some(choices.clone());
+        }
+        if let AgentEvent::Commands(commands) = &event {
+            self.commands.clone_from(commands);
         }
         if matches!(
             event,
@@ -199,6 +218,8 @@ async fn start_connects_and_opens_a_new_session() {
     };
     assert_eq!(name, "sakura-fake-agent");
     assert!(!version.is_empty());
+    let supports = harness.next().await;
+    assert!(matches!(supports, AgentEvent::Supports(_)), "{supports:?}");
     harness.agent.open_session(None).unwrap();
     let opened = harness.next().await;
     assert!(
@@ -375,6 +396,147 @@ async fn permission_for_an_edit_in_the_workspace_is_allowed_without_the_person()
     assert_eq!(harness.turn("permission-safe").await, StopReason::EndTurn);
     assert_eq!(harness.kinds(), ["user", "tool", "assistant"]);
     assert_eq!(harness.tool("call-safe-edit").status, ToolStatus::Completed);
+}
+
+/// A harness for a task on the Mac, its session open: `stored` is the session it opens again, if any.
+/// Its workspace is a folder on disk, as a task's is, and the fake agent's paths are in it.
+async fn opened_on_the_mac(flags: &[&str], stored: Option<&str>) -> Harness {
+    let workspace = tempfile::tempdir().unwrap();
+    let mut on_the_mac = config(flags, Deadlines::default());
+    on_the_mac.asks_beyond_workspace = true;
+    on_the_mac.workspace = workspace.path().into();
+    let folder = workspace.path().to_string_lossy().into_owned();
+    on_the_mac.env = vec![("SAKURA_FAKE_WORKSPACE".to_string(), folder)];
+    let mut harness = Harness::with(on_the_mac);
+    harness._workspace = Some(workspace);
+    harness
+        .agent
+        .open_session(stored.map(str::to_string))
+        .unwrap();
+    harness
+        .until(|event| matches!(event, AgentEvent::SessionOpened { .. }))
+        .await;
+    harness
+}
+
+/// The fake agent's login lets every tool run without asking, as a person's own settings can.
+const LOGIN_ALLOWS_ALL: &str = "--login-allows-all";
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn on_the_mac_what_leaves_the_task_is_asked_whatever_the_login_allows() {
+    for stored in [None, Some("fake-session-1")] {
+        let mut harness = opened_on_the_mac(&[LOGIN_ALLOWS_ALL], stored).await;
+        harness.prompt("permission");
+        let asked = harness.until(is_asked).await;
+        let AgentEvent::Thread(ThreadEvent::PermissionAsked { reason, .. }) = asked else {
+            unreachable!("until returned a permission request");
+        };
+        assert_eq!(
+            reason,
+            sakura_acp::policy::Reason::Network,
+            "the fetch reaches the person's card ({stored:?})"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn on_the_mac_an_edit_inside_the_task_goes_on_unasked() {
+    let mut harness = opened_on_the_mac(&[LOGIN_ALLOWS_ALL], None).await;
+    assert_eq!(harness.turn("permission-safe").await, StopReason::EndTurn);
+    assert_eq!(harness.kinds(), ["user", "tool", "assistant"]);
+    assert_eq!(harness.tool("call-safe-edit").status, ToolStatus::Completed);
+}
+
+/// The reason the next permission request reaches the person's card with.
+async fn asked_reason(harness: &mut Harness) -> Reason {
+    let asked = harness.until(is_asked).await;
+    let AgentEvent::Thread(ThreadEvent::PermissionAsked { reason, .. }) = asked else {
+        unreachable!("until returned a permission request");
+    };
+    reason
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn on_the_mac_a_read_outside_the_task_reaches_the_card_whatever_the_login_allows() {
+    let mut harness = opened_on_the_mac(&[LOGIN_ALLOWS_ALL], None).await;
+    harness.prompt("permission-read-outside");
+    assert_eq!(asked_reason(&mut harness).await, Reason::OutsideWorkspace);
+}
+
+/// What the app does with a tool it does not know when the agent asks. Whether the real agent asks for
+/// such a tool under a login that allows it (the `*` ask rule) is not proven here: the fake agent would
+/// only play back the rule it was written with.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn on_the_mac_a_tool_the_app_does_not_know_reaches_the_card_when_the_agent_asks() {
+    let mut harness = opened_on_the_mac(&[], None).await;
+    harness.prompt("permission-mcp");
+    assert_eq!(asked_reason(&mut harness).await, Reason::UnknownKind);
+}
+
+/// Plays `script` on the Mac and checks that its one tool call was judged by the policy, allowed without
+/// a card, and completed.
+async fn allowed_on_the_mac_without_a_card(script: &str, call: &str) {
+    let mut harness = opened_on_the_mac(&[LOGIN_ALLOWS_ALL], None).await;
+    harness.prompt(script);
+    let judged = harness
+        .until(|event| {
+            let allowed = matches!(
+                event,
+                AgentEvent::Thread(ThreadEvent::PermissionAllowed { .. })
+            );
+            allowed || is_asked(event)
+        })
+        .await;
+    assert!(
+        matches!(
+            judged,
+            AgentEvent::Thread(ThreadEvent::PermissionAllowed { .. })
+        ),
+        "{script} is allowed by the policy, not shown: {judged:?}"
+    );
+    harness
+        .until(|event| matches!(event, AgentEvent::Thread(ThreadEvent::TurnEnded(_))))
+        .await;
+    assert_eq!(harness.tool(call).status, ToolStatus::Completed);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn on_the_mac_a_read_inside_the_task_is_judged_by_the_app_and_goes_on_without_a_card() {
+    allowed_on_the_mac_without_a_card("permission-read", "call-read").await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn on_the_mac_a_grep_of_the_task_whose_regex_looks_like_a_path_goes_on_without_a_card() {
+    allowed_on_the_mac_without_a_card("permission-grep", "call-grep").await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn on_the_mac_a_known_command_reaches_the_card_whatever_the_login_allows() {
+    let mut harness = opened_on_the_mac(&[LOGIN_ALLOWS_ALL], None).await;
+    harness.prompt("permission-command");
+    assert_eq!(asked_reason(&mut harness).await, Reason::CommandOnMac);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn in_a_box_a_known_command_goes_on_without_a_card() {
+    let mut harness = Harness::opened(&[]).await;
+    assert_eq!(
+        harness.turn("permission-command").await,
+        StopReason::EndTurn
+    );
+    assert!(!harness.kinds().contains(&"permission"));
+    assert_eq!(harness.tool("call-command").status, ToolStatus::Completed);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn in_a_box_the_login_s_own_settings_stand() {
+    let mut harness = Harness::opened(&[LOGIN_ALLOWS_ALL]).await;
+    assert_eq!(harness.turn("permission").await, StopReason::EndTurn);
+    assert!(
+        !harness.kinds().contains(&"permission"),
+        "the box is the boundary: nothing is asked"
+    );
+    assert_eq!(harness.tool("call-fetch").status, ToolStatus::Completed);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -954,4 +1116,711 @@ async fn lines_that_are_not_json_do_not_break_the_session() {
     let mut harness = Harness::opened(&["--noise"]).await;
     assert_eq!(harness.turn("plain").await, StopReason::EndTurn);
     assert!(harness.assistant_text().starts_with("I read the module"));
+}
+
+// The engine's master: what its sessions are opened with, what is done around them, and who decides its
+// permission requests.
+
+/// A harness over an agent that logs what it receives, with `setup` as the master's session setup.
+struct Logged {
+    harness: Harness,
+    log: std::path::PathBuf,
+    _folder: tempfile::TempDir,
+}
+
+impl Logged {
+    fn start(setup: SessionSetup) -> Self {
+        Self::start_with(&[], setup)
+    }
+
+    fn start_with(flags: &[&str], setup: SessionSetup) -> Self {
+        let folder = tempfile::tempdir().expect("a folder");
+        let log = folder.path().join("agent.log");
+        let mut config = config(flags, Deadlines::default());
+        config.env = vec![
+            ("SAKURA_FAKE_LOG".to_string(), log.display().to_string()),
+            ("SAKURA_FAKE_ENV_NAMES".to_string(), "HOME".to_string()),
+        ];
+        config.session = setup;
+        Self {
+            harness: Harness::with(config),
+            log,
+            _folder: folder,
+        }
+    }
+
+    async fn opened(setup: SessionSetup) -> Self {
+        let logged = Self::start(setup);
+        logged.harness.agent.open_session(None).unwrap();
+        let mut logged = logged;
+        logged
+            .harness
+            .until(|event| matches!(event, AgentEvent::SessionOpened { .. }))
+            .await;
+        logged
+    }
+
+    /// What the agent received so far, one JSON object per message.
+    fn received(&self) -> Vec<serde_json::Value> {
+        let text = std::fs::read_to_string(&self.log).unwrap_or_default();
+        text.lines()
+            .map(|line| serde_json::from_str(line).expect("a log line"))
+            .collect()
+    }
+
+    /// The methods the agent received, in order.
+    fn methods(&self) -> Vec<String> {
+        let methods = self.received();
+        let name = |message: &serde_json::Value| message["method"].as_str().map(str::to_string);
+        methods.iter().filter_map(name).collect()
+    }
+}
+
+fn engine_setup() -> SessionSetup {
+    SessionSetup {
+        meta: Some(serde_json::json!({
+            "claudeCode": { "options": { "model": "haiku", "settingSources": [] } }
+        })),
+        mcp_servers: vec![serde_json::json!({
+            "name": "sakura-master",
+            "command": "/engine/bin/sakura",
+            "args": ["master", "serve", "/engine/policy.json"],
+            "env": [{ "name": "SAKURA_ENGINE_HOME", "value": "/engine/home" }],
+        })],
+        start_mode: Some("default".to_string()),
+        closes_sessions: true,
+        ..SessionSetup::default()
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_new_carries_engine_meta_and_mcp_servers() {
+    let logged = Logged::opened(engine_setup()).await;
+    let received = logged.received();
+    let new = received
+        .iter()
+        .find(|message| message["method"] == "session/new")
+        .expect("a session/new");
+    let options = &new["params"]["_meta"]["claudeCode"]["options"];
+    assert_eq!(options["model"], "haiku");
+    assert_eq!(options["settingSources"], serde_json::json!([]));
+    let server = &new["params"]["mcpServers"][0];
+    assert_eq!(server["name"], "sakura-master");
+    assert_eq!(server["command"], "/engine/bin/sakura");
+    assert_eq!(
+        server["args"],
+        serde_json::json!(["master", "serve", "/engine/policy.json"])
+    );
+    assert_eq!(server["env"][0]["name"], "SAKURA_ENGINE_HOME");
+    assert_eq!(server["env"][0]["value"], "/engine/home");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn start_mode_is_set_before_the_first_prompt() {
+    let mut logged = Logged::opened(engine_setup()).await;
+    logged.harness.turn("plain").await;
+    let methods = logged.methods();
+    let at = |name: &str| methods.iter().position(|method| method == name).unwrap();
+    assert!(at("session/new") < at("session/set_mode"));
+    assert!(at("session/set_mode") < at("session/prompt"));
+    let received = logged.received();
+    let set = received
+        .iter()
+        .find(|message| message["method"] == "session/set_mode")
+        .expect("a set_mode");
+    assert_eq!(set["params"]["modeId"], "default");
+}
+
+/// A logged agent that offers a Haiku and a Sonnet model (it starts on Haiku), opened with `start_model`.
+async fn opened_with_start_model(start_model: Option<&str>) -> Logged {
+    let setup = SessionSetup {
+        start_mode: Some("default".to_string()),
+        start_model: start_model.map(str::to_string),
+        ..SessionSetup::default()
+    };
+    let logged = Logged::start_with(&["--choices"], setup);
+    logged.harness.agent.open_session(None).unwrap();
+    let mut logged = logged;
+    logged
+        .harness
+        .until(|event| matches!(event, AgentEvent::SessionOpened { .. }))
+        .await;
+    logged
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_start_model_is_set_before_the_first_prompt_and_the_choices_say_it() {
+    let mut logged = opened_with_start_model(Some("sonnet")).await;
+    let choices = logged.harness.choices.clone().expect("the choices");
+    assert_eq!(choices.models.expect("models").current, "sonnet");
+    logged.harness.turn("plain").await;
+    let methods = logged.methods();
+    let at = |name: &str| methods.iter().position(|method| method == name).unwrap();
+    assert!(at("session/new") < at("session/set_config_option"));
+    assert!(at("session/set_config_option") < at("session/prompt"));
+    let received = logged.received();
+    let set = received
+        .iter()
+        .find(|message| message["method"] == "session/set_config_option")
+        .expect("a set_config_option");
+    assert_eq!(set["params"]["configId"], "model");
+    assert_eq!(set["params"]["value"], "sonnet");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_start_model_the_session_is_already_on_or_does_not_offer_sends_nothing() {
+    for start_model in [Some("haiku"), Some("opus"), None] {
+        let logged = opened_with_start_model(start_model).await;
+        assert!(
+            !logged
+                .methods()
+                .contains(&"session/set_config_option".to_string()),
+            "{start_model:?}"
+        );
+        let choices = logged.harness.choices.clone().expect("the choices");
+        assert_eq!(choices.models.expect("models").current, "haiku");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_that_is_replaced_and_the_one_left_at_the_end_are_closed() {
+    let mut logged = Logged::opened(engine_setup()).await;
+    logged.harness.agent.open_session(None).unwrap();
+    logged
+        .harness
+        .until(|event| matches!(event, AgentEvent::SessionOpened { .. }))
+        .await;
+    logged.harness.agent.shutdown().unwrap();
+    logged.harness.ended().await;
+    let methods = logged.methods();
+    let sessions: Vec<&str> = methods
+        .iter()
+        .map(String::as_str)
+        .filter(|method| ["session/new", "session/close"].contains(method))
+        .collect();
+    assert_eq!(
+        sessions,
+        [
+            "session/new",
+            "session/close",
+            "session/new",
+            "session/close"
+        ],
+        "the first session is closed before the second opens, the second at the end"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_plain_agent_is_sent_no_mode_and_no_close() {
+    let mut logged = Logged::opened(SessionSetup::default()).await;
+    logged.harness.agent.shutdown().unwrap();
+    logged.harness.ended().await;
+    let methods = logged.methods();
+    assert!(!methods.contains(&"session/set_mode".to_string()));
+    assert!(!methods.contains(&"session/close".to_string()));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn variables_the_setup_unsets_do_not_reach_the_agent() {
+    let setup = SessionSetup {
+        unset_env: vec!["HOME".to_string()],
+        ..SessionSetup::default()
+    };
+    let logged = Logged::start(setup);
+    logged.harness.agent.open_session(None).unwrap();
+    let mut logged = logged;
+    logged
+        .harness
+        .until(|event| matches!(event, AgentEvent::SessionOpened { .. }))
+        .await;
+    let started = &logged.received()[0];
+    assert_eq!(started["method"], "started");
+    assert_eq!(started["environment"]["HOME"], false);
+    let without = Logged::opened(SessionSetup::default()).await;
+    assert_eq!(without.received()[0]["environment"]["HOME"], true);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mcp_server_the_protocol_cannot_read_fails_the_open_not_the_connection() {
+    let setup = SessionSetup {
+        mcp_servers: vec![serde_json::json!({ "name": 7 })],
+        ..SessionSetup::default()
+    };
+    let mut logged = Logged::start(setup);
+    logged.harness.agent.open_session(None).unwrap();
+    let failed = logged.harness.until(is_failed).await;
+    let AgentEvent::Thread(ThreadEvent::Failed(problem)) = failed else {
+        unreachable!("until returned a failure");
+    };
+    assert_eq!(problem.kind, ProblemKind::RequestFailed);
+    assert!(!logged.methods().contains(&"session/new".to_string()));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn configuration_that_cannot_be_had_ends_the_connection_with_its_problem() {
+    let problem = sakura_acp::thread::Problem {
+        kind: ProblemKind::NotStarted,
+        detail: "no adapter is named".to_string(),
+    };
+    let wanted = problem.clone();
+    let (agent, events) = Agent::start_resolving(
+        async move { Err(wanted) },
+        &tokio::runtime::Handle::current(),
+    );
+    let mut harness = Harness {
+        agent,
+        events,
+        thread: Thread::new(),
+        answer_chunks: 0,
+        choices: None,
+        commands: Vec::new(),
+        _workspace: None,
+    };
+    assert_eq!(harness.ended().await, Some(problem));
+}
+
+/// A decider that answers every request with `verdict` and keeps the requests it was given.
+fn deciding(
+    verdict: sakura_acp::policy::decider::Verdict,
+) -> (
+    sakura_acp::policy::decider::Decider,
+    std::sync::Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+) {
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let kept = seen.clone();
+    let decider = sakura_acp::policy::decider::Decider::new(move |request| {
+        kept.lock().expect("the requests").push(request);
+        Box::pin(async move { verdict })
+    });
+    (decider, seen)
+}
+
+async fn decided_by(verdict: sakura_acp::policy::decider::Verdict) -> (Harness, Seen) {
+    let (decider, seen) = deciding(verdict);
+    let setup = SessionSetup {
+        decider: Some(decider),
+        ..SessionSetup::default()
+    };
+    let mut config = config(&[], Deadlines::default());
+    config.session = setup;
+    let mut harness = Harness::with(config);
+    harness.agent.open_session(None).unwrap();
+    harness
+        .until(|event| matches!(event, AgentEvent::SessionOpened { .. }))
+        .await;
+    (harness, seen)
+}
+
+type Seen = std::sync::Arc<std::sync::Mutex<Vec<serde_json::Value>>>;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn engine_deny_never_reaches_the_person() {
+    use sakura_acp::policy::decider::Verdict;
+    let (mut harness, seen) = decided_by(Verdict::Deny).await;
+    harness.prompt("permission");
+    let ended = harness
+        .until(|event| {
+            is_asked(event) || matches!(event, AgentEvent::Thread(ThreadEvent::TurnEnded(_)))
+        })
+        .await;
+    assert!(!is_asked(&ended), "a denied request is never shown");
+    assert_eq!(
+        harness.tool("call-fetch").status,
+        ToolStatus::Failed,
+        "the agent was refused: its call fails, and nothing was asked"
+    );
+    assert!(
+        !harness.kinds().contains(&"permission"),
+        "no card, not even a closed one"
+    );
+    assert_eq!(seen.lock().expect("the requests").len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn invalid_command_context_is_refused_before_the_decider() {
+    use sakura_acp::policy::decider::Verdict;
+    let (mut harness, seen) = decided_by(Verdict::Allow).await;
+    harness.turn("permission-command-context").await;
+    assert_eq!(harness.tool("call-command").status, ToolStatus::Failed);
+    assert!(seen.lock().unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn engine_allow_is_answered_without_asking() {
+    use sakura_acp::policy::decider::Verdict;
+    let (mut harness, _) = decided_by(Verdict::Allow).await;
+    harness.prompt("permission");
+    let ended = harness
+        .until(|event| {
+            is_asked(event) || matches!(event, AgentEvent::Thread(ThreadEvent::TurnEnded(_)))
+        })
+        .await;
+    assert!(
+        !is_asked(&ended),
+        "an allowed request is not put to the person"
+    );
+    assert_eq!(harness.tool("call-fetch").status, ToolStatus::Completed);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn engine_ask_reaches_the_person_who_answers_it() {
+    use sakura_acp::policy::decider::Verdict;
+    let (mut harness, _) = decided_by(Verdict::Ask).await;
+    harness.prompt("permission");
+    let asked = harness.until(is_asked).await;
+    let AgentEvent::Thread(ThreadEvent::PermissionAsked {
+        request, reason, ..
+    }) = asked
+    else {
+        unreachable!("until returned a permission request");
+    };
+    assert_eq!(reason, Reason::EngineAsks);
+    harness
+        .agent
+        .answer(request, "allow-once".to_string())
+        .unwrap();
+    harness
+        .until(|event| matches!(event, AgentEvent::Thread(ThreadEvent::TurnEnded(_))))
+        .await;
+    assert_eq!(harness.tool("call-fetch").status, ToolStatus::Completed);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_decider_is_given_the_request_as_the_agent_sent_it() {
+    use sakura_acp::policy::decider::Verdict;
+    let (mut harness, seen) = decided_by(Verdict::Allow).await;
+    harness.turn("permission").await;
+    let seen = seen.lock().expect("the requests");
+    let request = &seen[0];
+    assert_eq!(request["method"], "session/request_permission");
+    let call = &request["params"]["toolCall"];
+    assert_eq!(call["_meta"]["claudeCode"]["toolName"], "WebFetch");
+    assert_eq!(
+        call["rawInput"]["url"],
+        "https://crates.io/api/v1/crates/unicode-normalization"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_whose_mode_could_not_be_set_is_forgotten_closed_and_never_prompted() {
+    let mut logged = Logged::start_with(&["--fail-set-mode"], engine_setup());
+    logged.harness.agent.open_session(None).unwrap();
+    let failed = logged.harness.until(is_failed).await;
+    let AgentEvent::Thread(ThreadEvent::Failed(problem)) = failed else {
+        unreachable!("until returned a failure");
+    };
+    assert_eq!(problem.kind, ProblemKind::RequestFailed);
+    assert!(problem.detail.contains("session/set_mode"), "{problem:?}");
+    // The prompt of a person who did not see the failure is refused, and nothing reaches the agent.
+    logged.harness.agent.prompt("plain".to_string()).unwrap();
+    let refused = logged.harness.until(is_failed).await;
+    let AgentEvent::Thread(ThreadEvent::Failed(problem)) = refused else {
+        unreachable!("until returned a failure");
+    };
+    assert!(problem.detail.contains("no session is open"), "{problem:?}");
+    logged.harness.agent.shutdown().unwrap();
+    logged.harness.ended().await;
+    let methods = logged.methods();
+    assert!(
+        !methods.contains(&"session/prompt".to_string()),
+        "{methods:?}"
+    );
+    let close = methods.iter().filter(|method| *method == "session/close");
+    assert_eq!(
+        close.count(),
+        1,
+        "the unusable session is closed once: {methods:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn kept_session_whose_mode_could_not_be_set_is_not_opened() {
+    let mut logged = Logged::start_with(&["--fail-set-mode"], engine_setup());
+    logged
+        .harness
+        .agent
+        .open_session(Some("fake-session-1".to_string()))
+        .unwrap();
+    logged.harness.until(is_failed).await;
+    logged.harness.agent.prompt("plain".to_string()).unwrap();
+    logged.harness.until(is_failed).await;
+    assert!(!logged.methods().contains(&"session/prompt".to_string()));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_with_an_allow_list_starts_from_an_empty_environment_holding_only_it() {
+    let setup = SessionSetup {
+        env_allow: Some(vec!["HOME".to_string()]),
+        ..SessionSetup::default()
+    };
+    let folder = tempfile::tempdir().expect("a folder");
+    let log = folder.path().join("agent.log");
+    let mut config = config(&[], Deadlines::default());
+    config.env = vec![
+        ("SAKURA_FAKE_LOG".to_string(), log.display().to_string()),
+        (
+            "SAKURA_FAKE_ENV_NAMES".to_string(),
+            "HOME,PATH,CARGO_HOME".to_string(),
+        ),
+    ];
+    config.session = setup;
+    let mut harness = Harness::with(config);
+    harness.agent.open_session(None).unwrap();
+    harness
+        .until(|event| matches!(event, AgentEvent::SessionOpened { .. }))
+        .await;
+    let text = std::fs::read_to_string(&log).expect("the log");
+    let started: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    assert_eq!(
+        started["environment"]["HOME"], true,
+        "an allowed name is passed on"
+    );
+    assert_eq!(
+        started["environment"]["PATH"], false,
+        "a name that is not allowed is not"
+    );
+    assert_eq!(started["environment"]["CARGO_HOME"], false);
+}
+
+/// A session of an agent that offers commands and choices, its log kept for what it was sent.
+async fn offering(flags: &[&str]) -> Logged {
+    let mut logged = Logged::start_with(flags, engine_setup());
+    logged.harness.agent.open_session(None).unwrap();
+    logged
+        .harness
+        .until(|event| matches!(event, AgentEvent::SessionOpened { .. }))
+        .await;
+    logged
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_agent_s_prompt_capabilities_are_told_once_after_it_connects() {
+    let mut harness = Harness::start(&[]);
+    harness
+        .until(|event| matches!(event, AgentEvent::Connected { .. }))
+        .await;
+    let support = harness.next().await;
+    assert_eq!(
+        support,
+        AgentEvent::Supports(PromptSupport {
+            has_images: true,
+            has_embedded_context: true
+        })
+    );
+    let mut bare = Harness::start(&["--no-attachments"]);
+    let told = bare
+        .until(|event| matches!(event, AgentEvent::Supports(_)))
+        .await;
+    assert_eq!(told, AgentEvent::Supports(PromptSupport::default()));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn announced_commands_arrive_with_their_descriptions_and_hints() {
+    let mut logged = offering(&["--commands"]).await;
+    logged.harness.turn("plain").await;
+    let commands = logged.harness.commands.clone();
+    let names: Vec<&str> = commands
+        .iter()
+        .map(|command| command.name.as_str())
+        .collect();
+    assert_eq!(names, ["compact", "review", "mcp:docs:search", "context"]);
+    assert_eq!(commands[0].hint, None);
+    assert_eq!(commands[1].hint.as_deref(), Some("[pull request]"));
+    assert_eq!(commands[1].description, "Review a pull request");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_kind_of_announced_command_runs_and_leaves_the_session_usable() {
+    // One of each kind the adapter announces: no input, an argument, an MCP prompt, a local-only one.
+    let prompts = [
+        "/compact",
+        "/review 12",
+        "/mcp:docs:search tabs",
+        "/context",
+    ];
+    let mut logged = offering(&["--commands"]).await;
+    for prompt in prompts {
+        assert_eq!(
+            logged.harness.turn(prompt).await,
+            StopReason::EndTurn,
+            "{prompt}"
+        );
+        let said = logged
+            .harness
+            .thread
+            .entries()
+            .last()
+            .map(|entry| entry.kind.clone());
+        let Some(EntryKind::Assistant(message)) = said else {
+            panic!("{prompt} was answered with a message, got {said:?}");
+        };
+        assert_eq!(message.text, format!("Ran {prompt}."));
+    }
+    assert_eq!(
+        logged.harness.turn("plain").await,
+        StopReason::EndTurn,
+        "the session goes on"
+    );
+    let sent: Vec<String> = logged
+        .received()
+        .iter()
+        .filter(|message| message["method"] == "session/prompt")
+        .map(|message| {
+            message["params"]["prompt"][0]["text"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(
+        sent,
+        [
+            "/compact",
+            "/review 12",
+            "/mcp:docs:search tabs",
+            "/context",
+            "plain"
+        ]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn modes_and_models_the_session_offers_arrive_with_what_is_picked() {
+    let logged = offering(&["--choices"]).await;
+    let choices = logged
+        .harness
+        .choices
+        .clone()
+        .expect("the choices arrived before the session opened");
+    let modes = choices.modes.expect("modes");
+    assert_eq!(modes.current, "default", "the start mode is the picked one");
+    assert_eq!(modes.choices.len(), 3);
+    assert_eq!(modes.config_id, None);
+    let models = choices.models.expect("models");
+    assert_eq!(
+        (models.config_id.as_deref(), models.current.as_str()),
+        (Some("model"), "haiku")
+    );
+    assert_eq!(
+        models
+            .choices
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Haiku", "Sonnet"]
+    );
+    logged.harness.agent.shutdown().unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn picking_a_mode_sends_set_mode_and_says_which_mode_the_session_is_in() {
+    let mut logged = offering(&["--choices"]).await;
+    logged.harness.agent.set_mode("plan".to_string()).unwrap();
+    let told = logged
+        .harness
+        .until(|event| matches!(event, AgentEvent::ModeChanged(_)))
+        .await;
+    assert_eq!(told, AgentEvent::ModeChanged("plan".to_string()));
+    let received = logged.received();
+    let set = received
+        .iter()
+        .rev()
+        .find(|m| m["method"] == "session/set_mode")
+        .unwrap();
+    assert_eq!(set["params"]["modeId"], "plan");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn picking_a_model_sends_set_config_option_and_returns_the_options_as_they_stand() {
+    let mut logged = offering(&["--choices"]).await;
+    logged
+        .harness
+        .agent
+        .set_option("model".to_string(), "sonnet".to_string())
+        .unwrap();
+    logged.harness.until(|event| matches!(event, AgentEvent::Choices(c) if c.models.as_ref().is_some_and(|m| m.current == "sonnet"))).await;
+    let received = logged.received();
+    let set = received
+        .iter()
+        .find(|m| m["method"] == "session/set_config_option")
+        .unwrap();
+    assert_eq!(
+        (
+            set["params"]["configId"].as_str(),
+            set["params"]["value"].as_str()
+        ),
+        (Some("model"), Some("sonnet"))
+    );
+    assert_eq!(
+        logged.harness.turn("plain").await,
+        StopReason::EndTurn,
+        "the session goes on"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_prompt_carries_its_attachments_as_content_blocks_after_its_text() {
+    let mut logged = offering(&[]).await;
+    let text = Attachment::from_bytes("notes.md", "text/plain", b"# Notes".to_vec()).unwrap();
+    let image = Attachment::from_bytes("shot.png", "image/png", vec![1, 2, 3]).unwrap();
+    logged
+        .harness
+        .agent
+        .prompt_with("plain look at these".to_string(), vec![text, image])
+        .unwrap();
+    logged
+        .harness
+        .until(|event| matches!(event, AgentEvent::Thread(ThreadEvent::TurnEnded(_))))
+        .await;
+    let received = logged.received();
+    let prompt = received
+        .iter()
+        .find(|m| m["method"] == "session/prompt")
+        .unwrap();
+    let blocks = prompt["params"]["prompt"].as_array().unwrap();
+    assert_eq!(blocks.len(), 3);
+    assert_eq!(blocks[0]["text"], "plain look at these");
+    assert_eq!(blocks[1]["resource"]["text"], "# Notes");
+    assert_eq!(blocks[2]["type"], "image");
+    assert_eq!(blocks[2]["mimeType"], "image/png");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn kept_load_tries_directly_when_session_list_has_more_pages() {
+    let mut harness = Harness::start(&["--more-session-pages"]);
+    harness.agent.load_session("fake-session-1".into()).unwrap();
+    let reply = harness
+        .until(|event| {
+            matches!(
+                event,
+                AgentEvent::SessionOpened { .. } | AgentEvent::SessionUnavailable { .. }
+            )
+        })
+        .await;
+    assert_eq!(
+        reply,
+        AgentEvent::SessionOpened {
+            session_id: "fake-session-1".into(),
+            is_loaded: true,
+        }
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn kept_load_reports_a_temporary_acp_failure_without_replacing() {
+    let mut harness = Harness::start(&["--fail-load"]);
+    harness.agent.load_session("fake-session-1".into()).unwrap();
+    let reply = harness
+        .until(|event| {
+            matches!(
+                event,
+                AgentEvent::Thread(ThreadEvent::Failed(_)) | AgentEvent::SessionUnavailable { .. }
+            )
+        })
+        .await;
+    assert!(
+        matches!(&reply, AgentEvent::Thread(ThreadEvent::Failed(problem))
+        if problem.kind == ProblemKind::RequestFailed),
+        "{reply:?}"
+    );
 }

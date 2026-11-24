@@ -1,17 +1,21 @@
 //! How the open file is drawn: one row with its name and folder, then the kit's editor over the rest,
-//! with "Ask the agent" over its corner while lines are selected. The whole view is watched for the
+//! the rows of the lines the task changed tinted, and "Ask the agent" over its corner while lines are
+//! selected. The whole view is watched for the
 //! person taking it: a scroll or a press anywhere on it, the text or not, stops following the agent.
 
 use super::{FileView, Open, Shown};
 use crate::l10n::{tr, Key};
 use crate::theme::{self, Palette, Theme};
+use crate::ui::changes::line;
 use crate::ui::chrome::{mono, mono_features};
 use gpui::{
-    canvas, div, px, relative, AnyElement, Bounds, Context, DispatchPhase, Div,
-    InteractiveElement as _, IntoElement, MouseDownEvent, ParentElement as _, Pixels, Render,
-    ScrollEvent, StatefulInteractiveElement as _, Styled as _, WeakEntity, Window,
+    canvas, div, fill, point, px, relative, AnyElement, Bounds, ContentMask, Context,
+    DispatchPhase, Div, Hsla, InteractiveElement as _, IntoElement, MouseDownEvent,
+    ParentElement as _, Pixels, Render, ScrollEvent, StatefulInteractiveElement as _, Styled as _,
+    WeakEntity, Window,
 };
-use gpui_component::input::Editor;
+use gpui_component::input::{Editor, EditorState, RopeExt as _};
+use std::ops::RangeInclusive;
 
 impl FileView {
     /// The row over the file: its name, and the folder it is in beside it, quieter and cut when the row
@@ -46,6 +50,7 @@ impl FileView {
     /// "Ask the agent", over the file's top right corner while lines are selected: it stands on the
     /// code, so a selection made or dropped moves nothing.
     fn ask(&self, palette: &Palette, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        self.can_ask.then_some(())?;
         self.reference(cx)?;
         let (fill, hover) = (palette.fill, palette.fill_hover);
         let ask = div()
@@ -83,10 +88,58 @@ impl FileView {
         div()
             .size_full()
             .relative()
+            .child(self.changed_rows(line::tint(palette.success)))
             .child(editor)
             .children(self.ask(palette, cx))
             .into_any_element()
     }
+
+    /// Paint the change bands after layout, behind the transparent editor and outside its gutter.
+    fn changed_rows(&self, tint: Hsla) -> impl IntoElement {
+        let (editor, tinted) = (self.editor.clone(), self.tinted.clone());
+        let paint = move |bounds: Bounds<Pixels>, (), window: &mut Window, cx: &mut gpui::App| {
+            let bands = row_bands(editor.read(cx), &tinted, bounds);
+            window.with_content_mask(Some(ContentMask { bounds }), |window| {
+                for band in bands {
+                    window.paint_quad(fill(band, tint));
+                }
+            });
+        };
+        canvas(|_, _, _| (), paint).absolute().size_full()
+    }
+}
+
+/// Where the rows of `lines` (numbered from 1) stand in the editor as it was laid out for this frame, as
+/// bands across `bounds`; the ones out of sight are left out. Every row is one line height tall, so the
+/// row of the first line on screen places all the others.
+pub(super) fn row_bands(
+    editor: &EditorState,
+    lines: &[RangeInclusive<u32>],
+    bounds: Bounds<Pixels>,
+) -> Vec<Bounds<Pixels>> {
+    let (Some(visible), Some(height)) = (editor.visible_row_range(), editor.line_height()) else {
+        return Vec::new();
+    };
+    let map = editor.display_map();
+    // The kit's visible range counts the file's lines, not the rows they wrap onto.
+    let first_shown = visible.start;
+    let start = editor.text().line_start_offset(first_shown);
+    let Some(anchor) = editor.range_to_bounds(&(start..start)) else {
+        return Vec::new();
+    };
+    let anchor_row = map.buffer_line_to_display_row(first_shown) as f32;
+    let top_of = |row: usize| anchor.top() + height * (row as f32 - anchor_row);
+    let last_line = map.buffer_line_count().saturating_sub(1);
+    let line_index = |line: u32| (line.max(1) as usize - 1).min(last_line);
+    let band = |lines: &RangeInclusive<u32>| {
+        let from = map.buffer_line_to_display_row(line_index(*lines.start()));
+        let rows = map.buffer_line_to_display_row_range(line_index(*lines.end()));
+        let (top, bottom) = (top_of(from), top_of(rows.map_or(from + 1, |rows| rows.end)));
+        let is_seen = bottom > bounds.top() && top < bounds.bottom();
+        is_seen
+            .then(|| Bounds::from_corners(point(bounds.left(), top), point(bounds.right(), bottom)))
+    };
+    lines.iter().filter_map(band).collect()
 }
 
 /// Sees every scroll and every press over the file before the editor does, and tells `view`: paints
@@ -110,14 +163,14 @@ fn person_watch(view: WeakEntity<FileView>) -> impl IntoElement {
 }
 
 /// One quiet sentence where a file would stand.
-fn sentence(words: &'static str, palette: &Palette) -> AnyElement {
+fn sentence(words: impl Into<gpui::SharedString>, palette: &Palette) -> AnyElement {
     div()
         .size_full()
         .px(theme::SIDE_PANE_INSET)
         .py(theme::GAP)
         .text_size(theme::TEXT_SMALL)
         .text_color(palette.text_tertiary)
-        .child(words)
+        .child(words.into())
         .into_any_element()
 }
 
@@ -125,12 +178,28 @@ impl Render for FileView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = Theme::palette(cx);
         self.apply_jump(window, cx);
+        let is_reading = matches!(
+            self.open.as_ref().map(|open| &open.shown),
+            Some(Shown::Reading)
+        );
+        let shows_reading = match is_reading {
+            true => self.patience.shows(cx),
+            false => {
+                self.patience.reset();
+                false
+            }
+        };
         let Some(open) = &self.open else {
             return div().into_any_element();
         };
         let body = match &open.shown {
-            Shown::Reading => sentence(tr(Key("files.view.reading")), &palette),
+            Shown::Reading if shows_reading => sentence(tr(Key("files.view.reading")), &palette),
+            Shown::Reading => div().into_any_element(),
             Shown::Note(key) => sentence(tr(*key), &palette),
+            Shown::Unreadable(why) => {
+                let words = crate::l10n::with_details(tr(Key("files.view.unreadable")), Some(why));
+                sentence(words, &palette)
+            }
             Shown::Text(_) => self.text(&palette, cx),
         };
         let stale = open.is_stale.then(|| {

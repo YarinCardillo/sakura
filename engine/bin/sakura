@@ -1,0 +1,9 @@
+#!/bin/sh
+KIT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+# The engine hands its own interpreter down in SAKURA_PYTHON; a person's shell finds python3 on PATH.
+exec "${SAKURA_PYTHON:-python3}" -I -B -c 'import sys
+if sys.version_info[:2] < (3, 11):
+    sys.exit("sakura: python3 is %d.%d but sakura needs 3.11 or later; put a newer python3 first on PATH or set SAKURA_PYTHON" % sys.version_info[:2])
+sys.path.insert(0, sys.argv.pop(1))
+from sakura.cli import main
+raise SystemExit(main(sys.argv[1:]))' "$KIT/lib" "$@"

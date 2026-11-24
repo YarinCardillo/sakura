@@ -1,12 +1,12 @@
-//! The name of a lavoro, made from what the person requested: nobody is asked to invent one. A short slug
+//! The name of a task, made from what the person requested: nobody is asked to invent one. A short slug
 //! of the first meaningful words of the sentence, in `box`'s own rule for names (lowercase letters and
-//! digits joined by single hyphens, at most forty characters), unique among the lavori that exist.
+//! digits joined by single hyphens, at most forty characters), unique among the tasks that exist.
 
 use crate::validate;
 
 /// The most words a name is made of.
 const MAX_WORDS: usize = 4;
-/// The most characters before a number is added to tell it from another lavoro.
+/// The most characters before a number is added to tell it from another task.
 const MAX_LENGTH: usize = 32;
 /// The name when the sentence has no letter or digit at all.
 const FALLBACK: &str = "task";
@@ -19,7 +19,7 @@ const FILLER: [&str; 34] = [
 /// Italian localization data for task-name generation.
 const ITALIAN_FILLER: &str = include_str!("../locales/it-name-stopwords.txt");
 
-/// A name for the lavoro requested with `sentence`, that none of `taken` has.
+/// A name for the task requested with `sentence`, that none of `taken` has.
 pub fn name_for(sentence: &str, taken: &[&str]) -> String {
     let words = words(sentence);
     let meaningful: Vec<&String> = words.iter().filter(|word| is_meaningful(word)).collect();
@@ -87,7 +87,7 @@ fn joined(words: &[&String]) -> String {
     }
 }
 
-/// `stem`, or `stem` with the first number from 2 up that no lavoro has.
+/// `stem`, or `stem` with the first number from 2 up that no task has.
 fn unique(stem: &str, taken: &[&str]) -> String {
     if !taken.contains(&stem) {
         return stem.to_string();

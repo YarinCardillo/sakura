@@ -1,10 +1,14 @@
 //! Counters that make the view's speed measurable: how often the grid is laid out, how many rows are shaped,
 //! how long that takes, and how long a key takes to reach the screen.
 
+#[cfg(any(test, feature = "measure"))]
 use std::cell::{Cell, RefCell};
+#[cfg(any(test, feature = "measure"))]
+use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 /// Most samples of each kind kept; older ones are dropped.
+#[cfg(any(test, feature = "measure"))]
 const MAX_SAMPLES: usize = 100_000;
 
 /// A copy of the counters at one moment.
@@ -27,18 +31,20 @@ pub struct RenderStats {
 }
 
 /// Live counters, owned by one view (window thread only).
+#[cfg(any(test, feature = "measure"))]
 #[derive(Default)]
 pub(crate) struct StatsRecorder {
     view_paints: Cell<u64>,
     grid_layouts: Cell<u64>,
     rows_rebuilt: Cell<u64>,
     segments_shaped: Cell<u64>,
-    grid_layout_times: RefCell<Vec<Duration>>,
-    paint_instants: RefCell<Vec<Instant>>,
-    key_to_paint: RefCell<Vec<Duration>>,
+    grid_layout_times: RefCell<VecDeque<Duration>>,
+    paint_instants: RefCell<VecDeque<Instant>>,
+    key_to_paint: RefCell<VecDeque<Duration>>,
     pending_key: Cell<Option<Instant>>,
 }
 
+#[cfg(any(test, feature = "measure"))]
 impl StatsRecorder {
     pub fn view_painted(&self) {
         self.view_paints.set(self.view_paints.get() + 1);
@@ -71,17 +77,32 @@ impl StatsRecorder {
             grid_layouts: self.grid_layouts.get(),
             rows_rebuilt: self.rows_rebuilt.get(),
             segments_shaped: self.segments_shaped.get(),
-            grid_layout_times: self.grid_layout_times.borrow().clone(),
-            paint_instants: self.paint_instants.borrow().clone(),
-            key_to_paint: self.key_to_paint.borrow().clone(),
+            grid_layout_times: self.grid_layout_times.borrow().iter().copied().collect(),
+            paint_instants: self.paint_instants.borrow().iter().copied().collect(),
+            key_to_paint: self.key_to_paint.borrow().iter().copied().collect(),
         }
     }
 }
 
-fn push_capped<T>(samples: &RefCell<Vec<T>>, value: T) {
+#[cfg(any(test, feature = "measure"))]
+fn push_capped<T>(samples: &RefCell<VecDeque<T>>, value: T) {
     let mut samples = samples.borrow_mut();
     if samples.len() >= MAX_SAMPLES {
-        samples.remove(0);
+        samples.pop_front();
     }
-    samples.push(value);
+    samples.push_back(value);
+}
+
+#[cfg(not(any(test, feature = "measure")))]
+#[derive(Default)]
+pub(crate) struct StatsRecorder {}
+
+#[cfg(not(any(test, feature = "measure")))]
+impl StatsRecorder {
+    pub fn view_painted(&self) {}
+    pub fn grid_laid_out(&self, _: Duration, _: usize, _: usize) {}
+    pub fn key_pressed(&self) {}
+    pub fn snapshot(&self) -> RenderStats {
+        RenderStats::default()
+    }
 }

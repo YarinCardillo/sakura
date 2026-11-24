@@ -1,4 +1,4 @@
-//! The first launch, in a test window on a fake `box` with no lavoro and no project: the page asks for a
+//! The first launch, in a test window on a fake `box` with no task and no project: the page asks for a
 //! folder through the Mac's picker, shows what `box` recognised in it, and adds the project as confirmed;
 //! what `box` refuses is said in the interface's words, with its own line under "Details".
 
@@ -12,7 +12,7 @@ use std::path::PathBuf;
 const FOLDER: &str = "/home/someone/demo-site";
 const DETECTED: &str = r#"{"repo":"/home/someone/demo-site","subdir":"","name":"demo-site","currentBranch":"main","defaultBranch":"main","branches":["main","dev"],"install":{"command":"npm ci","reason":"package-lock.json is in the folder"},"checks":[{"verb":"test","command":"npm test","reason":"script \"test\" of package.json: vitest run"},{"verb":"lint","command":"npm run lint","reason":"script \"lint\" of package.json: eslint ."}],"protected":[],"testFiles":[],"notes":[]}"#;
 
-/// A `box` with no lavoro whose `projects` lists what `project add` added, and whose `project detect`
+/// A `box` with no task whose `projects` lists what `project add` added, and whose `project detect`
 /// does `detect` (a shell command).
 pub(super) fn empty_box(detect: &str) -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::Builder::new()
@@ -45,7 +45,7 @@ esac
     (dir, script)
 }
 
-/// The sample status with no lavoro in it.
+/// The sample status with no task in it.
 fn no_lavoro() -> String {
     let fixture = include_str!("../../../sakura-core/tests/fixtures/status.json");
     let mut status: serde_json::Value = serde_json::from_str(fixture).expect("the fixture");
@@ -57,7 +57,7 @@ fn is_on_screen(cx: &mut VisualTestContext, selector: &'static str) -> bool {
     cx.debug_bounds(selector).is_some()
 }
 
-/// The first page of a window with no lavoro and no project.
+/// The first page of a window with no task and no project.
 fn open(cx: &mut TestAppContext, script: PathBuf) -> (&mut VisualTestContext, Entity<Desk>) {
     let (cx, desk, _) = open_live(cx, script, None, false);
     wait_for(cx, "the page that asks for a folder", |cx| {
@@ -74,6 +74,40 @@ fn choose_the_folder(cx: &mut VisualTestContext) {
         assert!(options.directories && !options.files && !options.multiple);
         Some(vec![PathBuf::from(FOLDER)])
     });
+}
+
+#[gpui::test]
+fn adding_a_project_keeps_the_disabled_face_when_pressed(cx: &mut TestAppContext) {
+    let (dir, script) = empty_box(r#"cat "$d/detected.json""#);
+    let body = std::fs::read_to_string(&script)
+        .unwrap()
+        .replace("add) echo", "add) sleep 1; echo");
+    sakura_core::test_support::write_script(&script, &body);
+    let (cx, desk) = open(cx, script);
+    choose_the_folder(cx);
+    wait_for(cx, "project review", |cx| is_on_screen(cx, "project-add"));
+    let setup = desk.read_with(cx, |desk, _| desk.project_setup().clone());
+    setup.update(cx, |setup, cx| setup.confirm(cx));
+    let add = cx.debug_bounds("project-add").unwrap();
+    let painted = |cx: &mut VisualTestContext| {
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            window
+                .painted_quads()
+                .into_iter()
+                .find(|quad| quad.bounds == add.scale(window.scale_factor()))
+                .expect("Add's background quad")
+                .background
+        })
+    };
+    let before = painted(cx);
+    cx.simulate_event(gpui::MouseDownEvent {
+        position: add.center(),
+        button: gpui::MouseButton::Left,
+        ..Default::default()
+    });
+    assert_eq!(painted(cx), before);
+    drop(dir);
 }
 
 #[gpui::test]

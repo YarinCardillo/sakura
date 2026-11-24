@@ -1,0 +1,43 @@
+{
+  "before": 1,
+  "runs": [
+    {
+      "conversation": null,
+      "ended_at": null,
+      "id": "5c9607eb20e85c6bad7a1d6871e817cd",
+      "queued_at": "2026-11-18T08:00:00.000000+00:00",
+      "reason": null,
+      "sequence": 2,
+      "started_at": null,
+      "state": "queued",
+      "task_id": "6b62276661a8e26cb8b3ac114c292ec3",
+      "title": "Orchard news",
+      "trigger": {
+        "at": "2026-11-18T08:00:00.000000+00:00",
+        "kind": "manual"
+      }
+    },
+    {
+      "conversation": "d2af374b956ac22731ad573b255c1975",
+      "ended_at": "2026-11-18T08:00:00.000000+00:00",
+      "id": "d2af374b956ac22731ad573b255c1975",
+      "queued_at": "2026-11-18T08:00:00.000000+00:00",
+      "reason": null,
+      "sequence": 1,
+      "started_at": "2026-11-18T08:00:00.000000+00:00",
+      "state": "finished",
+      "task_id": "6b62276661a8e26cb8b3ac114c292ec3",
+      "title": "Orchard news",
+      "trigger": {
+        "connector_id": "cn-bb06c752e26e45f3bc0b3f8f5dcce563",
+        "event_kind": "entry_added",
+        "item_id": "entry-1",
+        "kind": "connector_event",
+        "occurred_at": "2026-11-18T08:00:00.000000+00:00",
+        "occurrence": "orchard-news",
+        "revision": "56825e17dc24638a2835632414d68dd72048519ea6a6d5ba58fac814714ae0bd",
+        "source_label": "News"
+      }
+    }
+  ]
+}

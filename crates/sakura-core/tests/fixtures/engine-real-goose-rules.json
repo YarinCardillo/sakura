@@ -1,0 +1,700 @@
+{
+  "accounts_count": 3,
+  "agents": [
+    {
+      "fetched_at": "",
+      "id": "studio",
+      "label": "Studio",
+      "models": [],
+      "models_note": "The models of Studio have not been read yet.",
+      "models_state": "missing",
+      "provider": "claude",
+      "source": ""
+    },
+    {
+      "fetched_at": "",
+      "id": "archive",
+      "label": "Archive",
+      "models": [],
+      "models_note": "The models of Archive have not been read yet.",
+      "models_state": "missing",
+      "provider": "codex",
+      "source": ""
+    },
+    {
+      "fetched_at": "2026-11-18T08:00:00+00:00",
+      "id": "goose-fixture",
+      "label": "Local models",
+      "models": [
+        {
+          "default_effort": "",
+          "description": "",
+          "efforts": [],
+          "id": "qwen2.5:3b",
+          "is_default": true,
+          "label": "Qwen 2.5 (Ollama)",
+          "resolved": ""
+        }
+      ],
+      "models_note": "The models of Local models could not be read: adapter_timeout.",
+      "models_reason": "adapter_timeout",
+      "models_state": "stale",
+      "provider": "goose",
+      "source": "ACP session",
+      "upstream_provider": "ollama"
+    }
+  ],
+  "edited": false,
+  "nodes": [
+    {
+      "node": "start",
+      "rules": [
+        {
+          "choices": [],
+          "id": "lanes_min",
+          "label": "Lanes at least",
+          "max": 6,
+          "min": 1,
+          "origin": "preset:standard",
+          "read_only": false,
+          "type": "int",
+          "value": 1
+        },
+        {
+          "choices": [],
+          "id": "lanes",
+          "label": "Lanes at most",
+          "max": 6,
+          "min": 1,
+          "origin": "preset:standard",
+          "read_only": false,
+          "type": "int",
+          "value": 3
+        },
+        {
+          "choices": [],
+          "id": "approve_spec",
+          "label": "Ask before a lane builds",
+          "max": null,
+          "min": null,
+          "origin": "defaults",
+          "read_only": false,
+          "type": "bool",
+          "value": true
+        }
+      ]
+    },
+    {
+      "node": "plan",
+      "rules": [
+        {
+          "choices": [],
+          "id": "steps.plan.on",
+          "label": "Plan",
+          "max": null,
+          "min": null,
+          "origin": "preset:standard",
+          "read_only": false,
+          "type": "bool",
+          "value": true
+        },
+        {
+          "agent": {
+            "account": "project",
+            "account_label": null,
+            "accounts": [
+              {
+                "id": "studio",
+                "label": "Studio",
+                "provider": "claude"
+              },
+              {
+                "id": "archive",
+                "label": "Archive",
+                "provider": "codex"
+              },
+              {
+                "id": "goose-fixture",
+                "label": "Local models",
+                "provider": "goose"
+              }
+            ],
+            "default_model": "opus",
+            "effort": "medium",
+            "effort_is_set": false,
+            "model": "opus",
+            "models_note": "The models of Studio have not been read yet.",
+            "models_state": "missing",
+            "note": "",
+            "provider": "claude",
+            "resolved": ""
+          },
+          "choices": [
+            "goose:qwen2.5:3b"
+          ],
+          "id": "steps.plan.model",
+          "label": "Model",
+          "max": null,
+          "min": null,
+          "origin": "defaults",
+          "read_only": false,
+          "type": "choice",
+          "value": "claude:opus"
+        },
+        {
+          "choices": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "id": "steps.plan.effort",
+          "label": "Effort",
+          "max": null,
+          "min": null,
+          "origin": "defaults",
+          "read_only": false,
+          "type": "choice",
+          "value": "medium"
+        },
+        {
+          "choices": [
+            "project",
+            "studio",
+            "archive",
+            "goose-fixture"
+          ],
+          "id": "steps.plan.account",
+          "label": "Account",
+          "max": null,
+          "min": null,
+          "origin": "defaults",
+          "read_only": false,
+          "type": "choice",
+          "value": "project"
+        }
+      ]
+    },
+    {
+      "node": "plan_review",
+      "rules": [
+        {
+          "choices": [],
+          "id": "reviews.plan_review.on",
+          "label": "Review the plan",
+          "max": null,
+          "min": null,
+          "origin": "preset:standard",
+          "read_only": false,
+          "type": "bool",
+          "value": true
+        },
+        {
+          "agent": {
+            "account": "project",
+            "account_label": null,
+            "accounts": [
+              {
+                "id": "studio",
+                "label": "Studio",
+                "provider": "claude"
+              },
+              {
+                "id": "archive",
+                "label": "Archive",
+                "provider": "codex"
+              },
+              {
+                "id": "goose-fixture",
+                "label": "Local models",
+                "provider": "goose"
+              }
+            ],
+            "default_model": "sonnet",
+            "effort": "medium",
+            "effort_is_set": false,
+            "model": "sonnet",
+            "models_note": "The models of Studio have not been read yet.",
+            "models_state": "missing",
+            "note": "",
+            "provider": "claude",
+            "resolved": ""
+          },
+          "choices": [
+            "goose:qwen2.5:3b"
+          ],
+          "id": "reviews.plan_review.model",
+          "label": "Model",
+          "max": null,
+          "min": null,
+          "origin": "defaults",
+          "read_only": false,
+          "type": "choice",
+          "value": "claude:sonnet"
+        },
+        {
+          "choices": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "id": "reviews.plan_review.effort",
+          "label": "Effort",
+          "max": null,
+          "min": null,
+          "origin": "defaults",
+          "read_only": false,
+          "type": "choice",
+          "value": "medium"
+        },
+        {
+          "choices": [
+            "project",
+            "studio",
+            "archive",
+            "goose-fixture"
+          ],
+          "id": "reviews.plan_review.account",
+          "label": "Account",
+          "max": null,
+          "min": null,
+          "origin": "defaults",
+          "read_only": false,
+          "type": "choice",
+          "value": "project"
+        }
+      ]
+    },
+    {
+      "node": "build",
+      "rules": [
+        {
+          "choices": [],
+          "id": "steps.build.on",
+          "label": "Build",
+          "max": null,
+          "min": null,
+          "origin": "defaults",
+          "read_only": true,
+          "type": "bool",
+          "value": true
+        },
+        {
+          "agent": {
+            "account": "project",
+            "account_label": null,
+            "accounts": [
+              {
+                "id": "studio",
+                "label": "Studio",
+                "provider": "claude"
+              },
+              {
+                "id": "archive",
+                "label": "Archive",
+                "provider": "codex"
+              },
+              {
+                "id": "goose-fixture",
+                "label": "Local models",
+                "provider": "goose"
+              }
+            ],
+            "default_model": "sonnet",
+            "effort": "medium",
+            "effort_is_set": false,
+            "model": "sonnet",
+            "models_note": "The models of Studio have not been read yet.",
+            "models_state": "missing",
+            "note": "",
+            "provider": "claude",
+            "resolved": ""
+          },
+          "choices": [
+            "goose:qwen2.5:3b"
+          ],
+          "id": "steps.build.model",
+          "label": "Model",
+          "max": null,
+          "min": null,
+          "origin": "defaults",
+          "read_only": false,
+          "type": "choice",
+          "value": "claude:sonnet"
+        },
+        {
+          "choices": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "id": "steps.build.effort",
+          "label": "Effort",
+          "max": null,
+          "min": null,
+          "origin": "defaults",
+          "read_only": false,
+          "type": "choice",
+          "value": "medium"
+        },
+        {
+          "choices": [
+            "project",
+            "studio",
+            "archive",
+            "goose-fixture"
+          ],
+          "id": "steps.build.account",
+          "label": "Account",
+          "max": null,
+          "min": null,
+          "origin": "defaults",
+          "read_only": false,
+          "type": "choice",
+          "value": "project"
+        },
+        {
+          "choices": [],
+          "id": "builders",
+          "label": "Builders at once",
+          "max": 6,
+          "min": 1,
+          "origin": "preset:standard",
+          "read_only": false,
+          "type": "int",
+          "value": 3
+        },
+        {
+          "choices": [],
+          "id": "subagents",
+          "label": "Subagents",
+          "max": 8,
+          "min": 0,
+          "origin": "preset:standard",
+          "read_only": false,
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "node": "task_review",
+      "rules": [
+        {
+          "choices": [],
+          "id": "reviews.task_review.on",
+          "label": "Review each task",
+          "max": null,
+          "min": null,
+          "origin": "preset:standard",
+          "read_only": false,
+          "type": "bool",
+          "value": true
+        },
+        {
+          "agent": {
+            "account": "project",
+            "account_label": null,
+            "accounts": [
+              {
+                "id": "studio",
+                "label": "Studio",
+                "provider": "claude"
+              },
+              {
+                "id": "archive",
+                "label": "Archive",
+                "provider": "codex"
+              },
+              {
+                "id": "goose-fixture",
+                "label": "Local models",
+                "provider": "goose"
+              }
+            ],
+            "default_model": "sonnet",
+            "effort": "medium",
+            "effort_is_set": false,
+            "model": "sonnet",
+            "models_note": "The models of Studio have not been read yet.",
+            "models_state": "missing",
+            "note": "",
+            "provider": "claude",
+            "resolved": ""
+          },
+          "choices": [
+            "goose:qwen2.5:3b"
+          ],
+          "id": "reviews.task_review.model",
+          "label": "Model",
+          "max": null,
+          "min": null,
+          "origin": "defaults",
+          "read_only": false,
+          "type": "choice",
+          "value": "claude:sonnet"
+        },
+        {
+          "choices": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "id": "reviews.task_review.effort",
+          "label": "Effort",
+          "max": null,
+          "min": null,
+          "origin": "defaults",
+          "read_only": false,
+          "type": "choice",
+          "value": "medium"
+        },
+        {
+          "choices": [
+            "project",
+            "studio",
+            "archive",
+            "goose-fixture"
+          ],
+          "id": "reviews.task_review.account",
+          "label": "Account",
+          "max": null,
+          "min": null,
+          "origin": "defaults",
+          "read_only": false,
+          "type": "choice",
+          "value": "project"
+        },
+        {
+          "choices": [],
+          "id": "reviews.task_review.rounds",
+          "label": "Rounds of changes",
+          "max": 6,
+          "min": 0,
+          "origin": "preset:standard",
+          "read_only": false,
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "node": "final_review",
+      "rules": [
+        {
+          "choices": [],
+          "id": "reviews.final_review.on",
+          "label": "Review the whole branch",
+          "max": null,
+          "min": null,
+          "origin": "preset:standard",
+          "read_only": false,
+          "type": "bool",
+          "value": false
+        },
+        {
+          "choices": [
+            "project",
+            "studio",
+            "archive",
+            "goose-fixture"
+          ],
+          "id": "reviews.final_review.account",
+          "label": "Account",
+          "max": null,
+          "min": null,
+          "origin": "defaults",
+          "read_only": false,
+          "type": "choice",
+          "value": "project"
+        },
+        {
+          "choices": [],
+          "id": "reviews.final_review.rounds",
+          "label": "Rounds of changes",
+          "max": 6,
+          "min": 0,
+          "origin": "preset:standard",
+          "read_only": false,
+          "type": "int",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "node": "checks",
+      "rules": [
+        {
+          "choices": [],
+          "id": "steps.checks.on",
+          "label": "Checks",
+          "max": null,
+          "min": null,
+          "origin": "preset:standard",
+          "read_only": false,
+          "type": "bool",
+          "value": true
+        },
+        {
+          "choices": [],
+          "id": "evaluator",
+          "label": "Prove each row",
+          "max": null,
+          "min": null,
+          "origin": "preset:standard",
+          "read_only": false,
+          "type": "bool",
+          "value": false
+        },
+        {
+          "agent": {
+            "account": "project",
+            "account_label": null,
+            "accounts": [
+              {
+                "id": "studio",
+                "label": "Studio",
+                "provider": "claude"
+              },
+              {
+                "id": "archive",
+                "label": "Archive",
+                "provider": "codex"
+              },
+              {
+                "id": "goose-fixture",
+                "label": "Local models",
+                "provider": "goose"
+              }
+            ],
+            "default_model": "opus",
+            "effort": "medium",
+            "effort_is_set": false,
+            "model": "opus",
+            "models_note": "The models of Studio have not been read yet.",
+            "models_state": "missing",
+            "note": "",
+            "provider": "claude",
+            "resolved": ""
+          },
+          "choices": [
+            "goose:qwen2.5:3b"
+          ],
+          "id": "steps.checks.model",
+          "label": "Model",
+          "max": null,
+          "min": null,
+          "origin": "defaults",
+          "read_only": false,
+          "type": "choice",
+          "value": "claude:opus"
+        },
+        {
+          "choices": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "id": "steps.checks.effort",
+          "label": "Effort",
+          "max": null,
+          "min": null,
+          "origin": "defaults",
+          "read_only": false,
+          "type": "choice",
+          "value": "medium"
+        },
+        {
+          "choices": [
+            "project",
+            "studio",
+            "archive",
+            "goose-fixture"
+          ],
+          "id": "steps.checks.account",
+          "label": "Account",
+          "max": null,
+          "min": null,
+          "origin": "defaults",
+          "read_only": false,
+          "type": "choice",
+          "value": "project"
+        }
+      ]
+    },
+    {
+      "node": "deliver",
+      "rules": [
+        {
+          "choices": [],
+          "id": "reporter",
+          "label": "Write the report",
+          "max": null,
+          "min": null,
+          "origin": "preset:standard",
+          "read_only": false,
+          "type": "bool",
+          "value": true
+        },
+        {
+          "choices": [
+            "it",
+            "en"
+          ],
+          "id": "report_language",
+          "label": "Report language",
+          "max": null,
+          "min": null,
+          "origin": "preset:standard",
+          "read_only": false,
+          "type": "choice",
+          "value": "it"
+        }
+      ]
+    },
+    {
+      "node": "guard",
+      "rules": [
+        {
+          "choices": [],
+          "id": "guard.cage",
+          "label": "Cage",
+          "max": null,
+          "min": null,
+          "origin": "preset:standard",
+          "read_only": true,
+          "type": "text",
+          "value": "default"
+        },
+        {
+          "choices": [],
+          "id": "guard.grants",
+          "label": "Grants",
+          "max": null,
+          "min": null,
+          "origin": "defaults",
+          "read_only": true,
+          "type": "list",
+          "value": []
+        }
+      ]
+    }
+  ],
+  "pace_accounts": {},
+  "preset": "standard",
+  "preset_label": "Standard"
+}

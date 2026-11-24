@@ -43,7 +43,6 @@ impl ActionKey {
         }
     }
 
-    /// The agent stop of `task`.
     pub fn stop_agent(task: &str) -> Self {
         ActionKey::StopAgent {
             task: task.to_string(),
@@ -301,9 +300,10 @@ impl Actions {
             return;
         };
         let read_at = facts.status_started_at();
-        let is_alive = runner.state == RunnerPhase::Running;
+        // Only the service's own runner, stopped, is the app's to run: the engine runs its checks itself.
+        let is_ours_to_run = runner.state == RunnerPhase::Stopped;
         let waiting = runner.queue.clone();
-        if is_alive || waiting.is_empty() {
+        if !is_ours_to_run || waiting.is_empty() {
             // Nothing waits for a runner: what the last run said is no longer true.
             let had_stalled = self.queue_run.stalled.take().is_some();
             self.queue_run.last = None;

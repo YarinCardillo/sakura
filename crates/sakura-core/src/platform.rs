@@ -168,14 +168,18 @@ pub fn kill_tree(pid: u32) {
 
 #[cfg(unix)]
 fn kill_tree_of(pid: u32) {
-    let Ok(group) = i32::try_from(pid) else {
+    let Some(group) = unix_pid(pid) else {
         return;
     };
-    // SAFETY: killpg takes plain integers and has no memory effects. The id is a child we spawned in its
-    // own group, and ids 0 and 1 are excluded by the caller.
-    unsafe {
-        libc::killpg(group, libc::SIGKILL);
-    }
+    let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+}
+
+/// The id as the kernel takes it, or none when it does not fit (ids 0 and 1 are excluded by the callers).
+#[cfg(unix)]
+fn unix_pid(pid: u32) -> Option<rustix::process::Pid> {
+    i32::try_from(pid)
+        .ok()
+        .and_then(rustix::process::Pid::from_raw)
 }
 
 /// Kills one child process. On Windows whatever it started ends with it.
@@ -188,13 +192,10 @@ pub fn kill_process(pid: u32) {
 
 #[cfg(unix)]
 fn kill_process_of(pid: u32) {
-    let Ok(pid) = i32::try_from(pid) else {
+    let Some(process) = unix_pid(pid) else {
         return;
     };
-    // SAFETY: plain integer arguments; ids 0 and 1 are excluded by the caller.
-    unsafe {
-        libc::kill(pid, libc::SIGKILL);
-    }
+    let _ = rustix::process::kill_process(process, rustix::process::Signal::KILL);
 }
 
 #[cfg(not(unix))]

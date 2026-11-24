@@ -23,6 +23,13 @@ pub enum Ask {
     Archive(String),
 }
 
+impl Ask {
+    /// The ask as it is carried out: the desk's tasks have no tabs of their own to open one in.
+    pub fn in_new_tab(self, _is_new_tab: bool) -> Self {
+        self
+    }
+}
+
 /// What choosing a command does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Run {
@@ -37,24 +44,15 @@ pub enum Run {
     StartPlay,
     StopPlay,
     Settings,
+    CheckForUpdates,
     Language(LanguageChoice),
 }
 
 /// One command.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Entry {
-    pub label: String,
-    pub run: Run,
-    /// The choice in force among alternatives (the view shown, the language).
-    pub is_current: bool,
-}
+pub type Entry = super::entry::Entry<Run>;
 
 /// A labelled group of commands.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Group {
-    pub label: String,
-    pub entries: Vec<Entry>,
-}
+pub type Group = super::entry::Group<Run>;
 
 /// What the commands on the task shown depend on.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,7 +86,7 @@ pub enum PlayState {
 pub struct Situation {
     /// Every task, in the sidebar's order.
     pub tasks: Vec<String>,
-    /// The task shown, or `None` when no lavoro is.
+    /// The task shown, or `None` when no task is.
     pub shown: Option<ShownTask>,
     pub panes: PanesShown,
     pub language: LanguageChoice,
@@ -105,7 +103,7 @@ const LANGUAGE_LABEL: Key = Key("menu.app.language");
 pub fn groups(situation: &Situation) -> Vec<Group> {
     let task = situation.shown.as_ref().map(task_group);
     let rest = [places(situation), window(situation), languages(situation)];
-    // The only lavoro there is, already shown, leaves nowhere to go: no label over nothing.
+    // The only task there is, already shown, leaves nowhere to go: no label over nothing.
     let listed = task.into_iter().chain(rest);
     listed.filter(|group| !group.entries.is_empty()).collect()
 }
@@ -159,7 +157,38 @@ fn play(task: &ShownTask) -> Option<Entry> {
         label: tr(label).to_string(),
         run,
         is_current: false,
+        glyph: None,
     })
+}
+
+/// The window's own action that `run` is, when it is one: the kit's list dispatches it and shows its key.
+pub fn action_of(run: &Run) -> Option<Box<dyn gpui::Action>> {
+    use crate::l10n::{Language, LanguageChoice};
+    use crate::menus::{
+        LanguageAutomatic, LanguageEnglish, LanguageItalian, NewTask, ShowSettings, StartPlay,
+        StopPlay, ToggleChanges, ToggleSidebar,
+    };
+    let action: Box<dyn gpui::Action> = match run {
+        Run::NewTask => Box::new(NewTask),
+        Run::OpenFile => Box::new(crate::ui::files::quick_open::ToggleQuickOpen),
+        Run::Language(LanguageChoice::Automatic) => Box::new(LanguageAutomatic),
+        Run::Language(LanguageChoice::Is(Language::English)) => Box::new(LanguageEnglish),
+        Run::Language(LanguageChoice::Is(Language::Italian)) => Box::new(LanguageItalian),
+        Run::ToggleSidebar => Box::new(ToggleSidebar),
+        Run::ToggleChanges => Box::new(ToggleChanges),
+        Run::CloseTab => Box::new(crate::ui::tabs::keys::CloseTab),
+        Run::StartPlay => Box::new(StartPlay),
+        Run::StopPlay => Box::new(StopPlay),
+        Run::Settings => Box::new(ShowSettings),
+        Run::CheckForUpdates => Box::new(crate::menus::CheckForUpdates),
+        Run::Ask(_) => return None,
+    };
+    Some(action)
+}
+
+/// The boxes' commands carry no icon.
+pub fn icon_of(_: &Run) -> Option<gpui_kit_assets::IconName> {
+    None
 }
 
 /// Whether `run` is a command of `situation`: the check made right before a chosen command is carried
@@ -191,6 +220,7 @@ fn window(situation: &Situation) -> Group {
         label: label.to_string(),
         run,
         is_current: false,
+        glyph: None,
     };
     let mut entries = vec![
         command(tr(menus::NEW_TASK), Run::NewTask),
@@ -208,6 +238,7 @@ fn window(situation: &Situation) -> Group {
         entries.push(command(tr(Key("tabs.close")), Run::CloseTab));
     }
     entries.push(command(tr(Key("menu.app.settings")), Run::Settings));
+    entries.push(command(tr(Key("updates.check_menu")), Run::CheckForUpdates));
     Group {
         label: tr(WINDOW_LABEL).to_string(),
         entries,
@@ -226,6 +257,7 @@ fn languages(situation: &Situation) -> Group {
         label: label.to_string(),
         run: Run::Language(choice),
         is_current: choice == situation.language,
+        glyph: None,
     });
     Group {
         label: tr(LANGUAGE_LABEL).to_string(),
@@ -238,6 +270,7 @@ fn entry(label: impl Into<String>, ask: Ask) -> Entry {
         label: label.into(),
         run: Run::Ask(ask),
         is_current: false,
+        glyph: None,
     }
 }
 
@@ -394,7 +427,8 @@ mod tests {
                 "Mostra barra laterale",
                 "Nascondi modifiche",
                 "Chiudi scheda",
-                "Impostazioni…"
+                "Impostazioni…",
+                "Controlla aggiornamenti…"
             ]
         );
         let alone = window_commands_with_no_lavoro_shown();
@@ -436,6 +470,17 @@ mod tests {
     fn settings_is_a_command_of_the_window_wherever_it_is() {
         assert!(is_offered(&no_lavoro_shown(), &Run::Settings));
         assert!(is_offered(&on_task(true, true), &Run::Settings));
+    }
+
+    #[test]
+    fn updates_command_is_always_available_in_the_palette() {
+        crate::l10n::set_for_test(Language::English);
+        for situation in [no_lavoro_shown(), on_task(true, true)] {
+            assert!(groups(&situation)
+                .iter()
+                .flat_map(|group| &group.entries)
+                .any(|entry| entry.label == "Check for Updates…"));
+        }
     }
 
     fn window_commands_with_no_lavoro_shown() -> Vec<String> {

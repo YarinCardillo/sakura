@@ -1,0 +1,7 @@
+$ claude -p --output-format stream-json --verbose --model haiku
+{"type":"system","subtype":"init","session_id":"00000000-0000-4000-8000-0000000000a1"}
+{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1793170800,"rateLimitType":"seven_day","utilization":0.5,"unifiedWindows":{"five_hour":{"utilization":0.1,"resetsAt":1792758600},"seven_day":{"utilization":0.5,"resetsAt":1793170800}}},"session_id":"00000000-0000-4000-8000-0000000000a1"}
+{"type":"result","subtype":"success","session_id":"00000000-0000-4000-8000-0000000000a1","total_cost_usd":0.01,"usage":{"input_tokens":3,"cache_creation_input_tokens":1000,"cache_read_input_tokens":2000,"output_tokens":50}}
+not json at all
+{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","resetsAt":1793170800,"rateLimitType":"seven_day","utilization":0.53,"unifiedWindows":{"five_hour":{"utilization":0.17,"resetsAt":1792758600},"seven_day":{"utilization":0.53,"resetsAt":1793170800}}},"session_id":"00000000-0000-4000-8000-0000000000a1"}
+{"type":"result","subtype":"success","session_id":"00000000-0000-4000-8000-0000000000a1","total_cost_usd":0.05903319,"usage":{"input_tokens":38,"cache_creation_input_tokens":90098,"cache_read_input_tokens":1572407,"output_tokens":12344}}

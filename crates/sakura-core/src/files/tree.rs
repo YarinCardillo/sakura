@@ -1,4 +1,4 @@
-//! The tree of a lavoro as far as it was read: a level is asked of `box` only when its folder is opened,
+//! The tree of a task as far as it was read: a level is asked of `box` only when its folder is opened,
 //! so a tree of thousands of files costs what the person looks at. The model holds the levels read, the
 //! folders open and the "only touched" switch, and says which levels are still to read; reading is the
 //! caller's.
@@ -26,14 +26,14 @@ pub enum Children {
 /// One entry of the tree with what is under it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Node {
-    /// The path from the lavoro's root: what `box file` and `box tree --path` take.
+    /// The path from the task's root: what `box file` and `box tree --path` take.
     pub path: String,
     pub entry: Entry,
     pub is_open: bool,
     pub children: Children,
 }
 
-/// The tree of one lavoro.
+/// The tree of one task.
 #[derive(Debug, Default)]
 pub struct Tree {
     levels: HashMap<String, Level>,
@@ -139,7 +139,7 @@ impl Tree {
     }
 
     /// The levels on screen: the root and every open folder that was read. These are read again when
-    /// the lavoro changes.
+    /// the task changes.
     pub fn shown(&self) -> Vec<String> {
         let mut shown: Vec<String> = self.levels.keys().cloned().collect();
         shown.retain(|dir| dir.is_empty() || self.is_shown_open(dir));

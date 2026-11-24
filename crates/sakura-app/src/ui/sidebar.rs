@@ -12,8 +12,9 @@ use super::chrome::tabular;
 use super::desk::Desk;
 use super::glyph::{glyph, glyph_column, placed_state_glyph, Shape};
 use super::pane_toggle;
+use super::row_age::{self, RowAges};
 use crate::data::facts::{Facts, Phase, Row};
-use crate::l10n::{say, tr, Key};
+use crate::l10n::{tr, Key};
 use crate::menus::{self, NewTask};
 use crate::theme::{self, Palette, Theme};
 use gpui::{
@@ -74,16 +75,18 @@ impl SidebarView {
 }
 
 impl Render for SidebarView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         #[cfg(test)]
         {
             self.renders += 1;
         }
         crate::snapshot::count_render("sidebar");
         BreathMarks::clear(Owner::Sidebar, cx);
+        RowAges::clear(cx);
         let palette = Theme::palette(cx);
         let facts = self.facts.read(cx);
         let at = Place {
+            window,
             desk: &self.desk,
             selected: self.selected.as_deref(),
             waiting: facts.waiting(),
@@ -96,6 +99,8 @@ impl Render for SidebarView {
 /// Whose sidebar it is, which task it highlights and which ones have an agent that waits for the person.
 #[derive(Clone, Copy)]
 struct Place<'a> {
+    /// What the rows' words are measured in.
+    window: &'a Window,
     desk: &'a WeakEntity<Desk>,
     selected: Option<&'a str>,
     waiting: &'a HashSet<String>,
@@ -128,8 +133,8 @@ fn view(
 
 /// The sidebar's first line, as tall as the page header and centred on its line: the first group's label
 /// at the left, on the sidebar's inset, and "New task" at the right, its plus ending on the inset where
-/// the rows' figures end. The button is there whatever is listed: with no lavoro, and while they are read.
-/// With no lavoro at all (`is_empty`) the line says what the list is, since no group's label does.
+/// the rows' figures end. The button is there whatever is listed: with no task, and while they are read.
+/// With no task at all (`is_empty`) the line says what the list is, since no group's label does.
 fn header(
     first: Option<(GroupName, (usize, bool))>,
     is_empty: bool,
@@ -177,7 +182,7 @@ fn list(
         .flex_col();
     match listed {
         None => list.child(skeleton(palette)),
-        // A list with no lavoro stays where it is and says so in one quiet line on its first row.
+        // A list with no task stays where it is and says so in one quiet line on its first row.
         Some(listed) if listed.is_empty() => {
             let line = quiet_words("sidebar-empty", theme::TEXT_SMALL, NO_TASKS, palette);
             list.child(
@@ -194,7 +199,7 @@ fn list(
 const TASKS: Key = Key("sidebar.tasks");
 const NO_TASKS: Key = Key("sidebar.empty");
 
-/// Quiet words of the sidebar when it lists no lavoro, found by `selector`.
+/// Quiet words of the sidebar when it lists no task, found by `selector`.
 fn quiet_words(selector: &'static str, size: gpui::Pixels, words: Key, palette: &Palette) -> Div {
     div()
         .debug_selector(move || selector.into())
@@ -326,7 +331,7 @@ fn task_row(
     let name = SharedString::from(row.task.name.clone());
     let selected_name = row.task.name.clone();
     let desk = at.desk.clone();
-    // A click shows the lavoro in the tab on screen; with Cmd it opens in a tab of its own, behind.
+    // A click shows the task in the tab on screen; with Cmd it opens in a tab of its own, behind.
     let on_click = move |event: &gpui::ClickEvent, _: &mut gpui::Window, cx: &mut gpui::App| {
         let is_behind = event.modifiers().platform;
         drop(desk.update(cx, |desk, cx| match is_behind {
@@ -360,7 +365,12 @@ fn task_row(
             glyph_selector,
         ))
         .child(row_label(name))
-        .children((!row.is_pending).then(|| row_trailing(row, palette)))
+        .children((!row.is_pending).then(|| {
+            let waits = at.waiting.contains(&row.task.name);
+            let shown = model::shown_state_live(&row.task, waits, at.facts.live(&row.task.name));
+            let has_age = age_fits(at.window, shown, &row.task.name);
+            row_trailing(row, shown, has_age, palette)
+        }))
 }
 
 /// The name, in the room the glyph and the trailing figures leave it: its box is the same whatever its
@@ -411,12 +421,22 @@ fn row_look(row: Stateful<Div>, is_selected: bool, palette: &Palette) -> Statefu
     }
 }
 
-/// The right side of a row: the age of old facts, then the changed lines (a part that is zero is left out), or
-/// the state word when the task has no readable figures.
-fn row_trailing(row: &Row, palette: &Palette) -> impl IntoElement {
+/// The right side of a row: the task's own age (painted by the age layer), the word of the state
+/// `shown` (the one its glyph and its group say, which tells what to do), then the changed lines (a
+/// part that is zero is left out).
+fn row_trailing(
+    row: &Row,
+    shown: model::TaskState,
+    has_age: bool,
+    palette: &Palette,
+) -> impl IntoElement {
     let task = &row.task;
-    let age = model::facts_age(row.fetched_at.elapsed().as_secs());
+    let age = row_age::slot(task, shown, palette).filter(|_| has_age);
     let selector = format!("trailing-{}", task.name);
+    let word_selector = format!("trailing-word-{}-{}", task.name, shown.word.0);
+    let word = div()
+        .debug_selector(move || word_selector)
+        .child(tr(shown.word));
     let trailing = div()
         .debug_selector(move || selector)
         .flex_none()
@@ -424,25 +444,52 @@ fn row_trailing(row: &Row, palette: &Palette) -> impl IntoElement {
         .items_center()
         .gap(theme::GAP_SMALL)
         .text_size(theme::TEXT_LABEL)
+        .text_color(palette.text_tertiary)
         .font_weight(FontWeight::NORMAL)
         .font_features(tabular())
-        .children(age.map(|age| div().text_color(palette.text_tertiary).child(say(&age))));
-    match (task.readable, task.insertions, task.deletions) {
-        (true, Some(added), Some(removed)) if added + removed > 0 => {
-            let (added_text, removed_text) = crate::l10n::signed_lines(added, removed);
-            trailing
-                .when(added > 0, |row| {
-                    row.child(div().text_color(palette.success).child(added_text))
-                })
-                .when(removed > 0, |row| {
-                    row.child(div().text_color(palette.danger).child(removed_text))
-                })
-        }
-        (false, _, _) => trailing
-            .text_color(palette.text_tertiary)
-            .child(tr(model::task_state(task).word)),
-        _ => trailing,
-    }
+        .children(age)
+        .child(word);
+    row_lines(trailing, task, palette)
+}
+
+fn row_lines(trailing: Div, task: &sakura_core::models::Task, palette: &Palette) -> Div {
+    let (true, Some(added), Some(removed)) = (task.readable, task.insertions, task.deletions)
+    else {
+        return trailing;
+    };
+    let (added_text, removed_text) = crate::l10n::signed_lines(added, removed);
+    trailing
+        .when(added > 0, |row| {
+            row.child(div().text_color(palette.success).child(added_text))
+        })
+        .when(removed > 0, |row| {
+            row.child(div().text_color(palette.danger).child(removed_text))
+        })
+}
+
+/// Whether a row has room for its age beside its name and the word of its state: the name comes first, so
+/// the age is left out where the name would be cut with it, and the word stays because it says what to
+/// do. The changed lines are not counted: they come and go with the work and take what is left.
+fn age_fits(window: &Window, shown: model::TaskState, name: &str) -> bool {
+    let measure =
+        |text: &str, size, weight| crate::ui::chrome::text_width(window, text, size, weight);
+    let name = measure(
+        &sakura_core::display::label(name),
+        theme::TEXT_BODY,
+        FontWeight::NORMAL,
+    );
+    let word = measure(tr(shown.word), theme::TEXT_LABEL, FontWeight::NORMAL);
+    is_room_for_age(name, word)
+}
+
+/// Whether a name `name` wide, an age and a word `word` wide fit in the room a row leaves for them, with
+/// the gaps between.
+fn is_room_for_age(name: f32, word: f32) -> bool {
+    let age = f32::from(row_age::AGE_WIDTH + theme::GAP_SMALL);
+    let room = f32::from(
+        theme::SIDEBAR_WIDTH - theme::SIDEBAR_INSET * 2. - theme::ICON_SIZE - theme::ROW_GAP * 2.,
+    );
+    name + age + word <= room
 }
 
 fn skeleton(palette: &Palette) -> impl IntoElement {
@@ -467,6 +514,73 @@ fn skeleton(palette: &Palette) -> impl IntoElement {
 mod tests {
     use super::*;
 
+    struct StateRow {
+        row: Row,
+        state: model::StateId,
+    }
+
+    impl gpui::Render for StateRow {
+        fn render(&mut self, _: &mut gpui::Window, _: &mut Context<Self>) -> impl IntoElement {
+            row_trailing(
+                &self.row,
+                model::state_for(self.state),
+                true,
+                &Palette::dark(),
+            )
+        }
+    }
+
+    fn sample_row() -> Row {
+        let status: sakura_core::models::BoxStatus = serde_json::from_str(include_str!(
+            "../../../sakura-core/tests/fixtures/status.json"
+        ))
+        .expect("the fixture parses");
+        let now = std::time::Instant::now();
+        Row {
+            task: status.tasks[0].clone(),
+            fetched_at: now,
+            work_read_at: now,
+            requested_at: now,
+            is_refreshing: false,
+            is_pending: false,
+        }
+    }
+
+    #[gpui::test]
+    fn merged_rows_say_the_action_or_result_even_when_they_have_changed_lines(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        use model::StateId;
+        let row = sample_row();
+        let name = row.task.name.clone();
+        let (view, cx) = cx.add_window_view(|_, _| StateRow {
+            row,
+            state: StateId::NeedsYou,
+        });
+        for state in [
+            StateId::NeedsYou,
+            StateId::ToReview,
+            StateId::Verified,
+            StateId::Failed,
+            StateId::CreationFailed,
+            StateId::Unreadable,
+            StateId::NotStarted,
+            StateId::Idle,
+        ] {
+            view.update(cx, |view, cx| {
+                view.state = state;
+                cx.notify();
+            });
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            let word = model::state_for(state).word.0;
+            let selector: &'static str = format!("trailing-word-{name}-{word}").leak();
+            assert!(
+                cx.debug_bounds(selector).is_some(),
+                "the row must say {word}"
+            );
+        }
+    }
+
     #[test]
     fn the_group_of_what_needs_the_person_marks_its_figure() {
         assert_eq!(group_figure(Group::ServeTe, 3, 3), (3, true));
@@ -482,9 +596,9 @@ mod tests {
     }
 
     #[test]
-    fn what_is_to_review_shows_a_muted_total_whatever_its_rows() {
-        assert_eq!(group_figure(Group::DaGuardare, 3, 0), (3, false));
-        assert_eq!(group_figure(Group::DaGuardare, 3, 1), (3, false));
+    fn work_to_review_marks_the_merged_group_total() {
+        assert_eq!(group_figure(Group::ServeTe, 3, 0), (3, false));
+        assert_eq!(group_figure(Group::ServeTe, 3, 1), (3, true));
     }
 
     #[test]

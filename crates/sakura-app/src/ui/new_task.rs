@@ -1,29 +1,32 @@
 //! "New task": one sheet with one field, "What do you want to do?". Enter sends, Shift+Enter breaks the
-//! line. Under the text, quiet and already chosen, what the lavoro is made from: the project (the one used
+//! line. Under the text, quiet and already chosen, what the task is made from: the project (the one used
 //! last), the branch it starts from (the project's own), where it lives and the account its agent uses;
 //! each is changed in place, as wide as what it says, packed at the left; the send button is at the right
-//! and, when a choice stops the lavoro from being requested, the reason is said before it. The sheet asks
-//! nothing else: the lavoro is named from the sentence.
+//! and, when a choice stops the task from being requested, the reason is said before it. The sheet asks
+//! nothing else: the task is named from the sentence.
 //!
 //! Opened with a key the field has the caret; opened with the pointer the sheet itself has the keyboard
 //! and the field takes the caret on a press.
 
 use super::base_branches;
-use super::centred;
 use super::chooser::opens_on_press;
 use super::chrome::text;
 use super::conversations::box_account;
 use super::desk::Desk;
+use super::dialog_frame;
 use super::sheet_accounts;
-use super::thread::{button, send_face, send_glyph, Face};
+use super::sheet_place;
+use super::thread::{button, send_face, send_glyph, send_look, Face};
 use crate::data::actions::{Accounts, Actions};
 use crate::data::facts::Phase;
 use crate::data::projects::{Listed, Projects};
+use crate::data::source::Pending;
 use crate::l10n::{say, tr, tr_with, Key};
 use crate::prefs::Preferences;
 use crate::theme::sheet as tokens;
 use crate::theme::thread as composer;
 use crate::theme::{self, Palette, Theme};
+use crate::ui::enter::{guard_enter, is_composing};
 use gpui::{
     div, px, AnyElement, App, AppContext as _, Context, Entity, EventEmitter, FocusHandle,
     Focusable as _, InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
@@ -35,18 +38,18 @@ use gpui_component::select::{
 };
 use gpui_component::{Sizable as _, WindowExt as _};
 use sakura_core::display;
-use sakura_core::models::Place;
+use sakura_core::models::{BoxReadiness, Place};
 use sakura_core::projects::Project;
 
 /// What the empty field asks.
 const QUESTION: Key = Key("new_task.question");
-/// The places a lavoro can live in, as the sheet names them.
+/// The places a task can live in, as the sheet names them.
 const ON_THIS_MAC: Key = Key("new_task.place.mac");
 const IN_A_BOX: Key = Key("new_task.place.box");
 /// An account of the boxes that is not signed in, as its row names it.
 const NOT_SIGNED_IN: Key = Key("new_task.account.not_signed_in");
 
-/// What the person requested: the sentence, and what the lavoro is made from.
+/// What the person requested: the sentence, and what the task is made from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Asked {
     pub text: String,
@@ -59,9 +62,9 @@ pub struct Asked {
 /// What the sheet tells the desk.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SheetEvent {
-    /// Enter: the lavoro is requested.
+    /// Enter: the task is requested.
     Asked(Asked),
-    /// There is no project to make a lavoro in: the person wants to add one.
+    /// There is no project to make a task in: the person wants to add one.
     AddProject,
     /// The account chosen for a box is not signed in: the person signs in to it.
     SignIn(String),
@@ -102,6 +105,7 @@ type Branches = Entity<SelectState<SearchableVec<SelectGroup<Choice>>>>;
 
 /// The content of the sheet.
 pub struct NewTaskSheet {
+    is_in_place: bool,
     field: Entity<TextareaState>,
     project: Chooser,
     base: Branches,
@@ -113,9 +117,14 @@ pub struct NewTaskSheet {
     /// The project whose own base, place and account are the ones chosen now, until the person changes
     /// one: a project is preset once.
     preset_for: Option<String>,
-    /// The lavori there are and the branch each works on, `(lavoro, branch)`: their branches are
+    /// The tasks there are and the branch each works on, `(lavoro, branch)`: their branches are
     /// offered apart from the repository's own.
     tasks: Vec<(String, String)>,
+    /// Whether Docker answered when the sheet asked whether a box can be used: a box is then the
+    /// place chosen by itself, where an account of the boxes is signed in.
+    does_docker_answer: bool,
+    /// The person chose the place: it is not chosen again by itself.
+    is_place_chosen: bool,
     projects: Entity<Projects>,
     actions: Entity<Actions>,
     _subscriptions: Vec<Subscription>,
@@ -125,11 +134,11 @@ impl EventEmitter<SheetEvent> for NewTaskSheet {}
 
 impl NewTaskSheet {
     /// An empty sheet over `projects` (read again now) and the accounts `actions` know; `tasks` are the
-    /// lavori there are with the branch each works on.
+    /// tasks there are with the branch each works on, `boxes` the answer to whether a box can be used.
     pub fn new(
-        projects: Entity<Projects>,
-        actions: Entity<Actions>,
+        (projects, actions): (Entity<Projects>, Entity<Actions>),
         tasks: Vec<(String, String)>,
+        boxes: Pending<BoxReadiness>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -160,6 +169,7 @@ impl NewTaskSheet {
             account.read(cx).focus_handle(cx),
         ];
         let mut sheet = Self {
+            is_in_place: true,
             _subscriptions: Self::watch(&field, &projects, &actions, window, cx),
             field,
             project,
@@ -169,12 +179,52 @@ impl NewTaskSheet {
             triggers,
             preset_for: None,
             tasks,
+            does_docker_answer: false,
+            is_place_chosen: false,
             projects,
             actions,
         };
         sheet.watch_choices(window, cx);
         sheet.follow(window, cx);
+        sheet.hear_boxes(boxes, window, cx);
         sheet
+    }
+
+    /// Takes the answer to whether a box can be used: while the person has not chosen the place, it is
+    /// chosen again with it.
+    fn hear_boxes(
+        &self,
+        boxes: Pending<BoxReadiness>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn_in(window, async move |sheet, cx| {
+            let answer = boxes.await;
+            drop(sheet.update_in(cx, |sheet, window, cx| {
+                sheet.does_docker_answer = answer.is_ok_and(|boxes| boxes.docker);
+                if !sheet.is_place_chosen {
+                    sheet.preset_place(window, cx);
+                }
+            }));
+        })
+        .detach();
+    }
+
+    /// Chooses the place by itself: the one chosen last for the project, else a box where one can be
+    /// used, else the Mac; the account follows.
+    fn preset_place(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(project) = value(&self.project, cx) else {
+            return;
+        };
+        let kept = Preferences::try_current(cx).and_then(|kept| kept.places.get(&project).cloned());
+        let accounts = match self.actions.read(cx).accounts() {
+            Accounts::Loaded(accounts) => accounts.clone(),
+            Accounts::Loading | Accounts::Failed(_) => Vec::new(),
+        };
+        let remembered = sheet_place::remembered(kept.as_deref());
+        let place = sheet_place::preset(remembered, self.does_docker_answer, &accounts);
+        set(&self.place, place.word(), window, cx);
+        self.offer_accounts(true, window, cx);
     }
 
     /// The field sends on Enter; what is offered follows the projects and the accounts as they are read,
@@ -187,10 +237,18 @@ impl NewTaskSheet {
         cx: &mut Context<Self>,
     ) -> Vec<Subscription> {
         vec![
-            cx.subscribe(field, |sheet, _, event: &InputEvent, cx| match event {
-                InputEvent::PressEnter { shift: false, .. } => sheet.submit(cx),
-                _ => cx.notify(),
-            }),
+            cx.subscribe_in(
+                field,
+                window,
+                |sheet, field, event: &InputEvent, window, cx| match event {
+                    InputEvent::PressEnter { shift: false, .. } => {
+                        if !is_composing(field, window, cx) {
+                            sheet.submit(cx);
+                        }
+                    }
+                    _ => cx.notify(),
+                },
+            ),
             cx.observe_in(projects, window, |sheet, _, window, cx| {
                 sheet.follow(window, cx)
             }),
@@ -221,6 +279,7 @@ impl NewTaskSheet {
             },
         );
         let on_place = cx.subscribe_in(&self.place, window, |sheet, _, _: &Chosen, window, cx| {
+            sheet.is_place_chosen = true;
             sheet.offer_accounts(true, window, cx);
         });
         let on_account = cx.subscribe(&self.account, |sheet, _, event: &Chosen, cx| {
@@ -288,20 +347,20 @@ impl NewTaskSheet {
         std::array::from_fn(|at| super::chooser::is_open(&self.triggers[at], &now[at]))
     }
 
-    /// Makes the lavoro in `project`: the base, the place and the account become the project's own.
+    /// Makes the task in `project`: the base, the place and the account become the project's own.
     pub fn choose_project(&mut self, project: &str, window: &mut Window, cx: &mut Context<Self>) {
         set(&self.project, project, window, cx);
         self.preset_for = None;
         self.follow(window, cx);
     }
 
-    /// Starts the lavoro from `branch`.
+    /// Starts the task from `branch`.
     #[cfg(test)]
     pub fn choose_base(&mut self, branch: &str, window: &mut Window, cx: &mut Context<Self>) {
         set(&self.base, branch, window, cx);
     }
 
-    /// Makes the lavoro live in `place`; the account becomes the one that place uses.
+    /// Makes the task live in `place`; the account becomes the one that place uses.
     #[cfg(test)]
     pub fn choose_place(&mut self, place: Place, window: &mut Window, cx: &mut Context<Self>) {
         set(&self.place, place.word(), window, cx);
@@ -315,7 +374,7 @@ impl NewTaskSheet {
         self.account_chosen(account, cx);
     }
 
-    /// Asks for the lavoro when there is a sentence and a project to make it in.
+    /// Asks for the task when there is a sentence and a project to make it in.
     pub fn submit(&mut self, cx: &mut Context<Self>) {
         let text = self.field.read(cx).value().trim().to_string();
         let (Some(project), true) = (value(&self.project, cx), self.can_submit(cx)) else {
@@ -330,13 +389,13 @@ impl NewTaskSheet {
         }));
     }
 
-    /// Whether Enter would ask for a lavoro.
+    /// Whether Enter would ask for a task.
     fn can_submit(&self, cx: &App) -> bool {
         let has_sentence = !self.field.read(cx).value().trim().is_empty();
         has_sentence && value(&self.project, cx).is_some() && self.blocker(cx).is_none()
     }
 
-    /// Why the lavoro cannot be requested with what is chosen, whatever is written; nothing when it can.
+    /// Why the task cannot be requested with what is chosen, whatever is written; nothing when it can.
     fn blocker(&self, cx: &App) -> Option<Key> {
         let Accounts::Loaded(accounts) = self.actions.read(cx).accounts() else {
             return None;
@@ -394,12 +453,12 @@ impl NewTaskSheet {
     fn preset(&mut self, project: &Project, window: &mut Window, cx: &mut Context<Self>) {
         self.preset_for = Some(project.name.clone());
         self.offer_places(window, cx);
-        set(&self.place, project.place.word(), window, cx);
         self.offer_branches(project, window, cx);
         if let Some(base) = &project.base {
             set(&self.base, base, window, cx);
         }
-        self.offer_accounts(true, window, cx);
+        self.is_place_chosen = false;
+        self.preset_place(window, cx);
         let name = project.name.clone();
         self.projects
             .update(cx, |projects, cx| projects.load_branches(name, cx));
@@ -415,7 +474,7 @@ impl NewTaskSheet {
     }
 
     /// The project's own base first, then the branches of its repository once they are read; apart
-    /// from them, the branches other lavori work on, each under its lavoro's name. A group with nothing
+    /// from them, the branches other tasks work on, each under its task's name. A group with nothing
     /// in it is not shown.
     fn offer_branches(&mut self, project: &Project, window: &mut Window, cx: &mut Context<Self>) {
         let read = self.projects.read(cx).branches(&project.name);
@@ -510,42 +569,55 @@ fn offer(chooser: &Chooser, choices: Vec<Choice>, window: &mut Window, cx: &mut 
 }
 
 impl Render for NewTaskSheet {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = Theme::palette(cx);
         let field = div()
             .debug_selector(|| "new-task-field".into())
             .w_full()
             .text_size(theme::TEXT_BODY)
+            .capture_action(guard_enter(self.field.clone()))
             .child(
                 Textarea::new(&self.field)
                     .small()
                     .appearance(false)
                     .bordered(false),
             );
-        div()
-            .debug_selector(|| "new-task-sheet".into())
-            .w_full()
-            .p(composer::COMPOSER_PADDING)
-            .flex()
-            .flex_col()
-            .gap(theme::GAP)
-            .rounded(composer::COMPOSER_RADIUS)
-            .bg(palette.fill)
+        if self.is_in_place {
+            return div()
+                .debug_selector(|| "new-task-sheet".into())
+                .w_full()
+                .p(composer::COMPOSER_PADDING)
+                .flex()
+                .flex_col()
+                .gap(theme::GAP)
+                .rounded(composer::COMPOSER_RADIUS)
+                .bg(palette.fill)
+                .child(field)
+                .child(self.under_the_field(&palette, cx))
+                .children(self.place_note(&palette, cx));
+        }
+        dialog_frame::surface("new-task-sheet", window, &palette)
+            .child(dialog_frame::heading(
+                "new-task-heading",
+                tr(Key("new_task.heading")),
+                &palette,
+            ))
             .child(field)
+            .children(self.place_note(&palette, cx))
             .child(self.under_the_field(&palette, cx))
     }
 }
 
 impl NewTaskSheet {
-    /// Under the text: what the lavoro is made from and the send button; or, when no lavoro can be made,
+    /// Under the text: what the task is made from and the send button; or, when no task can be made,
     /// why in one sentence.
     fn under_the_field(&self, palette: &Palette, cx: &mut Context<Self>) -> AnyElement {
-        let row = div()
-            .w_full()
-            .min_h(composer::SEND_BUTTON_SIZE)
-            .flex()
-            .items_center()
-            .gap(theme::GAP);
+        let row = if self.is_in_place {
+            div().flex().items_center().gap(theme::GAP)
+        } else {
+            dialog_frame::footer(palette)
+        };
+        let row = row.w_full().min_h(composer::SEND_BUTTON_SIZE);
         let quiet = |sentence: SharedString| {
             text(theme::TEXT_SMALL, palette.text_tertiary)
                 .debug_selector(|| "new-task-note".into())
@@ -574,6 +646,19 @@ impl NewTaskSheet {
                 .child(quiet(say(&error.said).to_string().into()))
                 .into_any_element(),
         }
+    }
+
+    /// What working on the Mac means, under the choices while the Mac is chosen.
+    fn place_note(&self, palette: &Palette, cx: &App) -> Option<gpui::Div> {
+        let is_mac = value(&self.place, cx).is_some() && self.place_chosen(cx) == Place::Mac;
+        let has_project = !self.projects.read(cx).usable().is_empty();
+        (is_mac && has_project).then(|| {
+            // On the inset the kit gives the text of the field and of the choices above it.
+            text(theme::TEXT_LABEL, palette.text_tertiary)
+                .debug_selector(|| "new-task-mac-means".into())
+                .px(gpui_component::Size::Small.input_px())
+                .child(tr(sheet_place::ON_THE_MAC))
+        })
     }
 
     /// The room between the choices and the send button: why nothing can be sent, when a choice stops
@@ -623,19 +708,18 @@ impl NewTaskSheet {
             ))
     }
 
-    /// The conversation's own send button: the sentence goes to the agent of the lavoro it makes.
+    /// The conversation's own send button: the sentence goes to the agent of the task it makes.
     fn send_button(&self, palette: &Palette, cx: &mut Context<Self>) -> AnyElement {
-        let face = send_face("new-task-send", palette)
+        let can_submit = self.can_submit(cx);
+        let (_, mark) = send_look(palette, can_submit);
+        let face = send_face("new-task-send", palette, can_submit)
             .debug_selector(|| "new-task-send".into())
             .aria_label(tr(Key("thread.send")))
-            .child(send_glyph(palette.primary_foreground));
-        if !self.can_submit(cx) {
-            return face
-                .opacity(composer::SEND_BUTTON_DISABLED_OPACITY)
-                .into_any_element();
+            .child(send_glyph(mark));
+        if !can_submit {
+            return face.into_any_element();
         }
-        face.cursor_pointer()
-            .active(|style| style.opacity(composer::PRESSED_OPACITY))
+        face.active(|style| style.opacity(composer::PRESSED_OPACITY))
             .on_click(cx.listener(|sheet, _, _, cx| sheet.submit(cx)))
             .into_any_element()
     }
@@ -693,13 +777,12 @@ where
 /// "New task" on screen: the sheet, where it is shown, and what the desk does with what it asks.
 pub struct NewTaskOpen {
     sheet: Entity<NewTaskSheet>,
-    /// It is shown in place in the panel, where there is no lavoro at all, and not over the page.
+    /// It is shown in place in the panel, where there is no task at all, and not over the page.
     is_in_place: bool,
     _asked: Subscription,
 }
 
 impl NewTaskOpen {
-    /// The sheet.
     #[cfg(test)]
     pub fn sheet(&self) -> &Entity<NewTaskSheet> {
         &self.sheet
@@ -714,7 +797,7 @@ impl NewTaskOpen {
 
 impl Desk {
     /// "New task": what Cmd+N, the sidebar's plus, the File menu and the command palette lead to. With
-    /// no lavoro at all the panel already shows its field in place, and this gives it the caret; else
+    /// no task at all the panel already shows its field in place, and this gives it the caret; else
     /// it opens as a sheet over the page. Opened with a key the field has the caret; with the pointer
     /// the sheet itself has the keyboard.
     pub fn open_new_task(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -725,23 +808,10 @@ impl Desk {
         let is_by_key = window.last_input_was_keyboard();
         let sheet = self.new_sheet(false, window, cx);
         let shown = sheet.clone();
-        // The kit centres a dialog on the window; the sheet belongs to the panel, and takes its place
-        // from the one rule everything centred in the panel follows.
-        let off_centre = centred::panel_offset(self.panel_left_now());
         let desk = cx.entity().downgrade();
-        window.open_dialog(cx, move |dialog, _, _| {
+        window.open_dialog(cx, move |dialog, window, _| {
             let desk = desk.clone();
-            dialog
-                .w(px(tokens::WIDTH))
-                .centered()
-                // It appears in its place: no slide from the top.
-                .entrance(gpui_component::dialog::DialogEntrance::None)
-                .ml(off_centre)
-                // One surface: the sheet's own fill. No frame of the kit around it.
-                .p_0()
-                .border_0()
-                .bg(gpui::transparent_black())
-                .shadow_none()
+            dialog_frame::placed(dialog, dialog_frame::Width::Medium, window)
                 .on_close(move |_, _, cx| {
                     drop(desk.update(cx, |desk, cx| {
                         desk.new_task = None;
@@ -749,7 +819,7 @@ impl Desk {
                     }));
                 })
                 .close_button(false)
-                // Enter is the field's: the sheet closes when a lavoro was requested, not before.
+                // Enter is the field's: the sheet closes when a task was requested, not before.
                 .on_ok(|_, _, _| false)
                 .child(shown.clone())
         });
@@ -759,7 +829,7 @@ impl Desk {
         cx.notify();
     }
 
-    /// Whether the panel has no lavoro to show and a project to make one in: the state in which "New
+    /// Whether the panel has no task to show and a project to make one in: the state in which "New
     /// task" is the page itself.
     pub(super) fn has_no_task_yet(&self, cx: &App) -> bool {
         let facts = self.facts.read(cx);
@@ -768,7 +838,7 @@ impl Desk {
         is_empty && has_project && self.creating.is_empty() && !self.is_adding_project
     }
 
-    /// The sheet the panel shows in place when there is no lavoro at all, made once.
+    /// The sheet the panel shows in place when there is no task at all, made once.
     pub(super) fn new_task_in_place(
         &mut self,
         window: &mut Window,
@@ -780,7 +850,7 @@ impl Desk {
         }
     }
 
-    /// A sheet over the projects and the lavori there are now, kept as the one on screen: what it asks
+    /// A sheet over the projects and the tasks there are now, kept as the one on screen: what it asks
     /// is done and it is put away.
     fn new_sheet(
         &mut self,
@@ -793,16 +863,16 @@ impl Desk {
         let tasks = rows
             .filter_map(|row| Some((row.task.name.clone(), row.task.branch.clone()?)))
             .collect();
-        let sheet = cx.new(|cx| NewTaskSheet::new(projects, actions, tasks, window, cx));
+        let boxes = self.source.boxes();
+        let sheet = cx.new(|cx| {
+            let mut sheet = NewTaskSheet::new((projects, actions), tasks, boxes, window, cx);
+            sheet.is_in_place = is_in_place;
+            sheet
+        });
         let asked = cx.subscribe_in(
             &sheet,
             window,
             move |desk, _, event: &SheetEvent, window, cx| {
-                // The sign-in is a terminal of the lavoro on screen: with none, the sheet stays and
-                // says why it waits.
-                if matches!(event, SheetEvent::SignIn(_)) && desk.shown(cx).is_none() {
-                    return;
-                }
                 if !is_in_place {
                     window.close_dialog(cx);
                 }

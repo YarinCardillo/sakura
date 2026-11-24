@@ -10,6 +10,7 @@ mod grid_view;
 mod ime;
 mod keys;
 mod links;
+#[cfg(any(test, feature = "local-pty"))]
 mod local_pty;
 mod mouse;
 mod overlay;
@@ -30,6 +31,7 @@ mod core_tests;
 mod view_tests;
 
 pub use core_session::{CoreRouter, CoreSession};
+#[cfg(any(test, feature = "local-pty"))]
 pub use local_pty::LocalPty;
 pub use palette::TerminalPalette;
 pub use size::GridSize;

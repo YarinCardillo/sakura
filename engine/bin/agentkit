@@ -1,0 +1,5 @@
+#!/bin/sh
+# The old name of `sakura`, kept until the switch is proven: one note on stderr, then the same command.
+KIT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+echo "agentkit is now sakura; this alias will be removed, run $KIT/bin/sakura instead" >&2
+exec "$KIT/bin/sakura" "$@"

@@ -1,29 +1,64 @@
 # agentbox
 
-Workspaces for coding agents on one Mac, in one of two places chosen per lavoro (task): on the Mac itself (a
-git worktree of your repository, the agent running natively as you; the default) or in a box (a confined,
-limited container; limits come from Docker, never from a request to the agent). See "The two places" below. Contract for the desktop app: `docs/interface.md`.
+Workspaces for coding agents on one Mac, in one of two places chosen per task: on the Mac itself (a
+git worktree of your repository, the agent running natively as you; the default) or in a box (a sandboxed
+container with resource limits, enforced by Docker rather than by instructions to the agent). See "The two places" below. Contract for the desktop app: `docs/interface.md`.
 
 ## Host requirements
 
 - `jq` (`brew install jq`), git, perl, the system bash (3.2).
 - For tasks in a box: Docker Desktop installed and RUNNING (every command that needs it fails fast with one
   message if it is not). python3 runs inside the image.
-- For lavori on the Mac: no Docker. `python3` (for `box tree`, `box file`, `box search` and the result of a
+- For tasks on the Mac: no Docker. `python3` (for `box tree`, `box file`, `box search` and the result of a
   check), and `npm` with `node` for `box acp` (the adapter is installed once on first use).
 - Put `bin/box` on your PATH (a symlink is fine), or call it by path.
 - Data lives in `$AGENTBOX_HOME`, by default the application data folder of the system (`~/Library/Application Support/Sakura` on macOS, `~/.local/share/sakura` on Linux).
 
+## Two runners: bash (default) and the Restate engine
+
+The Restate runner is kept in this repository, not shipped, and off. Checks run with this service's bash runner (`box runner`) unless the config chooses the engine. The choice is
+one key of `$AGENTBOX_HOME/config`, kept across restarts:
+
+| Key | Values | Set with |
+|-|-|-|
+| `RUNNER` | `bash` (absent: the default) or `engine` | `box config set RUNNER engine`, `box config get RUNNER` |
+
+- `runners/engine` is a whole second service: this service with a Restate engine in place of the runner (its
+  own `README.md`, `docs/interface.md` and tests). It was taken whole from `feature/engine` at `4a833a2`, the
+  version the fourth independent review cleared as an off switch.
+- Without the key nothing of `runners/engine` runs and every command is this service's own; the config file
+  is the one it was. With `RUNNER=engine` every command is handed to `runners/engine/bin/box` with the PATH
+  you started `box` with, except `box config get|set RUNNER`, answered here either way.
+- `box status --json` says the choice in both cases: `checkRunner: {runner: "bash" | "engine", engine:
+  {restateServer, node, setup}}`, where `setup` is the one line that says what to install (null when the
+  Restate server and Node 24 or newer are both there). With the engine chosen and one missing, checks end
+  with that line and exit 84, everything else works.
+- With the engine, checks survive a restart of the app or the Mac, and cancel and deadlines are kept by the
+  engine. It starts on demand and stops after `ENGINE_IDLE_SECONDS` (300) of quiet: nothing runs at rest.
+- The runner changes only while the one it replaces holds no check: `box config set RUNNER engine` refuses
+  while the bash runner runs, has a queued request or starts at login; `box config set RUNNER bash` refuses
+  while the engine runs or waits for a check or starts at login, and stops an engine that is up. An agent
+  already running in a box keeps the `verify` of the runner it started with until its session restarts.
+
+Open items of the engine, which keep it from being the default (the review's F1 to F3, not fixed here):
+- F1: the storage a task can write (workspace, drop directory, npm cache, configuration volume) has no
+  enforced quota; the 20 GiB limit is detected at later operations, not enforced. A task can fill the disk
+  that Restate and the results need. Inherited from the bash service.
+- F2: a `docker run` that is rejected or never becomes visible after `.started` is durable leaves the
+  inspection at `missing` forever: the one check slot is never released and every later check waits.
+- F3: retained-capture cleanup is a cross-task denial of service: more than 64 retained drop roots make the
+  storage inventory fail before it filters by task, so disk measurement and the checks of every task fail.
+
 ## The two places
 
 `box new <task> <project> [--where mac|box]`; the project names the default (`box project set <project> --where
-box`), and a project that does not say gets `mac`. The place is recorded when the lavoro is created and never
-changes. The two never mix: nothing of a lavoro on the Mac is ever mounted in a container, and a task in a box is
+box`), and a project that does not say gets `mac`. The place is recorded when the task is created and never
+changes. The two never mix: nothing of a task on the Mac is ever mounted in a container, and a task in a box is
 never read with git on the host.
 
 - `mac`: a git worktree of your repository at `$AGENTBOX_HOME/work/<task>` on a new branch `sakura/<task>`
-  (`--branch-prefix` changes the prefix). **The agent runs as you, with your privileges: nothing confines it.**
-  `box` gives it order, not a wall. In short:
+  (`--branch-prefix` changes the prefix). **The agent runs as your user, with your permissions and no sandbox.**
+  `box` provides structure (one worktree and branch per task, one check at a time), not isolation:
   - `box new` runs the project's `--setup` command once in the worktree (`box log <task> --setup` shows its
     output).
   - `box acp <task> [<account>]` is the conversation: the Claude ACP adapter run natively in the worktree with one
@@ -34,12 +69,12 @@ never read with git on the host.
   - `box play <task> start|stop|status [--json]` and `box play <task> log` run the project's `--run` command with
     a range of ports of its own (`SAKURA_PORT`, from 56000 up; `--ports`, `--run-mode one|many`).
   - `box verify <task> <verb>` queues a check; the runner runs it natively in the worktree, one at a time across
-    all lavori, and only on a worktree without uncommitted changes.
+    all tasks, and only on a worktree without uncommitted changes.
   - `box tree`, `box file`, `box search`, `box graph`, `box log`, `box diff`, `box facts` read it with plain git.
   - Publishing is the agent's job (it has your git and `gh`): ask it to push and open a draft pull request.
   - `box rm <task>` runs the project's `--archive` command, removes the worktree and keeps the branch; it
     refuses while files are uncommitted or commits are neither pushed nor merged, unless `--force`.
-  - `box shell <task>` opens your own login shell in the folder of the lavoro (not confined; `box rm` refuses
+  - `box shell <task>` opens your own login shell in the folder of the task (not confined; `box rm` refuses
     while it is open, `--force` ends it).
   - `box take`, `box run`, `box agent`, `box attach` do not apply (one line, exit code 80).
 - `box`: everything below. The steps that follow describe a task in a box; `box up`, `box login` and Docker are
@@ -47,7 +82,7 @@ never read with git on the host.
 
 Details, JSON shapes and exit codes of both: `docs/interface.md`.
 
-## Start here: the ten things you need, in order (a task in a box)
+## Quick start (a task in a box)
 
 1. `box up`: builds the image `agentbox:4` if missing, starts the internal network and the allow-list proxy.
    The tag is named once, in `lib/common.sh`; a change to `image/Dockerfile` gets a new tag, so the image under
@@ -59,8 +94,8 @@ Details, JSON shapes and exit codes of both: `docs/interface.md`.
    `box runner --install` makes the runner start at login (LaunchAgent) and `--uninstall` undoes it; stop a runner
    started by hand first.
 4. A project is WHAT is worked on: a repository on this Mac, an optional subfolder, the base branch, the install
-   command, the commands of the checks, the protected paths and the test file pattern. Nobody edits a file to
-   work on another repository or folder: `box project detect <folder> --json` proposes a project from a folder
+   command, the commands of the checks, the protected paths and the test file pattern. Projects are created with
+   commands, not by editing files: `box project detect <folder> --json` proposes a project from a folder
    you choose (it writes nothing), and `box project add <name> --repo <path> [--subdir <dir>] [--base <branch>]
    [--install <cmd>] [--check verb=command]... [--protected <globs>] [--test-files <globs>]` adds it, once.
    `box project set`, `box project rm`, `box projects --json` and `box branches <project> --json` are the rest.
@@ -94,7 +129,7 @@ Details, JSON shapes and exit codes of both: `docs/interface.md`.
 | Projects (repository, subfolder, base, install, checks) | `$AGENTBOX_HOME/projects/<name>.env`, written by `box project add` and `set`, read as data |
 | Shipped profiles | `profiles/<name>.env` in this repository: on upgrade each becomes a project, once (`selftest` only when something names it); not read afterwards |
 | Rules the agent reads | `rules/agent.md`, mounted as the agent's CLAUDE.md |
-| Lavori on the Mac: logins, setup logs, Play state and logs, the ACP adapter | `$AGENTBOX_HOME/config`, `setup/<task>.log`, `play/<task>.*`, `tools/claude-agent-acp-<version>/` |
+| Tasks on the Mac: logins, setup logs, Play state and logs, the ACP adapter | `$AGENTBOX_HOME/config`, `setup/<task>.log`, `play/<task>.*`, `tools/claude-agent-acp-<version>/` |
 | Allow-list of hosts (one anchored line per name, `^name\.tld:443$`: tunnels to port 443 only) | `proxy/allow.txt` |
 | Docker objects (all start with `agentbox`) | image `agentbox:4`, networks `agentbox-net`, `agentbox-net-<task>` and `agentbox-egress`, container `agentbox-proxy`, volumes `agentbox-nm-<task>`, `agentbox-pristine.<task>.<key>`, `agentbox-npm-cache-<task>`, `agentbox-acct-<account>`, `agentbox-cfg-*` (every derived name is built in `lib/names.sh`) |
 
@@ -103,7 +138,7 @@ Details, JSON shapes and exit codes of both: `docs/interface.md`.
 
 ## Rules: what is trusted and what is not
 
-These rules are about tasks in a box. A lavoro on the Mac is your own worktree and your own agent, running as
+These rules are about tasks in a box. A task on the Mac is your own worktree and your own agent, running as
 you: nothing in it is treated as hostile and none of the machinery below applies to it. What `box` guarantees
 there is separation from the boxes: no container ever mounts it, and host git is pointed at it only through the
 git directory `box` recorded when it created the worktree (`docs/interface.md`, "The two places").
@@ -173,8 +208,11 @@ This is accepted as an availability limit of a machine with one person on it, wh
 
 ## Tests
 
-`bash tests/run.sh` runs the bash tests with a fake docker and a fake npm (no Docker needed); the tests of the
-lavori on the Mac run real git on throwaway repositories and real processes. `tests/confinement.sh m1 s1 s2`
+`bash tests/run.sh` runs the bash tests of this service (the bash runner, and the choice of runner in
+`tests/test_runner_choice.sh`); `bash runners/engine/tests/run.sh` runs those of the engine, which need
+`restate-server`, Node and the engine's own dependencies in the checkout (`npm ci` in `runners/engine/engine`), and
+start the server and the engine on test ports of 127.0.0.1. Both use a fake docker and a fake npm (no Docker needed); the tests of the
+tasks on the Mac run real git on throwaway repositories and real processes. `tests/confinement.sh m1 s1 s2`
 runs the live confinement and attack checks against real containers (runner daemon must be running, `s1` and
 `s2` are tasks of the `selftest` project, which the shipped profile of that name becomes when `box new s1 selftest`
 first names it; its source is a throwaway clone at `$AGENTBOX_HOME/selftest-source`).

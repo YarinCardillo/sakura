@@ -1,5 +1,5 @@
-//! Naming a place in a lavoro's files: the lines the person selected, as text an agent can read, and
-//! the file an agent's tool call points at, as a path inside the lavoro.
+//! Naming a place in a task's files: the lines the person selected, as text an agent can read, and
+//! the file an agent's tool call points at, as a path inside the task.
 
 /// The most lines and bytes of selected text a reference carries; above either, only the place is named.
 const TEXT_MAX_LINES: usize = 20;
@@ -10,7 +10,7 @@ const FENCE: &str = "```";
 /// Lines of a file, picked by the person to ask the agent about.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reference {
-    /// The path inside the lavoro.
+    /// The path inside the task.
     pub path: String,
     /// The first and the last line, numbered from 1.
     pub first_line: u32,
@@ -53,7 +53,7 @@ impl Reference {
     }
 }
 
-/// The path inside the lavoro of `location`, a path an agent named in a tool call, given the folder the
+/// The path inside the task of `location`, a path an agent named in a tool call, given the folder the
 /// agent works in. `None` for a place outside that folder, which the file view never opens.
 pub fn workspace_relative(workspace: &str, location: &str) -> Option<String> {
     let root = workspace.trim_end_matches('/');

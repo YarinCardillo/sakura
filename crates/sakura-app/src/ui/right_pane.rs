@@ -1,9 +1,9 @@
-//! The right pane of a lavoro's page: its own row of views over the view chosen, as the panels of Cursor and
+//! The right pane of a task's page: its own row of views over the view chosen, as the panels of Cursor and
 //! Zed have theirs. The views are text tabs at the pane's top, the chosen one a filled pill: "Files" (the
 //! tree and the open file), "Changes", which counts the changed files, "Checks", which counts the checks
 //! that failed on HEAD, and "Git" (the project's commits). Choosing a view changes a fill
-//! and a colour, never a weight or a size, so nothing beside it moves. Which view a lavoro shows is kept
-//! per lavoro by the desk; the one place where a view becomes its content is [`Desk::right_pane`].
+//! and a colour, never a weight or a size, so nothing beside it moves. Which view a task shows is kept
+//! per task by the desk; the one place where a view becomes its content is [`Desk::right_pane`].
 
 use super::chrome::{tabular, text, text_width};
 use super::desk::Desk;
@@ -21,16 +21,16 @@ use sakura_core::models::Task;
 /// The views of the right pane, in the order of its row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PaneView {
-    /// The whole tree of the lavoro and the open file, which follows the agent.
+    /// The whole tree of the task and the open file, which follows the agent.
     Files,
-    /// The diffs of the lavoro.
+    /// The diffs of the task.
     #[default]
     Changes,
     /// Its checks and their results.
     Checks,
-    /// The commits of the lavoro's project: the base and every lavoro's branch.
+    /// The commits of the task's project: the base and every task's branch.
     Git,
-    /// The run command of the lavoro's project: where it stands and what it wrote.
+    /// The run command of the task's project: where it stands and what it wrote.
     Play,
 }
 
@@ -80,22 +80,22 @@ impl PaneView {
     }
 }
 
-/// What the row of views shows of a lavoro.
+/// What the row of views shows of a task.
 pub struct PaneFacts<'a> {
     pub task: &'a Task,
-    /// Only the lavoro's name is known: its facts are being read, so nothing is counted.
+    /// Only the task's name is known: its facts are being read, so nothing is counted.
     pub is_pending: bool,
     pub view: PaneView,
     /// How many files "Changes" lists, once the whole patch of every change was read.
     pub listed_files: Option<usize>,
-    /// Whether the lavoro has a Play: its view is in the row only then.
+    /// Whether the task has a Play: its view is in the row only then.
     pub has_play: bool,
     /// Where the row of views is scrolled to, in a pane too narrow for all of them.
     pub scroll: ScrollHandle,
 }
 
 /// The scroll of the row of views. A pane too narrow for every view scrolls its row, with no rail, and
-/// the view chosen is brought into it whole when the choice or the lavoro changes; between two changes
+/// the view chosen is brought into it whole when the choice or the task changes; between two changes
 /// the row stays where the person scrolled it.
 #[derive(Default)]
 pub struct ViewsScroll {
@@ -117,7 +117,7 @@ impl ViewsScroll {
     }
 }
 
-/// The views of the row, in its order: Play only for a lavoro that has one.
+/// The views of the row, in its order: Play only for a task that has one.
 fn shown_views(has_play: bool) -> impl Iterator<Item = PaneView> {
     let is_shown = move |view: &PaneView| has_play || *view != PaneView::Play;
     PaneView::ALL.into_iter().filter(is_shown)
@@ -177,6 +177,7 @@ fn tab(
     let counted = counted(view, facts, palette);
     let figures = counted.as_ref().map(|count| count.figures.as_str());
     let floor = narrowest(view.label(), figures, window);
+    let keeps_room = can_count(view) && counted.is_none();
     let tab = ViewTab {
         id: view.id(),
         selector: format!("pane-view-{}", view.id()),
@@ -185,11 +186,13 @@ fn tab(
         counted: counted.map(count),
     };
     let task = facts.task.name.clone();
-    view_row::tight_tab(tab, floor, palette)
+    let room = keeps_room.then_some(theme::GAP_SMALL + theme::TAB_COUNT_WIDTH);
+    view_row::tight_tab(tab, floor, room, palette)
         .on_click(cx.listener(move |desk, _, _, cx| desk.show_pane_view(&task, view, cx)))
 }
 
-/// How narrow a tab may get: its label and its count as they are drawn, with the least room at each side.
+/// How narrow a tab may get: its label and its count as they are drawn (the room of one where the view
+/// can count and counts nothing now), with the least room at each side.
 fn narrowest(label: &str, figures: Option<&str>, window: &Window) -> Pixels {
     let label = text_width(window, label, theme::TEXT_SMALL, theme::WEIGHT_MEDIUM);
     let count = figures.map(|figures| {
@@ -197,6 +200,13 @@ fn narrowest(label: &str, figures: Option<&str>, window: &Window) -> Pixels {
         f32::from(theme::GAP_SMALL) + drawn.max(f32::from(theme::TAB_COUNT_WIDTH))
     });
     px((label + count.unwrap_or_default()).ceil()) + theme::TAB_PADDING_MIN * 2.
+}
+
+/// Whether the tab of `view` keeps the room of a count while it counts nothing: a count that comes or
+/// goes then moves no tab of the row. Like the room at its sides, that room gives way first where the
+/// row is too narrow for every view.
+fn can_count(view: PaneView) -> bool {
+    matches!(view, PaneView::Changes | PaneView::Checks)
 }
 
 /// What a view counts, as it is written, where and in which colour.

@@ -1,0 +1,20 @@
+{
+  "api": 1,
+  "scheduled": {
+    "target": "[\"host\",\"scheduled\"]",
+    "actions": [{"key":"scheduledcreate","label":"Create task","needs":["definition","op"]}],
+    "templates": [],
+    "tasks": [{
+      "id":"morning-summary",
+      "revision":"1",
+      "title":"Morning summary",
+      "prompt":"Summarize new items.",
+      "connector_ids":[],
+      "when":{"kind":"daily","time":"07:30","timezone":"Europe/Rome"},
+      "state":"active",
+      "next_at":"2026-11-24T06:30:00Z",
+      "target":"[\"scheduled\",\"morning-summary\",\"1\"]",
+      "actions":[{"key":"scheduledrun","label":"Run now","needs":["op"]}]
+    }]
+  }
+}

@@ -4,24 +4,20 @@
 use crate::box_words;
 use crate::error::{BridgeError, BridgeResult, ErrorCode};
 use crate::platform::{self, Launch};
+use crate::process::{self, Captured, Ended, USAGE_PREFIX};
+pub use crate::process::{
+    ask_to_end, internal, is_usage, kill_group, last_line, limit_said, sanitize_line, CHILD_PATH,
+};
 use crate::said::Said;
 use crate::validate;
 use serde::de::DeserializeOwned;
 use std::path::{Path, PathBuf};
-use std::process::{ExitStatus, Stdio};
+use std::process::Stdio;
 use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 
 /// Environment variable that overrides the location of the `box` binary.
 pub const BOX_BIN_VAR: &str = "SAKURA_BOX_BIN";
-/// PATH given to every child: apps started from Finder do not get the login PATH.
-#[cfg(target_os = "macos")]
-pub const CHILD_PATH: &str =
-    "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/Applications/Docker.app/Contents/Resources/bin";
-/// PATH given to every child: the system's own folders, whatever started the app.
-#[cfg(not(target_os = "macos"))]
-pub const CHILD_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 /// The channel `box` is called through, which `box` asks every caller to name.
 const CHANNEL: (&str, &str) = ("BOX_CHANNEL", "sakura");
 
@@ -42,21 +38,10 @@ pub struct AcpCommand {
     pub env: Vec<(String, String)>,
 }
 
-/// Whether `text` (what a `box` that failed wrote last) is its usage: it was requested a command it does
-/// not have.
-pub fn is_usage(text: &str) -> bool {
-    text.contains(USAGE_PREFIX)
-}
-
 const MAX_STDOUT_BYTES: usize = 16 * 1024 * 1024;
-const STDERR_TAIL_BYTES: usize = 64 * 1024;
-const MESSAGE_MAX_CHARS: usize = 500;
-const READ_CHUNK_BYTES: usize = 16 * 1024;
-const DRAIN_GRACE: Duration = Duration::from_secs(2);
 const NOT_FOUND_EXIT_CODE: i32 = 3;
 /// What `box` does with a command it does not know: its usage on stderr and this exit code.
 const USAGE_EXIT_CODE: i32 = 2;
-const USAGE_PREFIX: &str = "usage:";
 /// `box cancel` when there was nothing queued or running to cancel.
 const NOTHING_TO_CANCEL_EXIT_CODE: i32 = 78;
 const DOCKER_DOWN_MARKERS: [&str; 4] = [
@@ -130,27 +115,12 @@ impl Timeouts {
     }
 }
 
-/// A limit to say: whole minutes from one minute up, else seconds.
-pub fn limit_said(limit: Duration) -> Said {
-    let seconds = limit.as_secs();
-    match (seconds / 60, seconds % 60) {
-        (minutes, 0) if minutes >= 1 => Said::new("limit.minutes").count(minutes),
-        _ => Said::new("limit.seconds").count(seconds),
-    }
-}
-
 /// Handle on the `box` binary.
 #[derive(Debug, Clone)]
 pub struct BoxCli {
     bin: PathBuf,
     timeouts: Timeouts,
     max_stdout: usize,
-}
-
-struct Captured {
-    stdout: Vec<u8>,
-    stderr: Vec<u8>,
-    status: ExitStatus,
 }
 
 impl BoxCli {
@@ -177,6 +147,7 @@ impl BoxCli {
         self
     }
 
+    #[cfg(test)]
     /// Replaces the stdout cap.
     pub fn with_max_stdout(mut self, max_stdout: usize) -> Self {
         self.max_stdout = max_stdout;
@@ -255,7 +226,7 @@ impl BoxCli {
     }
 
     /// The program, arguments and environment of the conversation's agent for `task`: `box acp <task>`,
-    /// with the account when one is named (a lavoro in a box needs it; one on the Mac takes its
+    /// with the account when one is named (a task in a box needs it; one on the Mac takes its
     /// project's when none is). The names are checked here; this is the one place the command is written.
     pub fn acp(&self, task: &str, account: Option<&str>) -> BridgeResult<AcpCommand> {
         let launch = Launch::of(&self.bin);
@@ -300,70 +271,19 @@ impl BoxCli {
         limit: Duration,
         on_start: impl FnOnce(Option<u32>) + Send,
     ) -> BridgeResult<Captured> {
-        let mut child = self
-            .command(args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(spawn_error)?;
-        let pid = child.id();
-        on_start(pid);
-        let (stdout, stderr) = (child.stdout.take(), child.stderr.take());
-        let work = collect(child, stdout, stderr, self.max_stdout, pid);
-        tokio::time::timeout(limit, work).await.unwrap_or_else(|_| {
-            kill_group(pid);
-            let said = Said::new("error.box.timeout").said("limit", limit_said(limit));
-            Err(BridgeError::failed(said))
-        })
+        let mut command = self.command(args);
+        process::capture(&mut command, limit, self.max_stdout, on_start)
+            .await
+            .map_err(|ended| match ended {
+                Ended::Spawn(error) => spawn_error(error),
+                Ended::TimedOut => {
+                    let said = Said::new("error.box.timeout").said("limit", limit_said(limit));
+                    BridgeError::failed(said)
+                }
+                Ended::TooMuchOutput => BridgeError::failed(Said::new("error.box.too_much_output")),
+                Ended::Wait(error) => internal(format!("waiting for box failed: {error}")),
+            })
     }
-}
-
-/// Asks a process started by [`BoxCli::command`] to end (TERM): `box` then ends what it runs itself.
-#[cfg(unix)]
-pub fn ask_to_end(pid: Option<u32>) {
-    let Some(process) = pid
-        .and_then(|pid| i32::try_from(pid).ok())
-        .filter(|pid| *pid > 1)
-    else {
-        return;
-    };
-    // SAFETY: kill takes plain integers and has no memory effects. The id is a child we spawned, and ids
-    // 0 and 1 are excluded above.
-    unsafe {
-        libc::kill(process, libc::SIGTERM);
-    }
-}
-
-/// Ends the WSL launcher and its children on Windows, where POSIX signals are unavailable.
-#[cfg(not(unix))]
-pub fn ask_to_end(pid: Option<u32>) {
-    kill_group(pid);
-}
-
-/// Kills a process group started by [`BoxCli::command`].
-pub fn kill_group(pid: Option<u32>) {
-    if let Some(pid) = pid {
-        platform::kill_tree(pid);
-    }
-}
-
-/// Last non-empty line of `text`, stripped of control characters and truncated.
-pub fn last_line(text: &str) -> Option<String> {
-    let line = text
-        .lines()
-        .rev()
-        .map(str::trim)
-        .find(|line| !line.is_empty())?;
-    Some(sanitize_line(line))
-}
-
-/// Strips control characters and truncates, for text that comes from a workspace or a process.
-pub fn sanitize_line(line: &str) -> String {
-    line.chars()
-        .filter(|c| !c.is_control())
-        .take(MESSAGE_MAX_CHARS)
-        .collect()
 }
 
 fn spawn_error(error: std::io::Error) -> BridgeError {
@@ -389,11 +309,6 @@ fn ended_without_a_word(code: Option<i32>) -> Said {
         Ok(code) => Said::new("error.box.ended_with_code").number("code", code),
         Err(_) => Said::new("error.box.interrupted"),
     }
-}
-
-/// A failure inside Sakura itself: the general sentence, with what the system said as the details.
-pub fn internal(details: String) -> BridgeError {
-    BridgeError::internal(Said::new("error.internal")).with_details(Some(details))
 }
 
 /// Maps a failed `box` run to a [`BridgeError`] from its exit code and stderr.
@@ -422,90 +337,6 @@ pub fn failure(code: Option<i32>, stderr: &[u8]) -> BridgeError {
         _ => ErrorCode::BoxFailed,
     };
     BridgeError::new(kind, said).with_details(details)
-}
-
-async fn collect(
-    mut child: tokio::process::Child,
-    stdout: Option<impl AsyncRead + Unpin>,
-    stderr: Option<impl AsyncRead + Unpin>,
-    max_stdout: usize,
-    pid: Option<u32>,
-) -> BridgeResult<Captured> {
-    let (mut out, mut err) = (Vec::new(), Vec::new());
-    let (status, exceeded) = {
-        let readers = async {
-            let (is_over, ()) = tokio::join!(
-                read_capped(stdout, &mut out, max_stdout, pid),
-                read_tail(stderr, &mut err)
-            );
-            is_over
-        };
-        wait_and_drain(&mut child, readers).await
-    };
-    if exceeded {
-        return Err(BridgeError::failed(Said::new("error.box.too_much_output")));
-    }
-    let status = status.map_err(|error| internal(format!("waiting for box failed: {error}")))?;
-    Ok(Captured {
-        stdout: out,
-        stderr: err,
-        status,
-    })
-}
-
-/// Waits for the child and for its output readers. Output held open by a detached grandchild must not
-/// hang the call, so once the child has exited the readers get only a short grace period.
-async fn wait_and_drain(
-    child: &mut tokio::process::Child,
-    readers: impl std::future::Future<Output = bool>,
-) -> (std::io::Result<ExitStatus>, bool) {
-    tokio::pin!(readers);
-    tokio::select! {
-        is_over = &mut readers => (child.wait().await, is_over),
-        status = child.wait() => {
-            let drained = tokio::time::timeout(DRAIN_GRACE, &mut readers).await;
-            (status, drained.unwrap_or(false))
-        }
-    }
-}
-
-/// Reads into `buffer` up to `cap` bytes. Past the cap it kills the process group and reports `true`.
-async fn read_capped(
-    reader: Option<impl AsyncRead + Unpin>,
-    buffer: &mut Vec<u8>,
-    cap: usize,
-    pid: Option<u32>,
-) -> bool {
-    let Some(mut reader) = reader else {
-        return false;
-    };
-    let mut chunk = vec![0u8; READ_CHUNK_BYTES];
-    while let Ok(read) = reader.read(&mut chunk).await {
-        if read == 0 {
-            return false;
-        }
-        buffer.extend_from_slice(&chunk[..read]);
-        if buffer.len() > cap {
-            kill_group(pid);
-            return true;
-        }
-    }
-    false
-}
-
-/// Reads everything but keeps only the last `STDERR_TAIL_BYTES`, so a chatty process never blocks.
-async fn read_tail(reader: Option<impl AsyncRead + Unpin>, buffer: &mut Vec<u8>) {
-    let Some(mut reader) = reader else { return };
-    let mut chunk = vec![0u8; READ_CHUNK_BYTES];
-    while let Ok(read) = reader.read(&mut chunk).await {
-        if read == 0 {
-            return;
-        }
-        buffer.extend_from_slice(&chunk[..read]);
-        if buffer.len() > STDERR_TAIL_BYTES {
-            buffer.drain(..buffer.len() - STDERR_TAIL_BYTES);
-        }
-    }
 }
 
 #[cfg(test)]

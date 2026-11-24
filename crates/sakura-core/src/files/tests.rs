@@ -527,3 +527,11 @@ fn lines_removed_by_a_hunk_that_leaves_nothing_are_marked_where_they_stood() {
         "the whole file went"
     );
 }
+
+#[test]
+fn a_file_in_the_engines_role_folder_is_told_from_a_file_of_the_code() {
+    assert!(is_role_file(".sakura-role/intake-7673a6a43ca9/input.md"));
+    assert!(is_role_file("e2e/.sakura-role/contract-1.json"));
+    assert!(!is_role_file("src/main.rs"));
+    assert!(!is_role_file("docs/sakura-role.md"));
+}

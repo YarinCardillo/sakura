@@ -1,0 +1,15 @@
+{
+  "harnesses": [
+    {"id":"codex","program_path":"/fixture/bin/codex","version":"1.0","found":true},
+    {"id":"claude","program_path":"/fixture/bin/claude","version":"2.0","found":true},
+    {"id":"unsupported","program_path":"/fixture/bin/other","version":"1.0","found":true}
+  ],
+  "logins": [
+    {"harness":"codex","folder":"/fixture/.codex","logged_in":true,"in_book_as":null,"proposed_name":"Codex"},
+    {"harness":"claude","folder":"/fixture/.claude","logged_in":true,"in_book_as":"Work","proposed_name":"Claude"},
+    {"harness":"claude","folder":"/fixture/.claude-alt","logged_in":true,"in_book_as":null,"proposed_name":"Claude Alt"},
+    {"harness":"claude","folder":"/fixture/.claude-out","logged_in":false,"in_book_as":null,"proposed_name":"Claude Out"},
+    {"harness":"claude","folder":"/fixture/.claude-uncheckable","logged_in":null,"probe_error":"The program could not run because its interpreter is missing.","in_book_as":null,"proposed_name":"Claude Uncheckable"},
+    {"harness":"unsupported","folder":"/fixture/.other","logged_in":true,"in_book_as":null,"proposed_name":"Other"}
+  ]
+}

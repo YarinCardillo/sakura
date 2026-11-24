@@ -6065,6 +6065,7 @@ version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
+ "log",
  "once_cell",
  "ring",
  "rustls-pki-types",
@@ -6159,10 +6160,14 @@ checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 
 [[package]]
 name = "sakura-acp"
-version = "0.1.2"
+version = "0.4.0"
 dependencies = [
  "agent-client-protocol",
+ "base64 0.22.1",
  "futures",
+ "libc",
+ "nix",
+ "rustix",
  "sakura-core",
  "serde",
  "serde_json",
@@ -6173,43 +6178,71 @@ dependencies = [
 
 [[package]]
 name = "sakura-app"
-version = "0.1.2"
+version = "0.4.0"
 dependencies = [
+ "base64 0.22.1",
+ "block2 0.6.2",
+ "chrono",
+ "embed-resource",
  "gpui-base",
  "gpui-component",
  "gpui-kit-assets",
  "gpui-pre",
  "gpui-pre-apple",
  "gpui-pre-platform",
+ "iana-time-zone",
  "image",
- "libc",
+ "jiff",
+ "markdown",
+ "nix",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "percent-encoding",
+ "regex",
  "rust-i18n",
+ "rustix",
  "sakura-acp",
  "sakura-core",
  "sakura-terminal",
+ "semver",
  "serde_json",
  "tempfile",
  "tokio",
+ "toml 0.8.23",
  "unicode-width",
+ "ureq",
+ "url",
+ "uuid",
 ]
 
 [[package]]
 name = "sakura-core"
-version = "0.1.2"
+version = "0.4.0"
 dependencies = [
+ "block2 0.6.2",
+ "dispatch2",
+ "errno",
+ "flate2",
+ "ignore",
  "libc",
+ "nix",
  "notify",
  "portable-pty",
+ "rustix",
  "serde",
  "serde_json",
+ "sha1_smol",
+ "similar 3.2.1",
  "tempfile",
  "tokio",
+ "unicode-properties",
  "url",
 ]
 
 [[package]]
 name = "sakura-terminal"
-version = "0.1.2"
+version = "0.4.0"
 dependencies = [
  "alacritty_terminal",
  "async-channel",
@@ -7567,6 +7600,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
+name = "ureq"
+version = "3.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7be76686bdf7198002062423ca0d8cf9b75a27c8e1de804513b97e97b555d9d"
+dependencies = [
+ "base64 0.23.1",
+ "log",
+ "percent-encoding",
+ "rustls",
+ "rustls-pki-types",
+ "ureq-proto",
+ "utf8-zero",
+ "webpki-roots",
+]
+
+[[package]]
+name = "ureq-proto"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "622dce33c252115466d83f63e9744a18f12b4406aae51a01c15ad8fcf1185eb3"
+dependencies = [
+ "base64 0.23.1",
+ "http",
+ "httparse",
+ "log",
+]
+
+[[package]]
 name = "url"
 version = "2.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7637,6 +7698,12 @@ name = "utf-8"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09cc8ee72d2a9becf2f2febe0205bbed8fc6615b7cb429ad062dc7b7ddd036a9"
+
+[[package]]
+name = "utf8-zero"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8c0a043c9540bae7c578c88f91dda8bd82e59ae27c21baca69c8b191aaf5a6e"
 
 [[package]]
 name = "utf8_iter"
@@ -7951,6 +8018,15 @@ checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "webpki-roots"
+version = "1.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7265c9301c16a8711c992c2d8da90ee77ef54b1ed51482d6dfeb00dc756b1297"
+dependencies = [
+ "rustls-pki-types",
 ]
 
 [[package]]

@@ -104,7 +104,7 @@ run_acp_container() {
   mkfifo -m 600 "$pipe" || die "could not create the log pipe of task '$task'"
   start_log_reader "$pipe" "$log" "$ended"
   limiter="$LOG_READER_PID"
-  perl "$ACP_PROXY" "$ACP_MAX_LINE_BYTES" "$ACP_END_SECONDS" "$ACP_STALL_SECONDS" "$report" \
+  BOX_ACP_AGE_FILE="$TASKS_DIR/$task.age" perl "$ACP_PROXY" "$ACP_MAX_LINE_BYTES" "$ACP_END_SECONDS" "$ACP_STALL_SECONDS" "$report" \
     docker run --rm -i "${AGENT_FLAGS[@]}" "$IMAGE" "$ACP_COMMAND" <&3 3<&- 5>&- 2>"$pipe" &
   child=$!
   exec 3<&-

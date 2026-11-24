@@ -398,6 +398,20 @@ fn replay_builds_the_thread_in_one_pass_with_nothing_streaming_or_running() {
 }
 
 #[test]
+fn a_replayed_stopped_turn_shows_no_placeholder_text_of_the_agent() {
+    let mut thread = Thread::default();
+    thread.replay(vec![
+        Update::UserText("Fai una cosa".into()),
+        Update::AgentText("No response requested.".into()),
+        Update::UserText("Poi un'altra".into()),
+        Update::AgentText("Done".into()),
+    ]);
+    let is_placeholder = |entry: &Entry| matches!(&entry.kind, EntryKind::Assistant(message) if message.text.contains("No response requested"));
+    assert!(!thread.entries().iter().any(is_placeholder));
+    assert_eq!(kinds(&thread).last(), Some(&"assistant"));
+}
+
+#[test]
 fn user_chunk_outside_a_replay_is_the_echo_of_the_prompt_and_is_dropped() {
     let thread = thread_after(vec![
         ThreadEvent::Prompted("wave".into()),
@@ -518,6 +532,17 @@ fn a_turn_the_person_stopped_leaves_one_line_live_and_when_it_is_replayed() {
         kinds(&thread),
         ["user", "assistant", "problem", "user"],
         "the adapter's words for a stop are the line of a stop, not a message of the person"
+    );
+    let ended_after_a_stop = thread_after(vec![
+        ThreadEvent::Prompted("x".into()),
+        agent("comincio"),
+        ThreadEvent::CancelRequested,
+        ThreadEvent::TurnEnded(StopReason::EndTurn),
+    ]);
+    assert_eq!(
+        kinds(&ended_after_a_stop),
+        ["user", "assistant", "problem"],
+        "an agent that ends a stopped turn as a plain end still leaves the line of the stop"
     );
     let ended_without_a_stop = thread_after(vec![
         ThreadEvent::Prompted("x".into()),

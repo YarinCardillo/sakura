@@ -60,7 +60,7 @@ impl Slide {
 }
 
 /// Fast at the start, slow at the end: `progress` from 0 to 1 gives the share of the way covered.
-fn ease_out(progress: f32) -> f32 {
+pub(crate) fn ease_out(progress: f32) -> f32 {
     1.0 - (1.0 - progress).powi(theme::EASE_OUT_POWER)
 }
 

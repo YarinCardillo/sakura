@@ -5,7 +5,9 @@
 use super::desk::Desk;
 use super::focus_tests::rings;
 use super::interaction_tests::{click, draw, open_with, wait_for};
-use super::launch_tests::{fake_agentbox, open_live, Names, TASK};
+use super::launch_tests::{
+    box_chosen_for, fake_agentbox, open_live, open_live_remembering, Names, TASK,
+};
 use super::new_task::NewTaskSheet;
 use crate::data::projects::Listed;
 use crate::menus::NewTask;
@@ -13,7 +15,7 @@ use crate::prefs::Preferences;
 use gpui::{Entity, TestAppContext, VisualTestContext};
 use sakura_core::models::Place;
 
-/// The one project of the sample data, and the branch its lavori start from.
+/// The one project of the sample data, and the branch its tasks start from.
 const PROJECT: &str = "example-app";
 const BASE: &str = "lab/example-app";
 
@@ -111,7 +113,7 @@ fn the_file_menu_opens_the_same_sheet(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn enter_asks_for_the_lavoro_once_and_shift_enter_breaks_the_line(cx: &mut TestAppContext) {
-    // A project on the Mac with its own login: nothing stops the lavoro but an empty field.
+    // A project on the Mac with its own login: nothing stops the task but an empty field.
     let (dir, script) = two_projects();
     let (cx, desk, _) = open_live(cx, script, Some(TASK), false);
     let sheet = open_with_the_key(cx, &desk);
@@ -147,6 +149,42 @@ fn enter_asks_for_the_lavoro_once_and_shift_enter_breaks_the_line(cx: &mut TestA
 }
 
 #[gpui::test]
+fn a_lavoro_whose_message_waits_for_it_says_working_under_working_never_preparing(
+    cx: &mut TestAppContext,
+) {
+    let (_dir, script) = two_projects();
+    let (cx, desk, _) = open_live(cx, script, Some(TASK), false);
+    let sheet = open_with_the_pointer(cx, &desk);
+    wait_for(cx, "the accounts", |cx| chosen(cx, &sheet)[3].is_some());
+    cx.update(|window, cx| {
+        sheet.update(cx, |sheet, cx| {
+            sheet.write("sort the folders", window, cx);
+            sheet.submit(cx);
+        })
+    });
+    wait_for(cx, "its row, being made", |cx| {
+        is_on_screen(cx, "row-sort-folders")
+    });
+    let says = |cx: &mut VisualTestContext, word: &str| {
+        let selector = format!("trailing-word-sort-folders-{word}");
+        cx.debug_bounds(Box::leak(selector.into_boxed_str()))
+            .is_some()
+    };
+    wait_for(cx, "its word", |cx| {
+        says(cx, "state.working") || says(cx, "state.preparing")
+    });
+    let is_under_working = desk.read_with(cx, |desk, cx| {
+        let facts = desk.facts.read(cx);
+        facts.live("sort-folders") == sakura_core::model::Live::Working
+    });
+    assert_eq!(
+        says(cx, "state.preparing"),
+        !is_under_working,
+        "the row's word is its group's"
+    );
+}
+
+#[gpui::test]
 fn what_is_chosen_before_the_person_chooses_is_the_projects_own(cx: &mut TestAppContext) {
     let (cx, desk, _) = open_with(cx, None);
     let sheet = open_with_the_pointer(cx, &desk);
@@ -155,8 +193,8 @@ fn what_is_chosen_before_the_person_chooses_is_the_projects_own(cx: &mut TestApp
     assert_eq!(base.as_deref(), Some(BASE), "the project's own branch");
     assert_eq!(
         place.as_deref(),
-        Some("box"),
-        "where the project's lavori live"
+        Some("mac"),
+        "no account of the boxes is signed in: no box can be used"
     );
     assert_eq!(account, None, "the sample data has no account");
     for selector in [
@@ -182,7 +220,8 @@ fn two_projects() -> (tempfile::TempDir, std::path::PathBuf) {
 #[gpui::test]
 fn each_choice_is_changed_in_place_and_the_last_project_is_offered_next(cx: &mut TestAppContext) {
     let (dir, script) = two_projects();
-    let (cx, desk, _) = open_live(cx, script, Some(TASK), false);
+    let remembered = box_chosen_for("engine-demo", Some(TASK));
+    let (cx, desk, _) = open_live_remembering(cx, script, remembered, false);
     let sheet = open_with_the_pointer(cx, &desk);
     let read = |cx: &mut VisualTestContext| chosen(cx, &sheet).map(Option::unwrap_or_default);
     wait_for(cx, "the accounts", |cx| read(cx)[3] == "personal");
@@ -193,7 +232,11 @@ fn each_choice_is_changed_in_place_and_the_last_project_is_offered_next(cx: &mut
             sheet.choose_project("engine-demo", window, cx)
         })
     });
-    assert_eq!(read(cx), ["engine-demo", "dev", "box", "box"], "its own");
+    assert_eq!(
+        read(cx),
+        ["engine-demo", "dev", "box", "box"],
+        "the place chosen last for it"
+    );
     cx.update(|window, cx| {
         sheet.update(cx, |sheet, cx| {
             sheet.choose_place(Place::Mac, window, cx);
@@ -330,13 +373,13 @@ fn the_choices_are_packed_at_the_left_as_wide_as_they_say_and_the_send_button_is
 /// is black at the sheet's dim, not the kit's own faint one.
 #[gpui::test]
 fn what_the_sheet_opens_over_is_dimmed_in_both_appearances(cx: &mut TestAppContext) {
-    use crate::theme::{Appearance, Theme, SHEET_DIM};
+    use crate::theme::{Appearance, Theme};
     cx.update(|cx| {
         gpui_component::init(cx);
         for appearance in [Appearance::Dark, Appearance::Light] {
             Theme::set(appearance, cx);
             let veil = gpui_component::Theme::global(cx).colors.overlay;
-            assert_eq!((veil.l, veil.a), (0., SHEET_DIM), "{appearance:?}");
+            assert_eq!(veil, Theme::palette(cx).scrim, "{appearance:?}");
         }
     });
 }
@@ -394,7 +437,8 @@ fn in_a_box_with_no_account_signed_in_none_is_chosen_and_choosing_one_starts_its
     let accounts = r#"[{"name":"box","where":"box","loggedIn":false},{"name":"second","where":"box","loggedIn":false}]"#;
     let (dir, script) = a_project_in_a_box(accounts);
     // With its terminals: the sign-in is one.
-    let (cx, desk, _) = open_live(cx, script, Some(TASK), true);
+    let remembered = box_chosen_for("engine-demo", Some(TASK));
+    let (cx, desk, _) = open_live_remembering(cx, script, remembered, true);
     let sheet = open_with_the_pointer(cx, &desk);
     wait_for(cx, "the reason", |cx| is_on_screen(cx, "new-task-reason"));
     // The reason stands beside the choices at their size: a line box of the label text, no taller.
@@ -412,7 +456,7 @@ fn in_a_box_with_no_account_signed_in_none_is_chosen_and_choosing_one_starts_its
     assert!(!asks_for_a_lavoro(cx, &sheet, &dir), "nothing is sent");
     assert!(is_on_screen(cx, "new-task-field"), "the sheet stays");
     // One that is not signed in can be chosen (its row says so): the app's sign-in to it starts in
-    // the lavoro on screen, and the sheet gives it the window.
+    // the task on screen, and the sheet gives it the window.
     cx.update(|window, cx| sheet.update(cx, |sheet, cx| sheet.choose_account("box", window, cx)));
     let signs_in = |call: &String| call.starts_with("login box");
     wait_for(cx, "the sign-in", |_| {
@@ -432,7 +476,8 @@ fn in_a_box_with_no_account_at_all_the_sheet_says_to_sign_in_and_sends_nothing(
     cx: &mut TestAppContext,
 ) {
     let (dir, script) = a_project_in_a_box("[]");
-    let (cx, desk, _) = open_live(cx, script, Some(TASK), false);
+    let remembered = box_chosen_for("engine-demo", Some(TASK));
+    let (cx, desk, _) = open_live_remembering(cx, script, remembered, false);
     let sheet = open_with_the_pointer(cx, &desk);
     wait_for(cx, "the reason", |cx| is_on_screen(cx, "new-task-reason"));
     assert!(!asks_for_a_lavoro(cx, &sheet, &dir));

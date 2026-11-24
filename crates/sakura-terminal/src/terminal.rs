@@ -112,13 +112,13 @@ impl Terminal {
         let (wake, woken) = async_channel::bounded(1);
         let shared = Arc::new(Shared {
             core: FairMutex::new(TermCore::new(GridSize::default(), palette)),
-            writer: SourceWriter::spawn(Arc::clone(&source)),
+            writer: SourceWriter::spawn(source),
             wake,
             is_wake_pending: AtomicBool::new(false),
             noted: Mutex::default(),
         });
         let weak: Weak<Shared> = Arc::downgrade(&shared);
-        source.start(OutputSink::new(move |output| {
+        shared.writer.start(OutputSink::new(move |output| {
             if let Some(shared) = weak.upgrade() {
                 shared.deliver(output);
             }

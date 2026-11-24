@@ -14,10 +14,11 @@ use super::motion::{Sprung, PRESS_DOWN, PRESS_UP};
 use super::paint::Prepared;
 use super::shape::{Fused, PanelTop, Top};
 use super::strip::Strip;
+use crate::l10n::{tr, Key};
 use crate::theme;
+use crate::ui::tabs::model::{shortcut_digit, TabId, MASTER};
 use gpui::{font, px, Bounds, Context, Hsla, Pixels, SharedString, TextRun, Window};
-use sakura_core::model::TaskState;
-use sakura_core::tabs::{shortcut_digit, TabId};
+use sakura_core::model::{self, StateId, TaskState};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -29,11 +30,13 @@ pub(super) struct TabFace {
     pub is_active: bool,
     /// In the hand: it keeps its own look and shows the hover it had when picked up.
     pub is_held: bool,
-    /// Its lavoro, and the state the window shows for it (none while the lavoro is not read yet).
+    /// Its task, and the state the window shows for it (none while the task is not read yet).
     pub task: String,
     pub state: Option<TaskState>,
     /// Whether it can close: another tab remains.
     pub can_close: bool,
+    /// Whether it is pinned: it never closes.
+    pub is_pinned: bool,
     /// Whether it has a close button, shown or not. A tab at its full width keeps the button's room; a
     /// narrowed one gives it to its title and closes from its menu, the middle button or Cmd+W. The tab's
     /// width alone decides, never whether it is selected, so choosing a tab changes nothing inside it.
@@ -90,15 +93,16 @@ impl Strip {
 
     /// The width that shows each tab's whole title, its icon and its close button.
     fn naturals(&self, window: &Window) -> Vec<f32> {
-        let chrome = self.chrome();
-        let titles = self.tabs.tabs().iter().map(|tab| title_of(&tab.task));
-        titles
-            .map(|title| title_width(&title, window) + chrome)
-            .collect()
+        let tabs = self.tabs.tabs().iter();
+        tabs.map(|tab| {
+            title_width(&self.title_of(&tab.task), window) + self.chrome(tab.is_pinned())
+        })
+        .collect()
     }
 
-    fn chrome(&self) -> f32 {
-        if self.tabs.len() > 1 {
+    /// What a tab adds to its title's width: its mark and, when it can close, its close button.
+    fn chrome(&self, is_pinned: bool) -> f32 {
+        if self.tabs.len() > 1 && !is_pinned {
             CHROME_CLOSABLE
         } else {
             CHROME_PLAIN
@@ -179,13 +183,16 @@ impl Strip {
         tabs.enumerate()
             .map(|(index, ((tab, (_, slot)), natural))| TabFace {
                 id: tab.id,
-                title: title_of(&tab.task),
+                title: self.title_of(&tab.task),
                 is_active: Some(tab.id) == active,
                 is_held: self.drag.is_some_and(|drag| drag.id == tab.id),
                 task: tab.task.clone(),
-                state: self.states.get(&tab.task).copied(),
-                can_close: count > 1,
-                has_close: count > 1 && slot.width + 0.5 >= natural.min(TAB_MAX_WIDTH),
+                state: self.state_of(tab),
+                can_close: count > 1 && !tab.is_pinned(),
+                is_pinned: tab.is_pinned(),
+                has_close: count > 1
+                    && !tab.is_pinned()
+                    && slot.width + 0.5 >= natural.min(TAB_MAX_WIDTH),
                 digit: shortcut_digit(index, count),
                 drawn: TabBox {
                     left: slot.left + self.offset_of(tab.id),
@@ -193,6 +200,21 @@ impl Strip {
                 },
             })
             .collect()
+    }
+
+    /// The state a tab's mark shows: a lane's, as the window told it; Waiting's is the accent's dot while
+    /// anything waits for the person, and the quiet ring when nothing does.
+    fn state_of(&self, tab: &crate::ui::tabs::model::Tab) -> Option<TaskState> {
+        // The Master's mark is its own, never Waiting's: none until the window tells one.
+        if !tab.is_pinned() || tab.task == MASTER {
+            return self.states.get(&tab.task).copied();
+        }
+        let state = if self.has_waits {
+            StateId::NeedsYou
+        } else {
+            StateId::NotStarted
+        };
+        Some(model::state_for(state))
     }
 
     /// The shape over the panel: the active tab as drawn fused into its top, with the corner at what the
@@ -237,9 +259,21 @@ impl Strip {
     }
 }
 
-/// A tab's title: the name of its lavoro.
-fn title_of(task: &str) -> SharedString {
-    SharedString::from(task.to_string())
+/// What the pinned tabs are called.
+const WAITING_TITLE: Key = Key("tabs.waiting");
+const MASTER_TITLE: Key = Key("tabs.master");
+
+impl Strip {
+    /// The pinned tabs have localized names.
+    fn title_of(&self, task: &str) -> SharedString {
+        if task.is_empty() {
+            return SharedString::from(tr(WAITING_TITLE));
+        }
+        if task == MASTER {
+            return SharedString::from(tr(MASTER_TITLE));
+        }
+        SharedString::from(task.to_string())
+    }
 }
 
 /// The width of `title` at the tab's size and weight, rounded up so the last letter is never cut.

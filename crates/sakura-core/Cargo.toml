@@ -1,24 +1,57 @@
 [package]
 name = "sakura-core"
-version = "0.1.2"
+version = "0.4.0"
 description = "Sakura desk core: box runner, validation, machine facts, watcher and terminals, with no UI dependency"
 edition = "2021"
 rust-version = "1.77"
 publish = false
 
 [features]
+# The agentbox side of the core: the `box` runner, its service, jobs and Play. Off by default: the app is the
+# engine's cockpit, and a build with this feature is the one that still shows `box` tasks.
+boxes = ["dep:flate2", "dep:ignore", "dep:portable-pty", "dep:sha1_smol", "dep:similar"]
 # `test_support`, for the tests of the crates built on this one.
 test-support = []
+# The switch that writes the Restate runner into the service's config (`box config set RUNNER`). Off: the
+# runner stays in the repository and the app never writes it.
+restate-engine = []
 
 [dependencies]
+# The task reader (`direct`): git objects are zlib streams, ids are SHA-1, patches are line diffs and
+# ignored files follow git's rules. All four were already in the tree; nothing here runs git.
+flate2 = { version = "1.1", optional = true }
+ignore = { version = "0.4.34", optional = true }
 libc = "0.2.191"
+sha1_smol = { version = "1.0", optional = true }
+similar = { version = "3.2.1", optional = true }
 notify = "8.2.0"
-portable-pty = "0.9.0"
+portable-pty = { version = "0.9.0", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 # Addresses printed by a terminal are parsed, never matched as text (already in the tree through GPUI).
 url = "2.5"
-tokio = { version = "1.53.3", features = ["rt", "rt-multi-thread", "process", "io-util", "time", "macros", "net", "sync"] }
+tokio = { version = "1.53.3", features = ["rt", "rt-multi-thread", "process", "io-util", "time", "macros", "sync"] }
+unicode-properties = { version = "0.1.5", default-features = false, features = ["general-category"] }
+
+# Safe wrappers over the Unix calls (users and groups, process ids, signals, statvfs, directory handles):
+# the engine's readers and the process runners use them where `platform` has a Unix path.
+[target.'cfg(unix)'.dependencies]
+errno = "0.3.14"
+nix = { version = "0.28", default-features = false, features = ["user"] }
+rustix = { version = "1.1.6", features = ["fs", "process"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+dispatch2 = { version = "0.3.1", default-features = false, features = ["std", "block2"] }
 
 [dev-dependencies]
+nix = { version = "0.28", default-features = false, features = ["fs"] }
 tempfile = "3.27.0"
+
+[[test]]
+name = "real_box"
+required-features = ["boxes"]
+
+[[test]]
+name = "direct_timings"
+required-features = ["boxes"]

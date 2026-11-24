@@ -15,6 +15,8 @@ pub const DEBOUNCE: Duration = Duration::from_secs(1);
 /// Interval of the container-state tick.
 pub const TICK: Duration = Duration::from_secs(5);
 const TASK_FOLDERS: [&str; 2] = ["work", "results"];
+const TASKS_FOLDER: &str = "tasks";
+const AGE_FILE_SUFFIX: &str = ".age";
 const OTHER_WATCHED: [&str; 2] = ["queue", "journal.jsonl"];
 /// The runner's heartbeat, `results/<task>/.runner-alive`, rewritten every 5 s (through a `.tmp` file) while
 /// the runner lives. It says nothing about a task's facts; watching it re-read every task every 5 s.
@@ -73,10 +75,20 @@ pub fn classify(root: &Path, path: &Path) -> Change {
         }
         return task_change(task);
     }
+    if top == TASKS_FOLDER {
+        return parts.next().map_or(Change::Ignored, age_change);
+    }
     if OTHER_WATCHED.contains(&top) {
         return Change::Anything;
     }
     Change::Ignored
+}
+
+/// `tasks/<task>.age` is rewritten when an agent's turn ends; the other files there (records, temporary
+/// copies) say nothing about a task's age.
+fn age_change(file: &str) -> Change {
+    file.strip_suffix(AGE_FILE_SUFFIX)
+        .map_or(Change::Ignored, task_change)
 }
 
 /// The notifications for a batch of changed paths: each distinct task once (sorted), then `None` if
@@ -334,6 +346,22 @@ mod tests {
 
     fn root() -> PathBuf {
         PathBuf::from("/h")
+    }
+
+    #[test]
+    fn task_age_files_refresh_only_the_task_whose_turn_ended() {
+        assert_eq!(
+            classify(&root(), Path::new("/h/tasks/m1.age")),
+            Change::Task("m1".into())
+        );
+        assert_eq!(
+            classify(&root(), Path::new("/h/tasks/m1.age.123")),
+            Change::Ignored
+        );
+        assert_eq!(
+            classify(&root(), Path::new("/h/tasks/m1.project")),
+            Change::Ignored
+        );
     }
 
     #[test]

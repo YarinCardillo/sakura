@@ -6,6 +6,8 @@
 
 use crate::box_cli::{BoxCli, Limit};
 use crate::error::{BridgeError, BridgeResult};
+#[cfg(feature = "restate-engine")]
+use crate::models::RunnerKind;
 use crate::models::{Account, Place};
 use crate::said::Said;
 use crate::validate;
@@ -348,6 +350,14 @@ pub async fn read_accounts(cli: &BoxCli) -> BridgeResult<Vec<Account>> {
 pub async fn set_project(cli: &BoxCli, name: &str, change: &Change) -> BridgeResult<()> {
     let (name, (option, value)) = (validate::project(name)?, change.option()?);
     let args = ["project", "set", name, option, &value];
+    cli.run_text(&args, Limit::Action).await.map(drop)
+}
+
+#[cfg(feature = "restate-engine")]
+/// `box config set RUNNER bash|engine`: which runner runs the checks. `box` refuses while the runner it
+/// replaces holds a check; its line is the details.
+pub async fn set_runner(cli: &BoxCli, runner: RunnerKind) -> BridgeResult<()> {
+    let args = ["config", "set", "RUNNER", runner.word()];
     cli.run_text(&args, Limit::Action).await.map(drop)
 }
 

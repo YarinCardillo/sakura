@@ -81,6 +81,11 @@ pub fn note(sentence: String, layout: &CodeLayout) -> AnyElement {
         .into_any_element()
 }
 
+/// The tint of a line changed in `tone`, laid across its row.
+pub fn tint(tone: Hsla) -> Hsla {
+    tone.opacity(theme::DIFF_TINT_ALPHA)
+}
+
 /// The tone of a changed line; none for context.
 fn line_tone(kind: LineKind, palette: &Palette) -> Option<Hsla> {
     match kind {

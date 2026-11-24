@@ -1,5 +1,5 @@
 # On a version tag: builds the app for macOS, Linux and Windows and uploads the archives, with their
-# checksums, to a DRAFT release. Nothing here needs a secret. The macOS bundle built here is signed
+# checksums, to a draft release. Nothing here needs a secret. The macOS bundle built here is signed
 # ad hoc and named "unsigned": the notarised one is made on a Mac by scripts/release.sh and added to
 # the same draft. Publishing the draft is a person's decision.
 name: release

@@ -1,4 +1,1057 @@
 {
+  "api": 1,
+  "track_actions": [
+    {
+      "confirm": false,
+      "key": "tracknew",
+      "label": "New Track",
+      "needs": [
+        "name",
+        "goal",
+        "op"
+      ],
+      "optional": [
+        "project"
+      ]
+    }
+  ],
+  "tracks": [
+    {
+      "actions": [
+        {
+          "confirm": false,
+          "key": "trackset",
+          "label": "Edit Track",
+          "needs": [
+            "op"
+          ],
+          "optional": [
+            "name",
+            "goal",
+            "summary",
+            "status",
+            "clear"
+          ]
+        },
+        {
+          "confirm": false,
+          "key": "trackunlink",
+          "label": "Unlink from Track",
+          "needs": [
+            "op"
+          ],
+          "optional": [
+            "project",
+            "task",
+            "conversation"
+          ]
+        },
+        {
+          "confirm": false,
+          "key": "trackdecision",
+          "label": "Raise decision",
+          "needs": [
+            "text",
+            "op"
+          ],
+          "optional": []
+        },
+        {
+          "confirm": false,
+          "key": "tracklink",
+          "label": "Link to Track",
+          "needs": [
+            "op"
+          ],
+          "optional": [
+            "project",
+            "task",
+            "conversation",
+            "title"
+          ]
+        },
+        {
+          "confirm": false,
+          "key": "tracksettle",
+          "label": "Answer decision",
+          "needs": [
+            "decision",
+            "answer",
+            "op"
+          ],
+          "optional": []
+        }
+      ],
+      "conversations": [
+        {
+          "key": {
+            "account": "studio",
+            "provider": "claude",
+            "session": "fixture-session"
+          },
+          "title": "Beta planning"
+        }
+      ],
+      "decisions": [
+        {
+          "answer": null,
+          "id": 1,
+          "settled_at": null,
+          "state": "open",
+          "text": "Enable the new onboarding?",
+          "wait_id": "[\"wait\",\"track\",\"t-4d4b5a96\",\"track_decision\",\"1\"]"
+        },
+        {
+          "answer": "Yes, on the beta channel.",
+          "id": 2,
+          "settled_at": "2026-11-18T08:00:00+00:00",
+          "state": "settled",
+          "text": "Use the beta channel?",
+          "wait_id": null
+        }
+      ],
+      "goal": "Ship the beta",
+      "id": "t-4d4b5a96",
+      "lanes": [
+        {
+          "actions": [],
+          "did_not_start": false,
+          "folder_missing": false,
+          "gone": false,
+          "key": [
+            "flow",
+            "/work/orchard",
+            "add-search"
+          ],
+          "project_id": "orchard-b2488d29",
+          "startop": null,
+          "state": "live",
+          "task": "add-search",
+          "title": "Add search to the orchard"
+        },
+        {
+          "actions": [],
+          "did_not_start": false,
+          "folder_missing": false,
+          "gone": true,
+          "key": null,
+          "project_id": "orchard-b2488d29",
+          "startop": null,
+          "state": "gone",
+          "task": "retired",
+          "title": "Retired lane"
+        },
+        {
+          "actions": [
+            {
+              "confirm": false,
+              "key": "trackretry",
+              "label": "Retry lane start",
+              "needs": [
+                "startop",
+                "op"
+              ],
+              "optional": []
+            },
+            {
+              "confirm": false,
+              "key": "trackremove",
+              "label": "Remove lane reservation",
+              "needs": [
+                "startop",
+                "op"
+              ],
+              "optional": []
+            }
+          ],
+          "did_not_start": true,
+          "folder_missing": false,
+          "gone": false,
+          "key": null,
+          "project_id": "orchard-b2488d29",
+          "startop": "start",
+          "state": "interrupted",
+          "task": "track-cced28c6dc3f99c2396a5eaad732bf6b2814233589",
+          "title": "Verify beta builds"
+        }
+      ],
+      "name": "Release readiness for the next desktop rollout across all supported environments",
+      "projects": [
+        {
+          "folder": "/work/orchard",
+          "folder_missing": false,
+          "id": "orchard-b2488d29",
+          "name": "orchard"
+        }
+      ],
+      "status": "open",
+      "summary": "Verify the installers, document the rollout and check that the release can be paused safely.\n\nConfirm the beta results, including machines with accounts that are unavailable or project folders that have moved.",
+      "updated_at": "2026-11-18T08:00:00+00:00"
+    },
+    {
+      "actions": [
+        {
+          "confirm": false,
+          "key": "trackset",
+          "label": "Edit Track",
+          "needs": [
+            "op"
+          ],
+          "optional": [
+            "name",
+            "goal",
+            "summary",
+            "status",
+            "clear"
+          ]
+        },
+        {
+          "confirm": false,
+          "key": "trackunlink",
+          "label": "Unlink from Track",
+          "needs": [
+            "op"
+          ],
+          "optional": [
+            "project",
+            "task",
+            "conversation"
+          ]
+        }
+      ],
+      "conversations": [],
+      "decisions": [],
+      "goal": "Ship version one",
+      "id": "t-6840d375",
+      "lanes": [],
+      "name": "Previous release",
+      "projects": [],
+      "status": "closed",
+      "summary": "",
+      "updated_at": "2026-11-18T08:00:00+00:00"
+    },
+    {
+      "actions": [
+        {
+          "confirm": false,
+          "key": "trackset",
+          "label": "Edit Track",
+          "needs": [
+            "op"
+          ],
+          "optional": [
+            "name",
+            "goal",
+            "summary",
+            "status",
+            "clear"
+          ]
+        },
+        {
+          "confirm": false,
+          "key": "trackunlink",
+          "label": "Unlink from Track",
+          "needs": [
+            "op"
+          ],
+          "optional": [
+            "project",
+            "task",
+            "conversation"
+          ]
+        },
+        {
+          "confirm": false,
+          "key": "trackdecision",
+          "label": "Raise decision",
+          "needs": [
+            "text",
+            "op"
+          ],
+          "optional": []
+        },
+        {
+          "confirm": false,
+          "key": "tracklink",
+          "label": "Link to Track",
+          "needs": [
+            "op"
+          ],
+          "optional": [
+            "project",
+            "task",
+            "conversation",
+            "title"
+          ]
+        }
+      ],
+      "conversations": [],
+      "decisions": [],
+      "goal": "Compare options",
+      "id": "t-a7a794d6",
+      "lanes": [
+        {
+          "actions": [],
+          "did_not_start": false,
+          "folder_missing": true,
+          "gone": false,
+          "key": [
+            "flow",
+            "/work/missing",
+            "saved"
+          ],
+          "project_id": "missing-17fde543",
+          "startop": null,
+          "state": "live",
+          "task": "saved",
+          "title": "Saved lane"
+        }
+      ],
+      "name": "Research",
+      "projects": [
+        {
+          "folder": "/work/missing",
+          "folder_missing": true,
+          "id": "missing-17fde543",
+          "name": "missing"
+        }
+      ],
+      "status": "paused",
+      "summary": "",
+      "updated_at": "2026-11-18T08:00:00+00:00"
+    }
+  ],
+  "projects": [
+    {
+      "actions": [
+        {
+          "confirm": false,
+          "key": "L",
+          "label": "Start lane",
+          "needs": [
+            "text"
+          ],
+          "optional": [
+            "preset",
+            "level",
+            "track",
+            "op"
+          ]
+        },
+        {
+          "confirm": false,
+          "key": "W",
+          "label": "Set accounts pace may use",
+          "needs": [
+            "accounts"
+          ],
+          "optional": []
+        }
+      ],
+      "branch": "main",
+      "folder": "/work/orchard",
+      "folder_missing": false,
+      "id": "[\"project\",\"/work/orchard\"]",
+      "key": [
+        "project",
+        "/work/orchard"
+      ],
+      "name": "orchard",
+      "open_lanes": 5,
+      "pace_accounts": [
+        {
+          "id": "studio",
+          "label": "Studio",
+          "pace_allowed": false
+        },
+        {
+          "id": "archive",
+          "label": "Archive",
+          "pace_allowed": false
+        },
+        {
+          "id": "spare",
+          "label": "Spare",
+          "pace_allowed": false
+        }
+      ],
+      "track_choices": [
+        {
+          "id": "t-4d4b5a96",
+          "name": "Release readiness for the next desktop rollout across all supported environments"
+        },
+        {
+          "id": "t-a7a794d6",
+          "name": "Research"
+        }
+      ]
+    },
+    {
+      "actions": [],
+      "branch": "",
+      "folder": "/work/missing",
+      "folder_missing": true,
+      "id": "[\"project\",\"/work/missing\"]",
+      "key": [
+        "project",
+        "/work/missing"
+      ],
+      "name": "missing",
+      "open_lanes": 1,
+      "pace_accounts": [
+        {
+          "id": "studio",
+          "label": "Studio",
+          "pace_allowed": false
+        },
+        {
+          "id": "archive",
+          "label": "Archive",
+          "pace_allowed": false
+        },
+        {
+          "id": "spare",
+          "label": "Spare",
+          "pace_allowed": false
+        }
+      ]
+    }
+  ],
+  "items": [
+    {
+      "actions": [
+        {
+          "confirm": false,
+          "key": "m",
+          "label": "Change model",
+          "needs": [
+            "role",
+            "model"
+          ],
+          "optional": []
+        },
+        {
+          "confirm": false,
+          "key": "D",
+          "label": "Change dial",
+          "needs": [
+            "step"
+          ],
+          "optional": []
+        },
+        {
+          "confirm": true,
+          "key": "R",
+          "label": "Resume",
+          "needs": [],
+          "optional": [
+            "note"
+          ]
+        },
+        {
+          "confirm": true,
+          "key": "s",
+          "label": "Stop",
+          "needs": [],
+          "optional": []
+        },
+        {
+          "confirm": false,
+          "key": "w",
+          "label": "Write to agent",
+          "needs": [
+            "text"
+          ],
+          "optional": []
+        },
+        {
+          "confirm": false,
+          "key": "q",
+          "label": "Set lane pace",
+          "needs": [
+            "level"
+          ],
+          "optional": []
+        },
+        {
+          "confirm": false,
+          "key": "S",
+          "label": "Switch lane preset",
+          "needs": [
+            "preset"
+          ],
+          "optional": []
+        },
+        {
+          "confirm": false,
+          "key": "t",
+          "label": "Turn lane step on or off",
+          "needs": [
+            "step",
+            "state"
+          ],
+          "optional": []
+        }
+      ],
+      "agent_state": "waiting",
+      "author": "",
+      "branch": "",
+      "current_step": {
+        "id": "build",
+        "name": "Build",
+        "note": "",
+        "waiting": false
+      },
+      "delivery": null,
+      "dial": "balanced",
+      "folder_missing": false,
+      "goal": "",
+      "id": "[\"flow\",\"/work/orchard\",\"add-search\"]",
+      "in_review": false,
+      "key": [
+        "flow",
+        "/work/orchard",
+        "add-search"
+      ],
+      "kind": "flow",
+      "last_activity_at": "2026-11-23T08:39:27Z",
+      "last_commit": "",
+      "links": [],
+      "models": {
+        "builder": "claude:sonnet",
+        "code_reviewer": "claude:sonnet",
+        "evaluator": "claude:opus",
+        "plan_reviewer": "claude:sonnet",
+        "planner": "claude:opus",
+        "reporter": "claude:sonnet"
+      },
+      "next_command": "sakura flow resume add-search",
+      "opened_by": "person",
+      "pace": "normal",
+      "pace_accounts": [
+        {
+          "id": "studio",
+          "label": "Studio",
+          "pace_allowed": false
+        },
+        {
+          "id": "archive",
+          "label": "Archive",
+          "pace_allowed": false
+        },
+        {
+          "id": "spare",
+          "label": "Spare",
+          "pace_allowed": false
+        }
+      ],
+      "pace_pending": false,
+      "pending": [],
+      "pipeline": [
+        {
+          "can_toggle": false,
+          "id": "plan",
+          "name": "Plan",
+          "note": "",
+          "on": true,
+          "reason": "plan is already done on this lane",
+          "state": "done"
+        },
+        {
+          "can_toggle": false,
+          "id": "plan_review",
+          "name": "Plan review",
+          "note": "",
+          "on": true,
+          "reason": "plan review is already done on this lane",
+          "state": "done"
+        },
+        {
+          "can_toggle": false,
+          "id": "build",
+          "name": "Build",
+          "note": "",
+          "on": true,
+          "reason": "build is always on: the least a lane does is build",
+          "state": "running"
+        },
+        {
+          "can_toggle": true,
+          "id": "task_review",
+          "name": "Task review",
+          "note": "",
+          "on": true,
+          "reason": "",
+          "state": "next"
+        },
+        {
+          "can_toggle": true,
+          "id": "final_review",
+          "name": "Final review",
+          "note": "",
+          "on": false,
+          "reason": "",
+          "state": "off"
+        },
+        {
+          "can_toggle": true,
+          "id": "checks",
+          "name": "Checks",
+          "note": "",
+          "on": true,
+          "reason": "",
+          "state": "next"
+        },
+        {
+          "can_toggle": true,
+          "id": "evaluator",
+          "name": "Evaluator",
+          "note": "",
+          "on": false,
+          "reason": "",
+          "state": "off"
+        },
+        {
+          "can_toggle": false,
+          "id": "deliver",
+          "name": "Deliver",
+          "note": "",
+          "on": true,
+          "reason": "deliver is always on: the least a lane does is deliver",
+          "state": "next"
+        },
+        {
+          "can_toggle": true,
+          "id": "reporter",
+          "name": "Reporter",
+          "note": "",
+          "on": true,
+          "reason": "",
+          "state": "next"
+        }
+      ],
+      "pr": "",
+      "preset": "standard",
+      "preset_label": "Standard",
+      "progress": {
+        "checks_done": 0,
+        "checks_total": 0,
+        "done": 0,
+        "engine_phase": "build",
+        "overall_done": 0,
+        "overall_total": 0,
+        "phase": "Build",
+        "step": "build",
+        "tasks_done": 0,
+        "tasks_total": 0,
+        "text": "Build",
+        "total": 0,
+        "unit": "tasks"
+      },
+      "repo": "/work/orchard",
+      "reviews": [
+        {
+          "account": null,
+          "account_label": null,
+          "id": "plan_review",
+          "model": "claude:sonnet",
+          "on": true,
+          "state": "done"
+        },
+        {
+          "account": null,
+          "account_label": null,
+          "id": "task_review",
+          "model": "claude:sonnet",
+          "on": true,
+          "state": "now"
+        },
+        {
+          "account": null,
+          "account_label": null,
+          "id": "final_review",
+          "model": null,
+          "on": false,
+          "state": "skipped"
+        }
+      ],
+      "since": null,
+      "stack": "down",
+      "steps": [
+        {
+          "account": null,
+          "account_label": null,
+          "id": "plan",
+          "model": "claude:opus",
+          "name": "Plan",
+          "state": "done"
+        },
+        {
+          "account": null,
+          "account_label": null,
+          "id": "build",
+          "model": "claude:sonnet",
+          "name": "Build",
+          "state": "now"
+        },
+        {
+          "account": null,
+          "account_label": null,
+          "id": "checks",
+          "model": "claude:opus",
+          "name": "Checks",
+          "state": "next"
+        },
+        {
+          "account": null,
+          "account_label": null,
+          "id": "deliver",
+          "model": "claude:sonnet",
+          "name": "Deliver",
+          "state": "next"
+        }
+      ],
+      "title": "Add search to the orchard",
+      "track": {
+        "id": "t-4d4b5a96",
+        "name": "Release readiness for the next desktop rollout across all supported environments"
+      },
+      "unread": 0,
+      "usage": null,
+      "worktree": null
+    },
+    {
+      "actions": [],
+      "agent_state": "waiting",
+      "author": "",
+      "branch": "",
+      "current_step": {
+        "id": "build",
+        "name": "Build",
+        "note": "",
+        "waiting": false
+      },
+      "delivery": null,
+      "dial": "balanced",
+      "folder_missing": true,
+      "goal": "",
+      "id": "[\"flow\",\"/work/missing\",\"saved\"]",
+      "in_review": false,
+      "key": [
+        "flow",
+        "/work/missing",
+        "saved"
+      ],
+      "kind": "flow",
+      "last_activity_at": "2026-11-23T08:39:37Z",
+      "last_commit": "",
+      "links": [],
+      "models": {
+        "builder": "claude:sonnet",
+        "code_reviewer": "claude:sonnet",
+        "evaluator": "claude:opus",
+        "plan_reviewer": "claude:sonnet",
+        "planner": "claude:opus",
+        "reporter": "claude:sonnet"
+      },
+      "next_command": "",
+      "opened_by": "person",
+      "pace": "normal",
+      "pace_accounts": [
+        {
+          "id": "studio",
+          "label": "Studio",
+          "pace_allowed": false
+        },
+        {
+          "id": "archive",
+          "label": "Archive",
+          "pace_allowed": false
+        },
+        {
+          "id": "spare",
+          "label": "Spare",
+          "pace_allowed": false
+        }
+      ],
+      "pace_pending": false,
+      "pending": [],
+      "pipeline": [
+        {
+          "can_toggle": false,
+          "id": "plan",
+          "name": "Plan",
+          "note": "",
+          "on": true,
+          "reason": "plan is already done on this lane",
+          "state": "done"
+        },
+        {
+          "can_toggle": false,
+          "id": "plan_review",
+          "name": "Plan review",
+          "note": "",
+          "on": true,
+          "reason": "plan review is already done on this lane",
+          "state": "done"
+        },
+        {
+          "can_toggle": false,
+          "id": "build",
+          "name": "Build",
+          "note": "",
+          "on": true,
+          "reason": "build is always on: the least a lane does is build",
+          "state": "running"
+        },
+        {
+          "can_toggle": true,
+          "id": "task_review",
+          "name": "Task review",
+          "note": "",
+          "on": true,
+          "reason": "",
+          "state": "next"
+        },
+        {
+          "can_toggle": true,
+          "id": "final_review",
+          "name": "Final review",
+          "note": "",
+          "on": false,
+          "reason": "",
+          "state": "off"
+        },
+        {
+          "can_toggle": true,
+          "id": "checks",
+          "name": "Checks",
+          "note": "",
+          "on": true,
+          "reason": "",
+          "state": "next"
+        },
+        {
+          "can_toggle": true,
+          "id": "evaluator",
+          "name": "Evaluator",
+          "note": "",
+          "on": false,
+          "reason": "",
+          "state": "off"
+        },
+        {
+          "can_toggle": false,
+          "id": "deliver",
+          "name": "Deliver",
+          "note": "",
+          "on": true,
+          "reason": "deliver is always on: the least a lane does is deliver",
+          "state": "next"
+        },
+        {
+          "can_toggle": true,
+          "id": "reporter",
+          "name": "Reporter",
+          "note": "",
+          "on": true,
+          "reason": "",
+          "state": "next"
+        }
+      ],
+      "pr": "",
+      "preset": "standard",
+      "preset_label": "Standard",
+      "progress": {
+        "checks_done": 0,
+        "checks_total": 0,
+        "done": 0,
+        "engine_phase": "build",
+        "overall_done": 0,
+        "overall_total": 0,
+        "phase": "Build",
+        "step": "build",
+        "tasks_done": 0,
+        "tasks_total": 0,
+        "text": "Build",
+        "total": 0,
+        "unit": "tasks"
+      },
+      "repo": "/work/missing",
+      "reviews": [
+        {
+          "account": null,
+          "account_label": null,
+          "id": "plan_review",
+          "model": "claude:sonnet",
+          "on": true,
+          "state": "done"
+        },
+        {
+          "account": null,
+          "account_label": null,
+          "id": "task_review",
+          "model": "claude:sonnet",
+          "on": true,
+          "state": "now"
+        },
+        {
+          "account": null,
+          "account_label": null,
+          "id": "final_review",
+          "model": null,
+          "on": false,
+          "state": "skipped"
+        }
+      ],
+      "since": null,
+      "stack": "down",
+      "steps": [
+        {
+          "account": null,
+          "account_label": null,
+          "id": "plan",
+          "model": "claude:opus",
+          "name": "Plan",
+          "state": "done"
+        },
+        {
+          "account": null,
+          "account_label": null,
+          "id": "build",
+          "model": "claude:sonnet",
+          "name": "Build",
+          "state": "now"
+        },
+        {
+          "account": null,
+          "account_label": null,
+          "id": "checks",
+          "model": "claude:opus",
+          "name": "Checks",
+          "state": "next"
+        },
+        {
+          "account": null,
+          "account_label": null,
+          "id": "deliver",
+          "model": "claude:sonnet",
+          "name": "Deliver",
+          "state": "next"
+        }
+      ],
+      "title": "Saved lane",
+      "track": {
+        "id": "t-a7a794d6",
+        "name": "Research"
+      },
+      "unread": 0,
+      "usage": null,
+      "worktree": null
+    }
+  ],
+  "waits": [
+    {
+      "actions": [
+        {
+          "confirm": false,
+          "key": "tracksettle",
+          "label": "Answer decision",
+          "needs": [
+            "answer",
+            "op"
+          ],
+          "optional": []
+        },
+        {
+          "confirm": false,
+          "key": "read",
+          "label": "Mark read",
+          "needs": [],
+          "optional": []
+        },
+        {
+          "confirm": false,
+          "key": "unread",
+          "label": "Mark unread",
+          "needs": [],
+          "optional": []
+        },
+        {
+          "confirm": false,
+          "key": "snooze",
+          "label": "Snooze",
+          "needs": [
+            "until"
+          ],
+          "optional": []
+        }
+      ],
+      "author": "",
+      "choices": [],
+      "detail": "Enable the new onboarding?",
+      "digest": null,
+      "findings": [],
+      "folder_missing": false,
+      "group": {
+        "id": "[\"track\",\"t-4d4b5a96\"]",
+        "label": "Release readiness for the next desktop rollout across all supported environments"
+      },
+      "id": "[\"wait\",\"track\",\"t-4d4b5a96\",\"track_decision\",\"1\"]",
+      "is_read": false,
+      "is_snoozed": false,
+      "key": [
+        "wait",
+        "track",
+        "t-4d4b5a96",
+        "track_decision",
+        "1"
+      ],
+      "kind": "question",
+      "lane_title": "",
+      "links": [],
+      "project": "Release readiness for the next desktop rollout across all supported environments",
+      "repo": "",
+      "resolution": "open",
+      "section": "needs_you",
+      "since": "2026-11-18T08:00:00Z",
+      "snoozed_until": null,
+      "source": "track",
+      "subkind": "track_decision",
+      "task": "",
+      "technical": "",
+      "title": "Enable the new onboarding?",
+      "track": {
+        "id": "t-4d4b5a96",
+        "name": "Release readiness for the next desktop rollout across all supported environments"
+      },
+      "wants_note": false
+    }
+  ],
+  "decided": [
+    {
+      "actor": "overlay:fixture:phone",
+      "answer": "reply",
+      "at": "2026-11-18T08:00:00Z",
+      "choice": null,
+      "id": "[\"wait\",\"track\",\"t-4d4b5a96\",\"track_decision\",\"2\"]",
+      "key": [
+        "wait",
+        "track",
+        "t-4d4b5a96",
+        "track_decision",
+        "2"
+      ],
+      "kind": "question",
+      "lane": null,
+      "lane_title": "",
+      "place": "phone",
+      "project": "Release",
+      "task": "",
+      "text": "Yes, on the beta channel.",
+      "title": "Use the beta channel?"
+    }
+  ],
   "runner": {
     "state": "running",
     "current": {

@@ -243,8 +243,8 @@ fn settle_reads(facts: &Entity<Facts>, cx: &mut VisualTestContext, dir: &tempfil
     settle(cx, dir);
 }
 
-/// Each `box diff` starts a container: a launch asks for the changes of the lavoro on screen once, however
-/// the names, its own facts and the read of every lavoro follow one another.
+/// Each `box diff` starts a container: a launch asks for the changes of the task on screen once, however
+/// the names, its own facts and the read of every task follow one another.
 fn assert_one_read_of_the_changes(dir: &tempfile::TempDir) {
     let all = calls(dir);
     assert_eq!(asked(dir, "diff"), 1, "box diff at launch: {all:#?}");
@@ -266,7 +266,7 @@ fn a_launch_reads_the_changes_of_the_lavoro_shown_once_when_every_lavoro_is_read
 fn a_launch_reads_the_changes_of_the_lavoro_shown_once_when_the_read_of_every_lavoro_is_slow(
     cx: &mut TestAppContext,
 ) {
-    // The names, then the facts of the lavoro shown, then, two seconds later, every lavoro.
+    // The names, then the facts of the task shown, then, two seconds later, every task.
     let (cx, facts, dir, _desk) = open(cx, "2", "");
     settle_reads(&facts, cx, &dir);
     assert_one_read_of_the_changes(&dir);

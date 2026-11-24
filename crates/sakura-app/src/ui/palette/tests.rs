@@ -101,8 +101,17 @@ fn press(keys: &str, cx: &mut VisualTestContext) {
     draw(cx);
 }
 
+fn focus_search(cx: &mut VisualTestContext) {
+    let panel = cx.debug_bounds("palette-panel").unwrap();
+    cx.simulate_click(
+        point(panel.center().x, panel.top() + px(15.)),
+        Modifiers::none(),
+    );
+    draw(cx);
+}
+
 #[gpui::test]
-fn palette_cmd_k_opens_it_at_once_with_the_caret_in_its_field(cx: &mut TestAppContext) {
+fn palette_cmd_k_opens_it_at_once_without_activating_the_field(cx: &mut TestAppContext) {
     let (cx, palette, _) = open(cx);
     assert!(!is_open(&palette, cx));
     assert!(cx.debug_bounds("palette-panel").is_none());
@@ -115,10 +124,13 @@ fn palette_cmd_k_opens_it_at_once_with_the_caret_in_its_field(cx: &mut TestAppCo
     cx.simulate_input("ver");
     draw(cx);
     let typed = cx.update(|_, cx| palette.read(cx).query(cx));
+    assert!(typed.is_empty(), "opening leaves the field unfocused");
+    focus_search(cx);
+    cx.simulate_input("ver");
+    draw(cx);
     assert_eq!(
-        typed.as_ref(),
-        "ver",
-        "typing goes to the field without a click"
+        cx.update(|_, cx| palette.read(cx).query(cx)).as_ref(),
+        "ver"
     );
 }
 
@@ -143,6 +155,7 @@ fn palette_cmd_k_again_or_escape_closes_it_and_gives_the_keyboard_back(cx: &mut 
 fn palette_a_chosen_place_is_asked_of_the_desk_and_the_palette_goes(cx: &mut TestAppContext) {
     let (cx, palette, asked) = open(cx);
     press("cmd-k", cx);
+    focus_search(cx);
     cx.simulate_input("m2");
     draw(cx);
     press("enter", cx);
@@ -154,6 +167,7 @@ fn palette_a_chosen_place_is_asked_of_the_desk_and_the_palette_goes(cx: &mut Tes
 fn palette_the_first_command_is_the_shown_task_s_and_enter_runs_it(cx: &mut TestAppContext) {
     let (cx, _, asked) = open(cx);
     press("cmd-k", cx);
+    focus_search(cx);
     press("enter", cx);
     let files = Ask::ShowView {
         task: "m1".into(),
@@ -172,6 +186,7 @@ fn palette_a_window_command_runs_the_window_s_own_action(cx: &mut TestAppContext
         cx.on_action(move |_: &NewTask, _| count.set(count.get() + 1));
     });
     press("cmd-k", cx);
+    focus_search(cx);
     cx.simulate_input("Nuovo lavoro");
     draw(cx);
     press("enter", cx);
@@ -206,6 +221,7 @@ fn palette_moving_the_selection_or_the_pointer_moves_nothing(cx: &mut TestAppCon
     let (cx, _, _) = open(cx);
     press("cmd-k", cx);
     // Few enough commands that the list does not scroll: a row that grew would grow the panel.
+    focus_search(cx);
     cx.simulate_input("mostra");
     draw(cx);
     let before = cx
@@ -229,6 +245,7 @@ fn palette_a_command_of_a_task_no_longer_shown_does_nothing(cx: &mut TestAppCont
     let now = Rc::new(RefCell::new(situation()));
     let (cx, palette, asked) = open_on(cx, now.clone());
     press("cmd-k", cx);
+    focus_search(cx);
     cx.simulate_input("Publish");
     draw(cx);
     // Another tab is chosen by its key while the palette is open: the window now shows m2.
@@ -250,6 +267,7 @@ fn palette_a_command_that_stopped_being_possible_does_nothing(cx: &mut TestAppCo
     let now = Rc::new(RefCell::new(situation()));
     let (cx, _, asked) = open_on(cx, now.clone());
     press("cmd-k", cx);
+    focus_search(cx);
     cx.simulate_input("Publish");
     draw(cx);
     // Its agent started a turn: the work shown cannot be published now.
@@ -265,6 +283,7 @@ fn palette_a_place_that_is_gone_is_not_asked_for(cx: &mut TestAppContext) {
     let now = Rc::new(RefCell::new(situation()));
     let (cx, _, asked) = open_on(cx, now.clone());
     press("cmd-k", cx);
+    focus_search(cx);
     cx.simulate_input("m3");
     draw(cx);
     now.borrow_mut().tasks.retain(|task| task != "m3");
@@ -296,6 +315,52 @@ fn palette_opened_with_the_pointer_takes_no_caret_until_its_field_is_pressed(
 }
 
 #[gpui::test]
+fn palette_opens_with_cmd_shift_p_as_it_does_with_cmd_k(cx: &mut TestAppContext) {
+    let (cx, _, _) = open_on(cx, Rc::new(RefCell::new(situation())));
+    assert!(cx.debug_bounds("palette-panel").is_none());
+    press("cmd-shift-p", cx);
+    assert!(
+        cx.debug_bounds("palette-panel").is_some(),
+        "the key of the editors the person comes from opens it"
+    );
+    press("cmd-shift-p", cx);
+    assert!(cx.debug_bounds("palette-panel").is_none(), "and closes it");
+}
+
+#[gpui::test]
+fn palette_at_its_tallest_stands_in_the_middle_of_the_window_s_height(cx: &mut TestAppContext) {
+    let (cx, _, _) = open_on(cx, Rc::new(RefCell::new(situation())));
+    press("cmd-k", cx);
+    let panel = cx
+        .debug_bounds("palette-panel")
+        .expect("the panel is drawn");
+    let window_height = cx.update(|window, _| window.viewport_size().height);
+    let top = (window_height - px(crate::theme::palette::FULL_HEIGHT)) / 2.;
+    assert_eq!(
+        panel.top(),
+        top,
+        "its top never moves while the list shrinks"
+    );
+}
+
+#[cfg(not(feature = "boxes"))]
+#[gpui::test]
+fn palette_is_centred_on_the_window_and_not_on_the_content(cx: &mut TestAppContext) {
+    let now = Situation {
+        panel_left: px(244.),
+        ..situation()
+    };
+    let (cx, _, _) = open_on(cx, Rc::new(RefCell::new(now)));
+    press("cmd-k", cx);
+    let panel = cx
+        .debug_bounds("palette-panel")
+        .expect("the panel is drawn");
+    let window_width = cx.update(|window, _| window.viewport_size().width);
+    assert_eq!(panel.center().x, window_width / 2.);
+}
+
+#[cfg(feature = "boxes")]
+#[gpui::test]
 fn palette_is_centred_in_the_panel_and_not_in_the_window(cx: &mut TestAppContext) {
     let panel_left = px(244.);
     let now = Situation {
@@ -309,4 +374,23 @@ fn palette_is_centred_in_the_panel_and_not_in_the_window(cx: &mut TestAppContext
         .expect("the panel is drawn");
     let window_width = cx.update(|window, _| window.viewport_size().width);
     assert_eq!(panel.center().x, (panel_left + window_width) / 2.);
+}
+
+#[gpui::test]
+fn palette_every_line_is_as_high_as_the_scale_s_large_control_and_follows_the_next_one_with_no_gap(
+    cx: &mut TestAppContext,
+) {
+    use crate::theme::kit::scale::CONTROL_LARGE;
+    let (cx, _palette, _) = open(cx);
+    press("cmd-k", cx);
+    let rem = cx.update(|window, _| window.rem_size());
+    let frame = rem * crate::theme::palette::LINE_FRAME_REMS;
+    let first = cx.debug_bounds("palette-row-0-0").expect("the first line");
+    let second = cx.debug_bounds("palette-row-0-1").expect("the second line");
+    assert_eq!(first.size.height + frame * 2., CONTROL_LARGE);
+    let pitch = second.origin.y - first.origin.y;
+    assert!(
+        (pitch - CONTROL_LARGE).abs() < gpui::px(0.5),
+        "lines stand {pitch:?} apart, not {CONTROL_LARGE:?}"
+    );
 }

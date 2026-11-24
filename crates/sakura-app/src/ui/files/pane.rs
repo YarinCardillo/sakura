@@ -8,6 +8,7 @@ use super::file_view::{FileView, FileViewEvent};
 use super::follow::{Follow, Location};
 use super::source::Source;
 use super::tree_rows::{self, RowKind, Rows};
+use crate::ui::patience::Patience;
 use gpui::{
     AppContext as _, Context, Entity, EventEmitter, ScrollStrategy, SharedString, Subscription,
     Window,
@@ -43,6 +44,8 @@ pub struct FilesPane {
     reading: HashMap<String, u64>,
     /// How many reads of levels were started.
     reads: u64,
+    /// When levels began to be read: their reading rows show only for a slow read.
+    patience: Patience,
     file: Entity<FileView>,
     follow: Follow,
     /// A file to bring into view in the tree once the folders above it were read.
@@ -71,6 +74,7 @@ impl FilesPane {
             tree_state,
             rows: Rc::default(),
             reading: HashMap::new(),
+            patience: Patience::default(),
             reads: 0,
             file,
             follow: Follow::default(),
@@ -86,7 +90,6 @@ impl FilesPane {
         self.follow.is_on()
     }
 
-    /// The path of the open file.
     pub fn open_path<'a>(&self, cx: &'a gpui::App) -> Option<&'a str> {
         self.file.read(cx).path()
     }

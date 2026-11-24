@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Which files of a checked commit differ from the base of a lavoro on the Mac, as the JSON
+"""Which files of a checked commit differ from the base of a task on the Mac, as the JSON
 object a result carries (changesChecks, checksTouched, testsTouched). The rules are the ones of
 image/runner/changes.py, which a task in a box uses; only the source of the list differs: box
 runs "git diff --name-status -z --no-renames <base> <commit>" on the worktree and pipes it in.

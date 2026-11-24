@@ -2,7 +2,7 @@
 //! agentbox: `box tasks` answers at once, the facts of one task take a moment, `box status` takes seconds.
 
 use super::desk::Desk;
-use super::interaction_tests::{click, draw, open_on, take_place, wait_for};
+use super::interaction_tests::{click, draw, open_remembering, take_place, wait_for};
 use crate::data::source::{Recorder, Source};
 use gpui::{Entity, TestAppContext, VisualTestContext};
 use sakura_core::models::BoxStatus;
@@ -107,12 +107,35 @@ pub(super) fn open_live<'a>(
     first: Option<&str>,
     has_terminals: bool,
 ) -> (&'a mut VisualTestContext, Entity<Desk>, Arc<Recorder>) {
+    let preferences = crate::prefs::Preferences {
+        last_task: first.map(str::to_string),
+        ..Default::default()
+    };
+    open_live_remembering(cx, script, preferences, has_terminals)
+}
+
+/// Opens the desk on a fake `box` as [`open_live`] does, with everything the window remembers given.
+pub(super) fn open_live_remembering(
+    cx: &mut TestAppContext,
+    script: PathBuf,
+    preferences: crate::prefs::Preferences,
+    has_terminals: bool,
+) -> (&mut VisualTestContext, Entity<Desk>, Arc<Recorder>) {
     let recorder = Arc::new(Recorder::default());
     let reads = recorder.clone();
     let terminals = has_terminals.then(|| script.clone());
     let start = move |runtime| Source::live_for_test(runtime, script, reads);
-    let (cx, desk) = open_on(cx, start, terminals, first.map(str::to_string));
+    let (cx, desk) = open_remembering(cx, start, terminals, preferences);
     (cx, desk, recorder)
+}
+
+/// What the window remembers when `project`'s tasks were last made in a box, with `first` shown last.
+pub(super) fn box_chosen_for(project: &str, first: Option<&str>) -> crate::prefs::Preferences {
+    crate::prefs::Preferences {
+        last_task: first.map(str::to_string),
+        places: [(project.to_string(), "box".to_string())].into(),
+        ..Default::default()
+    }
 }
 
 /// What the fake `box` was asked, one line per call.
@@ -290,6 +313,20 @@ fn without_a_last_task_the_window_waits_for_the_groups_then_opens_on_da_guardare
         is_pending(cx, &desk, TASK),
         Some(false),
         "chosen from its group"
+    );
+}
+
+#[gpui::test]
+fn with_tasks_listed_and_none_open_the_desk_shows_the_mark_quietly(cx: &mut TestAppContext) {
+    let (_dir, script) = slow_box(Names::Listed, "8");
+    let (cx, desk, _) = open(cx, script, None);
+    wait_for(cx, "the rows", |cx| {
+        cx.debug_bounds("row-sample-accent").is_some()
+    });
+    assert_eq!(desk.read_with(cx, |desk, cx| desk.shown(cx)), None);
+    assert!(
+        cx.debug_bounds("brand-mark-empty").is_some(),
+        "the brand's mark, still"
     );
 }
 

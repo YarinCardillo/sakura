@@ -22,7 +22,7 @@ readonly BOX_MANAGED_DIRECTORIES="work tasks projects locks queue results bundle
 readonly VERB_PATTERN='^[a-z][a-z0-9-]*$'
 readonly PROJECT_PATTERN='^[a-z0-9]+(-[a-z0-9]+)*$'
 readonly PROJECT_KEYS="REPO BASE SUBDIR INSTALL REBUILD SPARSE PROTECTED TEST_FILES SAFE_OUTSIDE WHERE BRANCH_PREFIX SETUP ARCHIVE ACCOUNT RUN PORTS RUN_MODE DISK_BUDGET_MB"
-# The two places of a lavoro: the Mac (a worktree of the person's repository, the agent runs as
+# The two places of a task: the Mac (a worktree of the person's repository, the agent runs as
 # the person) or a box (a clone in a container). A project that does not say gets the default
 # (BOX_DEFAULT_WHERE changes it; the tests of the box place do).
 readonly PLACES="mac box"
@@ -32,7 +32,7 @@ readonly PROJECT_SUBDIR_PATTERN='^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$'
 readonly PROJECT_BRANCH_PATTERN='^[A-Za-z0-9._][A-Za-z0-9._/-]*$'
 readonly PROJECT_VALUE_MAX_LENGTH=2000
 
-# ---- reading a project as data ------------------------------------------------------------
+# Reading a project as data.
 
 # A project must not inherit a setting or a verb from a project loaded before it.
 reset_project_variables() {
@@ -50,7 +50,7 @@ is_place() {
   [[ " $PLACES " == *" ${1:-} "* ]]
 }
 
-# The place the lavori of the loaded project get when box new does not name one.
+# The place the tasks of the loaded project get when box new does not name one.
 project_where() {
   echo "${WHERE:-$DEFAULT_WHERE}"
 }
@@ -119,7 +119,7 @@ read_project_file() {
 # What is checked of a repository's git directory before git runs in it.
 . "$(dirname "${BASH_SOURCE[0]}")/repository.sh"
 
-# ---- where a repository of the person may be, and how box reads it ------------------------------
+# Where a repository of the person may be, and how box reads it.
 # box runs git on the host only in a repository of the person. The workspaces agents write live
 # in the data directory, and a path can name a directory in many ways (another letter case on a
 # file system that does not tell them apart, a link, another name of the same volume). So
@@ -258,7 +258,7 @@ subdir_suffix() {
   echo "${SUBDIR:+/$SUBDIR}"
 }
 
-# ---- writing a project ----------------------------------------------------------------------
+# Writing a project.
 
 # Prints the loaded project as the lines of its file.
 project_lines() {
@@ -282,7 +282,7 @@ write_project() {
   if ln "$tmp" "$file" 2>/dev/null; then rm -f "$tmp"; else rm -f "$tmp"; return 1; fi
 }
 
-# ---- upgrade: the shipped profiles become projects, once ------------------------------------
+# Upgrade: the shipped profiles become projects, once.
 
 was_imported() {
   grep -qx "$1" "$IMPORTED_PROFILES_FILE" 2>/dev/null
@@ -321,20 +321,21 @@ import_shipped_projects() {
   done
 }
 
-# ---- task records ----------------------------------------------------------------------------
+# Task records.
 
 # Task records live outside the workspace on purpose: the agent can edit its workspace, it
 # must not choose what the runner executes. Arguments: task, project, base sha, base branch,
-# place and, for a lavoro on the Mac, the git directory of its worktree and the device and
+# place and, for a task on the Mac, the git directory of its worktree and the device and
 # inode of its folder. The key of the project
 # is still called PROFILE, as in the records of older tasks.
 record_task() {
   mkdir -p "$TASKS_DIR"
   {
-    printf 'PROFILE=%s\nBASE=%s\nBASE_SHA=%s\nGENERATION=%s\nWHERE=%s\n' "$2" "$4" "$3" "$(date +%s)$RANDOM$RANDOM" "$5"
+    printf 'PROFILE=%s\nBASE=%s\nBASE_SHA=%s\nGENERATION=%s\nWHERE=%s\nCREATED_AT=%s\n' "$2" "$4" "$3" "$(date +%s)$RANDOM$RANDOM" "$5" "$(now_iso)"
     [ -z "${6:-}" ] || printf 'WORKTREE_GIT_DIR=%s\n' "$6"
     [ -z "${7:-}" ] || printf 'WORKTREE_IDENTITY=%s\n' "$7"
   } >"$TASKS_DIR/$1.env"
+  rm -f "$TASKS_DIR/$1.age"
 }
 
 # The place of a task: mac or box. A task created before places existed is in a box.
@@ -350,7 +351,7 @@ task_is_on_mac() {
 
 readonly DOES_NOT_APPLY_EXIT_CODE=80
 
-# The two places never mix (docs/interface.md, "The two places"). A lavoro on the Mac is the
+# The two places never mix (docs/interface.md, "The two places"). A task on the Mac is the
 # person's own worktree and is read with host git; nothing of it is ever mounted in a container
 # or handed to the machinery of a box. Three guards keep it so, each ending with one line and
 # the exit code 80.
@@ -362,7 +363,7 @@ refuse_on_mac() {
   exit "$DOES_NOT_APPLY_EXIT_CODE"
 }
 
-# The other way round: for a verb that only exists for a lavoro on the Mac.
+# The other way round: for a verb that only exists for a task on the Mac.
 refuse_in_box() {
   ! task_is_on_mac "$1" || return 0
   warn "$2 does not apply to task '$1', which is in a box: $3"
@@ -372,7 +373,7 @@ refuse_in_box() {
 # For a verb whose part for the Mac does not exist yet. usage: not_built_on_mac <task> <verb>
 not_built_on_mac() {
   task_is_on_mac "$1" || return 0
-  warn "$2 is not built yet for a lavoro on the Mac (task '$1'); nothing was started"
+  warn "$2 is not built yet for a task on the Mac (task '$1'); nothing was started"
   exit "$DOES_NOT_APPLY_EXIT_CODE"
 }
 

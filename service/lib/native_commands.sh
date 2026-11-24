@@ -1,6 +1,6 @@
 # shellcheck shell=bash
-# The commands of a project that run natively for a lavoro on the Mac, as the person: setup
-# (once, when the lavoro is created) and archive (before it is removed). Each runs in the folder
+# The commands of a project that run natively for a task on the Mac, as the person: setup
+# (once, when the task is created) and archive (before it is removed). Each runs in the folder
 # of the project inside the worktree, in its own process group, with a deadline, its output in
 # a bounded log of the data directory, and leaves no process behind (native_run.pl).
 
@@ -17,13 +17,13 @@ archive_log() {
   echo "$SETUP_LOG_DIR/$1.archive.log"
 }
 
-# The folder of the project inside the worktree of a lavoro. Needs the project loaded.
+# The folder of the project inside the worktree of a task. Needs the project loaded.
 lavoro_folder() {
   echo "$(task_dir "$1")$(subdir_suffix)"
 }
 
 # lavoro_environment <task>: fills LAVORO_ENVIRONMENT with what a command of the project gets:
-# the person's own PATH, and what it may want to know about the lavoro (the CONDUCTOR_ names
+# the person's own PATH, and what it may want to know about the task (the CONDUCTOR_ names
 # carry the same values, for scripts written for that tool). Called before box changes into
 # the worktree: nothing is looked up or computed once it stands there.
 lavoro_environment() {
@@ -37,7 +37,7 @@ lavoro_environment() {
   )
 }
 
-# ---- records of process groups -------------------------------------------------------------------
+# Records of process groups.
 # native_run.pl writes, for a group box may have to end later (Play, the conversation, a native
 # check), a record of three lines: the id of the group, the boot of the machine and the start
 # of its leader. A number alone says nothing after a crash or a reboot: it may have been given
@@ -115,7 +115,7 @@ run_setup() {
   local task="$1" status=0
   [ -n "${SETUP:-}" ] || return 0
   logged_native "$task" "$SETUP" "$(setup_log "$task")" || status=$?
-  [ "$status" -eq 0 ] || die "the setup command of task '$task' failed (exit $status$(deadline_note "$status")); the lavoro is kept. Its output: box log $task --setup. To remove the lavoro: box rm $task --force"
+  [ "$status" -eq 0 ] || die "the setup command of task '$task' failed (exit $status$(deadline_note "$status")); the task is kept. Its output: box log $task --setup. To remove the task: box rm $task --force"
 }
 
 # The archive command of the project, before the worktree goes. Returns its exit code.
@@ -137,9 +137,9 @@ print_setup_log() {
   tail -n "$SETUP_LOG_LINES" "$(setup_log "$task")" | LC_ALL=C tr -cd '\n\t[:print:]'
 }
 
-# ---- box rm -----------------------------------------------------------------------------------
+# box rm.
 
-# box rm of a lavoro on the Mac: refuses while work could be lost, runs the archive command,
+# box rm of a task on the Mac: refuses while work could be lost, runs the archive command,
 # cuts off its requests, removes the worktree and the records. The branch is never deleted.
 rm_on_mac() {
   local task="$1" force="$2" status=0
@@ -148,21 +148,21 @@ rm_on_mac() {
     if [ "$force" != "--force" ]; then refuse_if_unsafe_to_remove_on_mac "$task"; fi
     settle_open_shells "$task" "$force"
     run_archive "$task" || status=$?
-    [ "$status" -eq 0 ] || [ "$force" = "--force" ] || die "the archive command of task '$task' failed (exit $status$(deadline_note "$status")); the lavoro is kept. Its output is in $(archive_log "$task"). box rm $task --force removes it all the same"
-    [ "$status" -eq 0 ] || warn "the archive command of task '$task' failed (exit $status); the lavoro is removed all the same"
+    [ "$status" -eq 0 ] || [ "$force" = "--force" ] || die "the archive command of task '$task' failed (exit $status$(deadline_note "$status")); the task is kept. Its output is in $(archive_log "$task"). box rm $task --force removes it all the same"
+    [ "$status" -eq 0 ] || warn "the archive command of task '$task' failed (exit $status); the task is removed all the same"
   fi
   with_queue_lock retire_task_locked "$task"
   drain_task_requests "$task"
   with_lock "$LOCK_DIR/play.lock" forget_play "$task"
   end_conversation "$task"
   remove_worktree "$task"
-  rm -rf "${RESULTS_DIR:?}/$task" "$(task_retiring_mark "$task")" "${TASKS_DIR:?}/$task.env" "${TASKS_DIR:?}/$task.project" \
+  rm -rf "${RESULTS_DIR:?}/$task" "$(task_retiring_mark "$task")" "${TASKS_DIR:?}/$task.age" "${TASKS_DIR:?}/$task.env" "${TASKS_DIR:?}/$task.project" \
     "$(setup_log "$task")" "$(archive_log "$task")" "${SHELLS_DIR:?}/$task".*
   journal_event rm "$task"
   echo "task '$task' removed (its branch stays in the repository)"
 }
 
-# box rm deletes a folder only when it is the worktree box made for the lavoro: its .git names
+# box rm deletes a folder only when it is the worktree box made for the task: its .git names
 # the recorded git directory, which belongs to the project's repository (checked_lavoro). With
 # --force too. Whatever else stands at the path is the person's and is left alone.
 require_own_worktree() {
@@ -187,7 +187,7 @@ refuse_if_unsafe_to_remove_on_mac() {
   [ "$unpublished" -eq 0 ] || die "task '$task' has $unpublished commit(s) that are neither pushed nor merged into $base; push or merge them, or use --force (the branch stays in the repository either way)"
 }
 
-# Removes the worktree of a lavoro. Called last, after the archive command has run and the
+# Removes the worktree of a task. Called last, after the archive command has run and the
 # conversation and Play have been ended: whatever could still write has stopped. What stands at
 # the path is looked at again now (require_own_worktree), then moved into a folder of box by
 # its name (a rename moves a link, never what it leads to), examined there once more, and only

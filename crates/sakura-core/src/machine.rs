@@ -87,26 +87,23 @@ fn pressure(level: i32) -> BridgeResult<MemoryPressure> {
 
 #[cfg(unix)]
 fn disk_free_gb(path: &std::path::Path) -> BridgeResult<f64> {
-    let c_path = CString::new(path.as_os_str().as_encoded_bytes())
-        .map_err(|_| internal("the home path holds a NUL byte".into()))?;
-    let mut stats = MaybeUninit::<libc::statvfs>::zeroed();
-    // SAFETY: `c_path` is a valid NUL-terminated string and `stats` is a writable statvfs.
-    let result = unsafe { libc::statvfs(c_path.as_ptr(), stats.as_mut_ptr()) };
-    if result != 0 {
-        let error = std::io::Error::last_os_error();
-        return Err(internal(format!("statvfs failed: {error}")));
+    if path.as_os_str().as_encoded_bytes().contains(&0) {
+        return Err(internal("the home path holds a NUL byte".into()));
     }
-    // SAFETY: statvfs returned 0, so the struct is fully initialised.
-    let stats = unsafe { stats.assume_init() };
-    // The two fields are 32 or 64 bits wide depending on the system.
-    #[allow(clippy::useless_conversion)]
-    let bytes = u64::from(stats.f_bavail) * u64::from(stats.f_frsize);
+    let stats = rustix::fs::statvfs(path)
+        .map_err(|error| internal(format!("statvfs failed: {}", std::io::Error::from(error))))?;
+    let bytes = stats.f_bavail * stats.f_frsize;
     Ok((bytes as f64 / BYTES_PER_GB * 10.0).round() / 10.0)
 }
 
+trait SysctlValue: Copy {}
+impl SysctlValue for LoadAverage {}
+impl SysctlValue for SwapUsage {}
+impl SysctlValue for i32 {}
+
 /// Reads one fixed-size sysctl value, checking that the kernel returned exactly `size_of::<T>()` bytes.
 #[cfg(target_os = "macos")]
-fn sysctl<T: Copy>(name: &str) -> BridgeResult<T> {
+fn sysctl<T: SysctlValue>(name: &str) -> BridgeResult<T> {
     let c_name =
         CString::new(name).map_err(|_| internal("the sysctl name holds a NUL byte".into()))?;
     let mut value = MaybeUninit::<T>::zeroed();
@@ -125,7 +122,7 @@ fn sysctl<T: Copy>(name: &str) -> BridgeResult<T> {
         let error = std::io::Error::last_os_error();
         return Err(internal(format!("sysctl {name} failed: {error}")));
     }
-    // SAFETY: the kernel filled all `size_of::<T>()` bytes, and T is a plain-data struct or integer.
+    // SAFETY: The kernel filled the buffer, and SysctlValue is limited to integer fields.
     Ok(unsafe { value.assume_init() })
 }
 

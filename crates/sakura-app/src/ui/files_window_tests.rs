@@ -2,6 +2,7 @@
 //! `graph` in the shapes the service documents, and whose `acp` runs the fake agent. What `box` was asked
 //! is read back, so a test says which reads an action of the person started and which it did not.
 
+use super::agent_trail::{AgentTrail, Place};
 use super::centre::CentreView;
 use super::conversation_tests::{conversation, fake_agent, say, wait_for};
 use super::desk::Desk;
@@ -10,18 +11,19 @@ use super::launch_tests::{calls, fake_agentbox, open_live, Names, TASK};
 use super::right_pane::PaneView;
 use gpui::{point, px, Entity, Modifiers, ScrollDelta, ScrollEvent, TestAppContext};
 use gpui::{TouchPhase, VisualTestContext};
+use sakura_core::model::Live;
 use sakura_core::models::BoxStatus;
 use std::path::{Path, PathBuf};
 
-/// The lavoro of these tests: in a box, so its agent works in `/work/demo`, where the fake agent's tool
+/// The task of these tests: in a box, so its agent works in `/work/demo`, where the fake agent's tool
 /// calls say they are.
 const LAVORO: &str = "demo";
-/// Another lavoro of the fixture, for a second tab.
+/// Another task of the fixture, for a second tab.
 const OTHER: &str = "headings-26";
 /// The file the fake agent reads at line 12, and its row in the tree.
 const FILE: &str = "src/folders/sort.rs";
 const FILE_ROW: &str = "files-row-src/folders/sort.rs";
-/// The commit of the lavoro in the graph.
+/// The commit of the task in the graph.
 const COMMIT: &str = "c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2";
 const BASE_COMMIT: &str = "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1";
 
@@ -36,6 +38,20 @@ index 1111111..2222222 100644
 +line two e mezzo
  line 3
 ";
+
+/// The task's patch once its agent appended a line to `README.md` with a shell command, which names
+/// no file: what the fake agent's `shell` script says it did.
+const README_PATCH: &str = "diff --git a/README.md b/README.md
+index 3333333..4444444 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,2 @@
+ # Demo
++one line
+";
+const README: &str = "README.md";
+const README_BEFORE: &str = "# Demo\n";
+const README_AFTER: &str = "# Demo\none line\n";
 
 /// The cases of the fake `box` for the read verbs: each answers from a file beside the script.
 const READ_VERBS: &str = r#"  tree) path=""; while [ "$#" -gt 0 ]; do case "$1" in --path) path="$2"; shift 2 ;; *) shift ;; esac; done
@@ -115,7 +131,7 @@ fn write_files(dir: &Path) {
     write(dir, "graph.json", graph.to_string());
 }
 
-/// Gives the fixture's lavoro [`TASK`] the name [`LAVORO`] in everything the fake `box` answers.
+/// Gives the fixture's task [`TASK`] the name [`LAVORO`] in everything the fake `box` answers.
 fn rename_the_lavoro(dir: &Path) {
     let text = std::fs::read_to_string(dir.join("status.json")).expect("the status");
     let mut status: BoxStatus = serde_json::from_str(&text).expect("the status parses");
@@ -169,7 +185,7 @@ fn pane_view(cx: &mut VisualTestContext, desk: &Entity<Desk>) -> PaneView {
     desk.read_with(cx, |desk, _| desk.pane_view(LAVORO))
 }
 
-/// The path of the file open in the lavoro's "Files" view.
+/// The path of the file open in the task's "Files" view.
 fn open_file(cx: &mut VisualTestContext, desk: &Entity<Desk>) -> Option<String> {
     desk.read_with(cx, |desk, cx| {
         let pane = &desk.files.get(LAVORO)?.pane;
@@ -253,7 +269,7 @@ fn a_file_has_its_gutter_marks_and_is_read_again_once_when_the_lavoro_changes(
     wait_for(cx, "the marks of the changed lines", |cx| marks(cx) > 0);
     settle(cx, &dir);
     assert_eq!(asked(&dir, "file demo"), 1);
-    // The lavoro's files changed: the watcher says so, its facts are read, and the open file with them.
+    // The task's files changed: the watcher says so, its facts are read, and the open file with them.
     let facts = desk.read_with(cx, |desk, _| desk.facts.clone());
     facts.update(cx, |facts, cx| facts.refresh_task(LAVORO.into(), cx));
     wait_for(cx, "the file to be read again", |_| {
@@ -329,6 +345,9 @@ fn cmd_p_finds_a_file_by_name_and_opens_it_in_files(cx: &mut TestAppContext) {
     let (cx, desk, dir) = open(cx);
     cx.simulate_keystrokes("cmd-p");
     wait_for(cx, "quick open", |cx| is_on_screen(cx, "quick-open-panel"));
+    let panel = cx.debug_bounds("quick-open-panel").unwrap();
+    let search = gpui::point(panel.center().x, panel.top() + gpui::px(15.));
+    cx.simulate_click(search, gpui::Modifiers::none());
     cx.simulate_input("ord");
     wait_for(cx, "the file found", |cx| {
         is_on_screen(cx, "quick-open-file-src/folders/sort.rs")
@@ -456,4 +475,242 @@ fn what_a_tab_shows_of_its_files_is_there_when_the_tab_comes_back(cx: &mut TestA
         tree_and_file(&all[..reads]),
         "coming back reads no file again"
     );
+}
+
+/// The task's files change on disk to what `patch` says, `README.md` reading `readme`: the watcher says
+/// so and the task's facts are read again, and its patch after them.
+fn files_change(
+    cx: &mut VisualTestContext,
+    desk: &Entity<Desk>,
+    dir: &tempfile::TempDir,
+    (patch, readme): (&str, &str),
+) {
+    write(dir.path(), "patch", patch);
+    write(dir.path(), "file-README.md", readme);
+    let facts = desk.read_with(cx, |desk, _| desk.facts.clone());
+    facts.update(cx, |facts, cx| facts.refresh_task(LAVORO.into(), cx));
+}
+
+fn has_patch(cx: &mut VisualTestContext, desk: &Entity<Desk>) -> bool {
+    desk.read_with(cx, |desk, cx| {
+        let read = desk.changes.read(cx).task(LAVORO);
+        read.and_then(|read| read.patch()).is_some()
+    })
+}
+
+fn live(cx: &mut VisualTestContext, desk: &Entity<Desk>) -> Live {
+    desk.read_with(cx, |desk, cx| desk.facts.read(cx).live(LAVORO))
+}
+
+fn agent_place(cx: &mut VisualTestContext, desk: &Entity<Desk>) -> Option<Place> {
+    desk.read_with(cx, |desk, _| {
+        desk.trails.get(LAVORO).and_then(AgentTrail::place).cloned()
+    })
+}
+
+/// The runs of lines tinted in the open file (first and last), and how many marks its gutter has.
+fn file_marks(cx: &mut VisualTestContext, desk: &Entity<Desk>) -> (Vec<(u32, u32)>, usize) {
+    desk.read_with(cx, |desk, cx| {
+        let pane = desk.files.get(LAVORO).expect("the files").pane.read(cx);
+        let file = pane.file_view().read(cx);
+        let runs = file
+            .tinted_lines()
+            .into_iter()
+            .map(|run| (*run.start(), *run.end()));
+        (runs.collect(), file.mark_count(cx))
+    })
+}
+
+fn is_open(cx: &mut VisualTestContext, desk: &Entity<Desk>, path: &str) -> bool {
+    open_file(cx, desk).as_deref() == Some(path)
+}
+
+/// The agent appends a line to `README.md` with a shell command, which names no file, and its turn goes
+/// on; the task's first patch was read before.
+fn agent_edits_with_the_shell(
+    cx: &mut VisualTestContext,
+    desk: &Entity<Desk>,
+    dir: &tempfile::TempDir,
+) {
+    let readme = format!("{README_PATCH}{PATCH}");
+    agent_changes_readme(cx, desk, dir, (&readme, README_AFTER));
+}
+
+/// The agent changes `README.md` to `readme` with a shell command, the task's patch becoming `patch`,
+/// and its turn goes on; the task's first patch was read before.
+fn agent_changes_readme(
+    cx: &mut VisualTestContext,
+    desk: &Entity<Desk>,
+    dir: &tempfile::TempDir,
+    change: (&str, &str),
+) {
+    wait_for(cx, "the lavoro's patch", |cx| has_patch(cx, desk));
+    say(cx, desk, LAVORO, "shell");
+    wait_for(cx, "the agent at work", |cx| {
+        live(cx, desk) == Live::Working
+    });
+    files_change(cx, desk, dir, change);
+}
+
+#[gpui::test]
+fn a_file_the_agent_changes_with_a_shell_command_is_followed_to_its_first_changed_line(
+    cx: &mut TestAppContext,
+) {
+    let (cx, desk, dir) = open(cx);
+    assert_eq!(pane_view(cx, &desk), PaneView::Changes);
+    agent_edits_with_the_shell(cx, &desk, &dir);
+    wait_for(cx, "the file the agent changed", |cx| {
+        is_open(cx, &desk, README)
+    });
+    assert_eq!(
+        pane_view(cx, &desk),
+        PaneView::Files,
+        "the pane shows Files"
+    );
+    assert_eq!(agent_place(cx, &desk), Some((README.to_string(), Some(2))));
+    assert_eq!(is_following(cx, &desk), Some(true));
+    wait_for(cx, "the changed line marked in the file", |cx| {
+        file_marks(cx, &desk) == (vec![(2, 2)], 1)
+    });
+}
+
+#[gpui::test]
+fn the_tint_lies_on_the_changed_line_when_a_line_above_it_wraps(cx: &mut TestAppContext) {
+    let (cx, desk, dir) = open(cx);
+    // A first line long enough to wrap, the changed line far under it: the view scrolls past the wrap.
+    let lines: Vec<String> = (2..=40).map(|n| format!("line {n}")).collect();
+    let readme = format!("{}\n{}\none line\n", "word ".repeat(80), lines.join("\n"));
+    let patch = "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -40 +40,2 @@\n riga 40\n+one line\n";
+    agent_changes_readme(cx, &desk, &dir, (patch, &readme));
+    wait_for(cx, "the changed line tinted", |cx| {
+        is_open(cx, &desk, README) && file_marks(cx, &desk).0 == [(41, 41)]
+    });
+    let (bands, line) = desk.read_with(cx, |desk, cx| {
+        let file = desk
+            .files
+            .get(LAVORO)
+            .expect("the files")
+            .pane
+            .read(cx)
+            .file_view();
+        let file = file.read(cx);
+        let editor = file.editor();
+        let start = editor.read(cx).value().find("one line").expect("the line");
+        let line = editor.read(cx).range_to_bounds(&(start..start));
+        (file.tint_bands(cx), line.expect("the line on screen"))
+    });
+    assert_eq!(bands.len(), 1, "one band: {bands:?}");
+    assert_eq!(bands[0].top(), line.top(), "on the changed line's row");
+    assert_eq!(bands[0].bottom(), line.bottom(), "and only on it");
+}
+
+#[gpui::test]
+fn following_a_change_brings_back_a_hidden_pane(cx: &mut TestAppContext) {
+    let (cx, desk, dir) = open(cx);
+    cx.update(|_, cx| desk.update(cx, |desk, cx| desk.toggle_changes(cx)));
+    draw(cx);
+    let is_pane_shown =
+        |cx: &mut VisualTestContext| desk.read_with(cx, |desk, _| desk.panes_shown().changes);
+    assert!(!is_pane_shown(cx));
+    agent_edits_with_the_shell(cx, &desk, &dir);
+    wait_for(cx, "the pane back, on the file", |cx| {
+        is_pane_shown(cx) && is_open(cx, &desk, README)
+    });
+    assert_eq!(pane_view(cx, &desk), PaneView::Files);
+}
+
+#[gpui::test]
+fn undoing_the_change_reads_the_file_again_clears_its_marks_and_moves_nothing(
+    cx: &mut TestAppContext,
+) {
+    let (cx, desk, dir) = open(cx);
+    agent_edits_with_the_shell(cx, &desk, &dir);
+    wait_for(cx, "the changed line marked", |cx| {
+        is_open(cx, &desk, README) && file_marks(cx, &desk).1 == 1
+    });
+    let reads = asked(&dir, "file demo README.md");
+    files_change(cx, &desk, &dir, (PATCH, README_BEFORE));
+    wait_for(cx, "the file read again, unmarked", |cx| {
+        asked(&dir, "file demo README.md") > reads && file_marks(cx, &desk) == (vec![], 0)
+    });
+    settle(cx, &dir);
+    assert!(is_open(cx, &desk, README), "the file stays");
+    assert_eq!(pane_view(cx, &desk), PaneView::Files);
+    assert_eq!(agent_place(cx, &desk), Some((README.to_string(), Some(2))));
+    let shown = desk.read_with(cx, |desk, cx| {
+        let file = desk
+            .files
+            .get(LAVORO)
+            .expect("the files")
+            .pane
+            .read(cx)
+            .file_view();
+        let file = file.read(cx);
+        (file.note(), file.is_stale())
+    });
+    assert_eq!(shown, (None, false), "the text, with no error");
+}
+
+#[gpui::test]
+fn a_located_call_newer_than_a_change_wins_and_taking_the_pane_stops_following(
+    cx: &mut TestAppContext,
+) {
+    let (cx, desk, dir) = open(cx);
+    wait_for(cx, "the lavoro's patch", |cx| has_patch(cx, &desk));
+    say(cx, &desk, LAVORO, "tools");
+    wait_for(cx, "the file the agent reads", |cx| {
+        is_open(cx, &desk, FILE)
+    });
+    wait_for(cx, "the turn to end", |cx| {
+        live(cx, &desk) == Live::Answered
+    });
+    // The turn changed a file no call named: it is where the agent went last.
+    let readme = format!("{README_PATCH}{PATCH}");
+    files_change(cx, &desk, &dir, (&readme, README_AFTER));
+    wait_for(cx, "the change the turn made", |cx| {
+        is_open(cx, &desk, README)
+    });
+    say(cx, &desk, LAVORO, "diff");
+    wait_for(cx, "the newer call", |cx| is_open(cx, &desk, FILE));
+    // The person takes the pane: a change of the agent moves it no more.
+    click(cx, "pane-view-changes");
+    wait_for(cx, "following to stop", |cx| {
+        is_following(cx, &desk) == Some(false)
+    });
+    let again = readme.replace(
+        "+1,2 @@\n # Demo\n+one line",
+        "+1,3 @@\n # Demo\n+one line\n+two lines",
+    );
+    files_change(cx, &desk, &dir, (&again, README_AFTER));
+    wait_for(cx, "the agent's new place", |cx| {
+        agent_place(cx, &desk) == Some((README.to_string(), Some(3)))
+    });
+    settle(cx, &dir);
+    assert_eq!(pane_view(cx, &desk), PaneView::Changes, "the pane stays");
+    assert!(is_open(cx, &desk, FILE));
+}
+
+/// A file whose diff is longer than a glance: 45 new lines.
+fn long_file() -> String {
+    let lines: String = (1..=45).map(|n| format!("+riga {n}\n")).collect();
+    format!("diff --git a/src/lungo.rs b/src/lungo.rs\nnew file mode 100644\n--- /dev/null\n+++ b/src/lungo.rs\n@@ -0,0 +1,45 @@\n{lines}")
+}
+
+#[gpui::test]
+fn changes_starts_with_a_short_diff_open_and_a_long_one_closed(cx: &mut TestAppContext) {
+    let (cx, desk, dir) = open(cx);
+    files_change(
+        cx,
+        &desk,
+        &dir,
+        (&format!("{PATCH}{}", long_file()), README_BEFORE),
+    );
+    let rows =
+        |cx: &mut VisualTestContext| desk.read_with(cx, |desk, cx| desk.pane_rows(LAVORO, cx));
+    // The short file: its header, its hunk and its five lines; the long one: its header.
+    wait_for(cx, "both files listed", |cx| rows(cx) == 7 + 1);
+    click(cx, "changes-header-1");
+    assert_eq!(rows(cx), 8 + 1 + 45, "the long one opens in place");
+    click(cx, "changes-header-0");
+    assert_eq!(rows(cx), 54 - 6, "and the short one closes");
 }

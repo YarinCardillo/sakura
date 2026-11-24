@@ -6,4 +6,4 @@ Exec=sakura
 Icon=sakura
 Terminal=false
 Categories=Development;
-StartupWMClass=dev.yarin.sakura
+StartupWMClass=sakura

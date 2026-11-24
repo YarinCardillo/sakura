@@ -36,10 +36,8 @@ impl Mods {
     }
 }
 
-/// The bytes for `keystroke`, or `None` when it is plain text the input handler will insert.
-///
-/// With `option_as_meta`, Option plus an ASCII key sends ESC and the key (Alt as Meta); without it, Option
-/// composes characters as macOS does (on an Italian keyboard Option+ò is `@`).
+/// Return `None` for text handled by input composition. With `option_as_meta`,
+/// Option plus an ASCII key sends ESC followed by the key.
 pub(crate) fn encode_keystroke(
     keystroke: &Keystroke,
     mode: TermMode,
@@ -61,11 +59,8 @@ pub(crate) fn encode_keystroke(
     meta_key(keystroke, &mods, option_as_meta).map(Cow::Owned)
 }
 
-/// Text from the clipboard as the program should receive it.
-///
-/// When the program requested bracketed paste the text is wrapped in the brackets, with every escape
-/// character removed so it cannot end the bracket early. Otherwise nothing in the paste can execute: every
-/// control character except tab is removed and each line break becomes one space.
+/// Strip ESC from bracketed paste so pasted text cannot terminate the bracket.
+/// Outside bracketed mode, strip controls other than tabs and turn line breaks into spaces.
 pub(crate) fn encode_paste(text: &str, mode: TermMode) -> Vec<u8> {
     if mode.contains(TermMode::BRACKETED_PASTE) {
         let body = text.replace('\x1b', "");

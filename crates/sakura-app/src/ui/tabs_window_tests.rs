@@ -1,6 +1,6 @@
 //! The tabs in the window strip, driven in a test window on the fixture: a row opens in the tab on screen
 //! or, with Cmd, in one of its own behind it; the keys choose and close tabs; the tabs come back at the
-//! next launch; a lavoro that is gone loses its tab; and the first tab starts on the panel's left edge.
+//! next launch; a task that is gone loses its tab; and the first tab starts on the panel's left edge.
 
 use super::desk::Desk;
 use super::grid_tests::bounds;
@@ -8,15 +8,15 @@ use super::interaction_tests::{centre, click, draw, open_remembering, open_with,
 use crate::data::source::{Recorder, Source};
 use crate::prefs::Preferences;
 use crate::theme;
+use crate::ui::tabs::model::{Placement, Tabs};
 use gpui::{Entity, Modifiers, TestAppContext, VisualTestContext};
-use sakura_core::tabs::{Placement, Tabs};
 use std::sync::Arc;
 
 const VERIFIED: &str = "sample-accent";
 const WORKING: &str = "sample-folders";
 const TAKEN: &str = "headings-26";
 
-/// The lavori of the tabs, in strip order, and the one on screen.
+/// The tasks of the tabs, in strip order, and the one on screen.
 fn tabs(cx: &mut VisualTestContext, desk: &Entity<Desk>) -> (Vec<String>, Option<String>) {
     desk.read_with(cx, |desk, cx| {
         let tabs = desk.strip().read(cx).tabs();
@@ -234,10 +234,11 @@ fn what_a_lavoro_had_open_is_there_when_its_tab_comes_back(cx: &mut TestAppConte
     wait_for(cx, "the changes", |cx| {
         cx.debug_bounds("changes-header-0").is_some()
     });
-    let closed = desk.read_with(cx, |desk, cx| desk.pane_rows(VERIFIED, cx));
-    click(cx, "changes-header-0");
+    // A short diff starts open: the person closes it, and that is what the tab keeps.
     let open_rows = desk.read_with(cx, |desk, cx| desk.pane_rows(VERIFIED, cx));
-    assert!(open_rows > closed, "a file was opened in place");
+    click(cx, "changes-header-0");
+    let closed = desk.read_with(cx, |desk, cx| desk.pane_rows(VERIFIED, cx));
+    assert!(closed < open_rows, "a file was closed in place");
     cmd_click(cx, "row-headings-26");
     cx.simulate_keystrokes("cmd-2");
     draw(cx);
@@ -246,7 +247,7 @@ fn what_a_lavoro_had_open_is_there_when_its_tab_comes_back(cx: &mut TestAppConte
     draw(cx);
     assert_eq!(
         desk.read_with(cx, |desk, cx| desk.pane_rows(VERIFIED, cx)),
-        open_rows,
-        "the file is still open"
+        closed,
+        "the file is still closed"
     );
 }

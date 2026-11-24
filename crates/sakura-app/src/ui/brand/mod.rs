@@ -1,4 +1,5 @@
 //! Sakura's brand in the window: the mark, its one motion, the lockup and the About window.
+//! The Taken state alone uses the approved filled flower at 16 points in the surrounding text ink.
 //!
 //! The brand's rules are kept here by construction, so a view cannot break them by accident:
 //! - one drawing at every size: the cells of the brand's own file (`cells`), never redrawn;
@@ -25,12 +26,14 @@ mod cells;
 mod lockup;
 mod mark;
 mod motion;
+mod taken;
 #[cfg(test)]
 mod tests;
 
 pub use cells::Phase;
 pub use mark::{mark, Ink, MarkSize};
 pub use motion::{BrandMark, Rest};
+pub use taken::taken_mark;
 
 /// The About page of the Settings window: the same column as the About window, in the middle of the
 /// page as it is in the middle of that window.

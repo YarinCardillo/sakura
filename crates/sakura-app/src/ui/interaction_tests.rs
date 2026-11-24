@@ -380,15 +380,18 @@ fn tab_focuses_by_keyboard_so_the_ring_shows(cx: &mut TestAppContext) {
 /// start), and the kit's own selection tests bypass the gesture too. What is checked is the part that was
 /// missing: a press in the list gives it the keyboard, so Cmd+C reaches the kit's copy.
 #[gpui::test]
-fn a_file_opens_in_place_and_a_press_gives_the_list_the_keyboard(cx: &mut TestAppContext) {
+fn a_file_closes_and_opens_in_place_and_a_press_gives_the_list_the_keyboard(
+    cx: &mut TestAppContext,
+) {
     let (cx, desk, _) = open(cx);
     click(cx, "row-sample-accent");
     wait_for(cx, "the changes", |cx| {
         cx.debug_bounds("changes-header-0").is_some()
     });
-    let closed = pane_rows(cx, &desk);
+    // A short diff starts open.
+    let open_rows = pane_rows(cx, &desk);
     click(cx, "changes-header-0");
-    assert!(pane_rows(cx, &desk) > closed, "the file opened in place");
+    assert!(pane_rows(cx, &desk) < open_rows, "the file closed in place");
     cx.update(|window, cx| {
         assert!(
             window.focused(cx).is_some(),
@@ -397,7 +400,7 @@ fn a_file_opens_in_place_and_a_press_gives_the_list_the_keyboard(cx: &mut TestAp
         assert!(!window.last_input_was_keyboard(), "with no ring");
     });
     click(cx, "changes-header-0");
-    assert_eq!(pane_rows(cx, &desk), closed, "and closes again");
+    assert_eq!(pane_rows(cx, &desk), open_rows, "and opens again");
 }
 
 fn pane_rows(cx: &mut VisualTestContext, desk: &Entity<Desk>) -> usize {
@@ -411,7 +414,7 @@ fn a_drag_across_code_lines_selects_them_and_cmd_c_copies_them(cx: &mut TestAppC
     wait_for(cx, "the changes", |cx| {
         cx.debug_bounds("changes-header-0").is_some()
     });
-    click(cx, "changes-header-0");
+    // A short diff starts open: its lines are there with no press.
     let body = cx.debug_bounds("changes-body").expect("the list");
     // The header (36 px) and the hunk header (28 px) come first; code lines are 20 px tall.
     let first_line = body.top() + px(36. + 28. + 10.);

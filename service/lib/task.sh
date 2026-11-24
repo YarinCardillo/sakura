@@ -9,7 +9,7 @@ readonly KILL_GRACE_SECONDS=30
 
 readonly NEW_USAGE="usage: box new <task> <project> [--base <branch>] [--where mac|box]"
 
-# box new <task> <project> [--base <branch>] [--where mac|box]: a lavoro of the project, started
+# box new <task> <project> [--base <branch>] [--where mac|box]: a task of the project, started
 # from the project's base branch or from the branch that is named, in the place the project
 # names or the one that is requested. On the Mac it is a worktree of the repository (native.sh);
 # in a box a workspace cloned from it, on its own branch box/<task>.
@@ -56,7 +56,7 @@ parse_new_options() {
     if [ "$1" = "--base" ]; then NEW_BASE="$2"; else NEW_WHERE="$2"; fi
     shift 2
   done
-  is_place "$NEW_WHERE" || die "'$NEW_WHERE' is not a place: a lavoro is on the mac or in a box ($NEW_USAGE)"
+  is_place "$NEW_WHERE" || die "'$NEW_WHERE' is not a place: a task is on the mac or in a box ($NEW_USAGE)"
   [ -z "$(project_value_problem BASE "$NEW_BASE")" ] && has_local_branch "$REPO" "$NEW_BASE" \
     || die "'$NEW_BASE' is not a branch of the repository of project '$project' (box branches $project --json lists them)"
 }
@@ -120,7 +120,7 @@ cmd_rm() {
   dk volume rm "$(deps_volume "$task")" "$(npm_cache_volume "$task")" >/dev/null 2>&1 || true
   rm -f "${DEPS_DIR:?}/$task."*.ok
   rm -rf "${WORK_DIR:?}/$task" "${DROP_DIR:?}/$task" "${RESULTS_DIR:?}/$task" "$(task_retiring_mark "$task")" \
-    "${TASKS_DIR:?}/$task.env" "${TASKS_DIR:?}/$task.project" "${BUNDLES_DIR:?}/$task.bundle" "${VERIFIED_DIR:?}/$task.git" "${VERIFIED_DIR:?}/$task.store"
+    "${TASKS_DIR:?}/$task.age" "${TASKS_DIR:?}/$task.env" "${TASKS_DIR:?}/$task.project" "${BUNDLES_DIR:?}/$task.bundle" "${VERIFIED_DIR:?}/$task.git" "${VERIFIED_DIR:?}/$task.store"
   journal_event rm "$task"
   echo "task '$task' removed"
 }
@@ -200,7 +200,7 @@ clone_workspace() {
   person_git -C "$dir" rev-parse HEAD
 }
 
-# ---- the lifecycle lock of a task ---------------------------------------------------------------
+# The lifecycle lock of a task.
 # One lock file per task, on descriptor 5. box new, box rm and every command that starts
 # something for the task hold it exclusively: from before the task is looked at until the
 # command ends, or until what was started is running. A read of a workspace in a container
@@ -268,7 +268,7 @@ bind_box_task() {
     || { warn "task '$1' was removed or created again; operation refused"; return 1; }
 }
 
-# ---- starting something for a task --------------------------------------------------------------
+# Starting something for a task.
 # Between the moment a command looks at a task and the moment it starts something for it (a
 # conversation, Play, a container), box rm and box new could replace the task by one of the same
 # name in the other place: a native start would land in the workspace of a box, the mounts

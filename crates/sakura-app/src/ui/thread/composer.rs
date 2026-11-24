@@ -10,6 +10,7 @@ use crate::l10n::{tr, tr_with};
 use crate::theme::thread as tokens;
 use crate::theme::{self, Palette};
 use crate::ui::chrome::{mono, tabular, text, DETAILS};
+use crate::ui::enter::guard_enter;
 use gpui::{
     div, AnyElement, Context, InteractiveElement as _, IntoElement, ParentElement, SharedString,
     Stateful, StatefulInteractiveElement as _, Styled, Window,
@@ -32,7 +33,12 @@ impl ThreadView {
             .flex_col()
             .children(self.notice(palette, cx))
             .child(self.status_line(palette, cx))
-            .child(self.composer_box(palette, cx))
+            .child(
+                div()
+                    .relative()
+                    .child(self.composer_box(palette, cx))
+                    .children(self.slash_menu(palette, cx)),
+            )
             .into_any_element()
     }
 
@@ -54,7 +60,9 @@ impl ThreadView {
                     text(theme::TEXT_BODY, palette.text).child(tr(copy::NO_CONVERSATION));
                 (Some(sentence), vec![self.terminal_button(palette, cx)])
             }
-            Phase::Ready if self.is_kept_lost => (Some(self.kept_lost(palette)), Vec::new()),
+            Phase::Idle | Phase::Ready if self.is_kept_lost => {
+                (Some(self.kept_lost(palette)), Vec::new())
+            }
             _ => return None,
         };
         let notice = div()
@@ -72,7 +80,7 @@ impl ThreadView {
         Some(notice.into_any_element())
     }
 
-    /// The lavoro of the first message could not be made: why, in the interface's words, "Try again",
+    /// The task of the first message could not be made: why, in the interface's words, "Try again",
     /// and what the service itself wrote for who asks for it. The message stays where it is.
     fn creation_failure(&self, palette: &Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
         let Readiness::Failed { said, details } = (self.host.readiness)(cx) else {
@@ -127,10 +135,18 @@ impl ThreadView {
     /// person's own login on this Mac is named, because it is renewed outside Sakura.
     fn sign_in_words(&self, login: &Login, palette: &Palette) -> Option<gpui::Div> {
         let (sentence, hint) = match login {
-            Login::Box => (tr(copy::SIGN_IN_NEEDED).into(), tr(copy::SIGN_IN_HINT)),
+            Login::Box => (
+                tr(copy::SIGN_IN_NEEDED).into(),
+                Some(tr(copy::SIGN_IN_HINT)),
+            ),
+            #[cfg(not(feature = "boxes"))]
+            Login::Codex { .. } => (
+                tr(crate::l10n::Key("master.codex.needs_login")).into(),
+                None,
+            ),
             Login::Mac { account } => (
                 copy::login_expired(account.as_deref()),
-                tr(copy::LOGIN_EXPIRED_HINT),
+                Some(tr(copy::LOGIN_EXPIRED_HINT)),
             ),
         };
         let sentence: SharedString = sentence;
@@ -142,7 +158,7 @@ impl ThreadView {
             .flex_col()
             .gap(theme::GAP_TIGHT)
             .child(sentence)
-            .child(text(theme::TEXT_SMALL, palette.text_tertiary).child(hint));
+            .children(hint.map(|hint| text(theme::TEXT_SMALL, palette.text_tertiary).child(hint)));
         Some(words)
     }
 
@@ -201,6 +217,25 @@ impl ThreadView {
         palette: &Palette,
         cx: &mut Context<Self>,
     ) -> Vec<Stateful<gpui::Div>> {
+        #[cfg(not(feature = "boxes"))]
+        if let Login::Codex { is_waiting } = login {
+            let key = if *is_waiting {
+                "master.codex.login_cancel"
+            } else {
+                "master.codex.login"
+            };
+            let button = states::button(
+                "thread-codex-login",
+                tr(crate::l10n::Key(key)),
+                Face::Primary,
+                palette,
+            )
+            .debug_selector(|| "thread-codex-login".into())
+            .on_click(
+                cx.listener(|_, _, _, cx| cx.emit(super::ThreadViewEvent::CodexLoginRequested)),
+            );
+            return vec![button];
+        }
         let retry = states::button("thread-retry", tr(copy::RETRY), Face::Secondary, palette)
             .debug_selector(|| "thread-retry".to_string())
             .on_click(cx.listener(|view, _, _, cx| view.retry(cx)));
@@ -221,15 +256,17 @@ impl ThreadView {
             palette,
         )
         .debug_selector(|| "thread-restart".to_string())
-        .on_click(cx.listener(|view, _, _, cx| view.connect(cx)))
+        .on_click(cx.listener(|view, _, _, cx| view.retry(cx)))
     }
 
-    /// The conversation kept for the lavoro is gone where the agent keeps it: a new one is open, and
-    /// one line says so until the person writes.
     fn kept_lost(&self, palette: &Palette) -> gpui::Div {
+        let key = match self.master.is_some() {
+            true => copy::MASTER_KEPT_LOST,
+            false => copy::KEPT_LOST,
+        };
         text(theme::TEXT_SMALL, palette.text_tertiary)
             .debug_selector(|| "thread-kept-lost".to_string())
-            .child(tr(copy::KEPT_LOST))
+            .child(tr(key))
     }
 
     fn terminal_button(&self, palette: &Palette, cx: &mut Context<Self>) -> Stateful<gpui::Div> {
@@ -252,7 +289,7 @@ impl ThreadView {
         let is_starting = matches!(self.phase, Phase::Connecting | Phase::Loading);
         let preparing = (self.phase == Phase::Preparing).then(|| (self.host.readiness)(cx));
         let label = match (self.thread.turn(), self.waits_for_person) {
-            // The lavoro is being made: the service's own line says how far it is. A creation that
+            // The task is being made: the service's own line says how far it is. A creation that
             // failed is said above, with what to do about it.
             _ if matches!(preparing, Some(Readiness::Failed { .. })) => {
                 return line.into_any_element()
@@ -267,6 +304,19 @@ impl ThreadView {
                     _ => tr(copy::PREPARING).into(),
                 };
                 rows::waiting_label(words, palette)
+            }
+            // A message written while the conversation loads waits for it: say so, as Send is on hold.
+            _ if self.phase == Phase::Loading
+                && (self.held_message.is_some()
+                    || !super::composed(&self.composer, cx).is_empty()) =>
+            {
+                return line
+                    .child(
+                        text(theme::TEXT_SMALL, palette.text_tertiary)
+                            .debug_selector(|| "thread-composer-hold".to_string())
+                            .child(tr(copy::LOADING_HOLD)),
+                    )
+                    .into_any_element();
             }
             // While the person is being asked the card says so: this line says nothing a second time.
             (Turn::Idle, _) | (_, true) => return line.into_any_element(),
@@ -285,20 +335,10 @@ impl ThreadView {
     }
 
     fn composer_box(&self, palette: &Palette, cx: &mut Context<Self>) -> AnyElement {
-        let field = div()
-            .debug_selector(|| "thread-composer".to_string())
-            .flex_1()
-            .min_w_0()
-            .min_h(tokens::SEND_BUTTON_SIZE)
-            .flex()
-            .items_center()
-            .text_size(theme::TEXT_BODY)
-            .child(
-                Textarea::new(&self.composer)
-                    .small()
-                    .appearance(false)
-                    .bordered(false),
-            );
+        if self.master.is_some() {
+            return self.master_composer(palette, cx);
+        }
+        let field = self.composer_field();
         div()
             .debug_selector(|| "thread-composer-box".to_string())
             .w_full()
@@ -313,40 +353,65 @@ impl ThreadView {
             .into_any_element()
     }
 
+    /// The text field of the composer, with no outline of its own.
+    pub(super) fn composer_field(&self) -> gpui::Div {
+        div()
+            .debug_selector(|| "thread-composer".to_string())
+            .flex_1()
+            .min_w_0()
+            .min_h(tokens::SEND_BUTTON_SIZE)
+            .flex()
+            .items_center()
+            .text_size(theme::TEXT_BODY)
+            .capture_action(guard_enter(self.composer.clone()))
+            .child(
+                Textarea::new(&self.composer)
+                    .small()
+                    .appearance(false)
+                    .bordered(false),
+            )
+    }
+
     /// The round button at the composer's corner: send, or stop while a turn runs. It is a mark with no
     /// word, so it carries its name for who cannot see it.
-    fn send_button(&self, palette: &Palette, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn send_button(&self, palette: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let is_running = self.can_stop();
         let name = if is_running { copy::STOP } else { copy::SEND };
-        let face = send_face("thread-send", palette)
+        let is_ready = is_running || self.can_send(cx);
+        let (_, ink) = send_look(palette, is_ready);
+        let face = send_face("thread-send", palette, is_ready)
             .debug_selector(|| "thread-send".to_string())
             .aria_label(tr(name));
         if is_running {
             return face
-                .cursor_pointer()
                 .active(|style| style.opacity(tokens::PRESSED_OPACITY))
                 .on_click(cx.listener(|view, _, _, cx| view.stop(cx)))
-                .child(glyphs::stop(palette.primary_foreground))
+                .child(glyphs::stop(ink))
                 .into_any_element();
         }
-        let mark = glyphs::send(palette.primary_foreground);
-        if !self.can_send(cx) {
-            return face
-                .opacity(tokens::SEND_BUTTON_DISABLED_OPACITY)
-                .child(mark)
-                .into_any_element();
+        if !is_ready {
+            return face.child(glyphs::send(ink)).into_any_element();
         }
-        face.cursor_pointer()
-            .active(|style| style.opacity(tokens::PRESSED_OPACITY))
+        face.active(|style| style.opacity(tokens::PRESSED_OPACITY))
             .on_click(cx.listener(|view, _, window, cx| view.send(window, cx)))
-            .child(mark)
+            .child(glyphs::send(ink))
             .into_any_element()
     }
 }
 
-/// The round face of a send button, in the action colour, with no mark and no behaviour yet: the
-/// conversation's composer and "New task" both send with it.
-pub fn send_face(id: &'static str, palette: &Palette) -> Stateful<gpui::Div> {
+/// The colours of a send button: its face and the mark on it. With something to send it is the action
+/// colour; with nothing it is a quiet fill and a mark still at least 3:1 against it, so the button is
+/// dimmed and never gone.
+pub fn send_look(palette: &Palette, is_ready: bool) -> (gpui::Hsla, gpui::Hsla) {
+    match is_ready {
+        true => (palette.primary, palette.primary_foreground),
+        false => (palette.fill_hover, palette.text_tertiary),
+    }
+}
+
+/// The round face of a send button, in the colour [`send_look`] gives, with no mark and no behaviour yet:
+/// the conversation's composer and "New task" both send with it.
+pub fn send_face(id: &'static str, palette: &Palette, is_ready: bool) -> Stateful<gpui::Div> {
     div()
         .id(id)
         .role(gpui::Role::Button)
@@ -356,5 +421,5 @@ pub fn send_face(id: &'static str, palette: &Palette) -> Stateful<gpui::Div> {
         .items_center()
         .justify_center()
         .rounded_full()
-        .bg(palette.primary)
+        .bg(send_look(palette, is_ready).0)
 }

@@ -1,9 +1,9 @@
-//! Ending the work of a lavoro without closing it. On this Mac: "Publish" sends the agent the project's
+//! Ending the work of a task without closing it. On this Mac: "Publish" sends the agent the project's
 //! publishing request as the person's message (push the branch, open a draft pull request against the
 //! base), as a message of its own that leaves what they are writing where it is, and the link of the
 //! pull request appears in the header when the agent's answer carries one.
-//! In a box: once the work was taken, "Publish" starts a lavoro on this Mac from the branch that was
-//! taken, with the same request as its first message. Nothing here closes a lavoro: "Archive" does.
+//! In a box: once the work was taken, "Publish" starts a task on this Mac from the branch that was
+//! taken, with the same request as its first message. Nothing here closes a task: "Archive" does.
 
 use super::chrome::{control, keep_click, text_width};
 use super::desk::Desk;
@@ -25,7 +25,7 @@ use sakura_core::publish::{self, PullRequest, Request};
 
 const PUBLISH: Key = Key("publish.action");
 
-/// What is known of the publishing of one lavoro.
+/// What is known of the publishing of one task.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) struct Publishing {
     /// The agent was asked to publish and its answer is awaited.
@@ -46,9 +46,9 @@ struct Pending {
 /// What the header offers to end the work of `task` with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Offer {
-    /// A lavoro on this Mac: its own agent publishes.
+    /// A task on this Mac: its own agent publishes.
     ByItsAgent,
-    /// A lavoro in a box whose work was taken: an agent on this Mac publishes the branch taken.
+    /// A task in a box whose work was taken: an agent on this Mac publishes the branch taken.
     AfterTake,
     Nothing,
 }
@@ -101,7 +101,7 @@ impl Desk {
         small(tr(PUBLISH)) + link.map_or(0.0, |link| small(&link_label(link)))
     }
 
-    /// "Publish": a quiet control of the common height. While the lavoro's own agent cannot be asked it
+    /// "Publish": a quiet control of the common height. While the task's own agent cannot be asked it
     /// cannot be pressed, and says why under the pointer.
     fn publish_button(&self, task: &Task, offer: Offer, cx: &Context<Self>) -> AnyElement {
         let why_not = match offer {
@@ -154,7 +154,7 @@ impl Desk {
     }
 
     /// Publishes the work of `task`: its own agent is asked on this Mac; for a box whose work was
-    /// taken, a lavoro on this Mac is made from the branch taken, with the request as its first message.
+    /// taken, a task on this Mac is made from the branch taken, with the request as its first message.
     pub fn publish(&mut self, task: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(row) = self.facts.read(cx).row(task) else {
             return;
@@ -167,7 +167,7 @@ impl Desk {
         }
     }
 
-    /// The request goes to the lavoro's own agent as a message of its own; what the person is writing in
+    /// The request goes to the task's own agent as a message of its own; what the person is writing in
     /// the composer is neither sent with it nor thrown away.
     fn ask_agent_to_publish(&mut self, task: &Task, window: &mut Window, cx: &mut Context<Self>) {
         if !self.can_ask_agent(&task.name, cx) {
@@ -190,7 +190,7 @@ impl Desk {
         }
     }
 
-    /// A lavoro on this Mac from the branch that was taken, asked to publish it.
+    /// A task on this Mac from the branch that was taken, asked to publish it.
     fn publish_from_this_mac(&mut self, task: &Task, window: &mut Window, cx: &mut Context<Self>) {
         let Some(branch) = task.branch.clone() else {
             return;
@@ -328,7 +328,7 @@ mod tests {
     use super::*;
     use sakura_core::models::{BoxStatus, TakenState};
 
-    /// The fixture's lavoro with commits and nothing taken.
+    /// The fixture's task with commits and nothing taken.
     fn task() -> Task {
         let status: BoxStatus = serde_json::from_str(include_str!(
             "../../../sakura-core/tests/fixtures/status.json"

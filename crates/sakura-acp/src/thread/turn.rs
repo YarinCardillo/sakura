@@ -25,8 +25,9 @@ impl Thread {
         let was_stopped = self.turn == Turn::Cancelling;
         self.close_turn();
         let kind = match reason {
-            // The person asked to stop and the agent stopped: the conversation says so where it ended.
-            StopReason::Cancelled if was_stopped => ProblemKind::Stopped,
+            // The person asked to stop and the agent stopped, whatever it calls the end (an agent
+            // can end a stopped turn as a plain one): the conversation says so where it ended.
+            StopReason::Cancelled | StopReason::EndTurn if was_stopped => ProblemKind::Stopped,
             StopReason::EndTurn | StopReason::Cancelled => return,
             StopReason::Refusal => ProblemKind::Refusal,
             StopReason::MaxTokens => ProblemKind::MaxTokens,

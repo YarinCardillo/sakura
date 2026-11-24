@@ -6,7 +6,7 @@ use crate::thread::{Problem, ProblemKind};
 use crate::transport;
 use agent_client_protocol::Lines;
 use futures::{Sink, Stream, StreamExt};
-use sakura_core::box_cli::{kill_group, sanitize_line};
+use sakura_core::process::{kill_group, sanitize_line};
 use std::io;
 use std::pin::Pin;
 use std::process::{ExitStatus, Stdio};
@@ -36,14 +36,32 @@ pub(super) struct Process {
 }
 
 impl Process {
-    /// Starts `command` (program, then arguments) with `env` added to the environment.
-    pub(super) fn start(command: &[String], env: &[(String, String)]) -> io::Result<Self> {
+    /// Starts `command` (program, then arguments). With `allow` it starts from an empty environment holding
+    /// only those variables of this process's own; without it, from all of them. The variables of `unset`
+    /// are then removed and `env` is added.
+    pub(super) fn start(
+        command: &[String],
+        env: &[(String, String)],
+        unset: &[String],
+        allow: Option<&[String]>,
+    ) -> io::Result<Self> {
         let (program, arguments) = command.split_first().ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "the agent's command is empty")
         })?;
         let mut command = Command::new(program);
+        command.args(arguments);
+        if let Some(allow) = allow {
+            command.env_clear();
+            for name in allow {
+                if let Some(value) = std::env::var_os(name) {
+                    command.env(name, value);
+                }
+            }
+        }
+        unset.iter().for_each(|name| {
+            command.env_remove(name);
+        });
         command
-            .args(arguments)
             .envs(env.iter().map(|(name, value)| (name, value)))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -77,6 +95,12 @@ impl Process {
             reaches_a_handler,
         );
         Lines::new(Box::pin(transport::outgoing(stdin)), Box::pin(incoming))
+    }
+
+    /// The process's stdin and stdout as they are, for a protocol that is not ACP. Dropping the writer
+    /// closes the agent's input.
+    pub(super) fn take_pipes(&mut self) -> (ChildStdin, ChildStdout) {
+        self.pipes.take().expect("the pipes are taken once")
     }
 
     /// A clean stop: the agent's input is already closed, so it gets `grace` to exit by itself and is then

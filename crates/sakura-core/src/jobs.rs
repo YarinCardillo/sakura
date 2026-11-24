@@ -133,7 +133,7 @@ impl Job {
     }
 }
 
-/// A lavoro to create: its name, its project, and the arguments of `box` that create it (checked by
+/// A task to create: its name, its project, and the arguments of `box` that create it (checked by
 /// whoever built them).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewJob {

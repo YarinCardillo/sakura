@@ -40,6 +40,7 @@ HEAD_SHA="$(git -C "$W" rev-parse HEAD)"
 echo " a check that leaves the worktree as it found it"
 check clean
 assert_eq "passes for its commit" "0 $HEAD_SHA" "$(jq -r '"\(.exit_code) \(.sha)"' "$RESULT")"
+assert_eq "a result that stands says nothing was set aside" "null" "$(jq -r .discarded "$RESULT")"
 check ignored
 assert_eq "also when it writes files git ignores" "0" "$(jq -r .exit_code "$RESULT")"
 
@@ -49,6 +50,8 @@ assert_contains "(the command itself passed)" "passed-on-the-edit" "$(cat "${RES
 assert_eq "the result is not a pass" "2" "$(jq -r .exit_code "$RESULT")"
 assert_contains "its log says why" "$REASON" "$(cat "${RESULT%.json}.log")"
 assert_eq "facts do not show a pass for the head" "2" "$("$BOX" facts m1 --json | jq -r '.results.edit.exitCode')"
+assert_contains "the result says it was set aside, and why" "$REASON" "$(jq -r .discarded "$RESULT")"
+assert_contains "and so do the facts" "$REASON" "$("$BOX" facts m1 --json | jq -r '.results.edit.discarded')"
 restore "$HEAD_SHA"
 
 echo " the head moved while the check ran"
@@ -79,6 +82,7 @@ for bit in assume-unchanged skip-worktree; do
   RESULT="$(/bin/ls -t "$AGENTBOX_HOME/results/m1"/*-ran.json | head -1)"
   assert_eq "an index with a $bit entry: the check is refused" "2" "$(jq -r .exit_code "$RESULT")"
   assert_contains "  its log says why" "hides files from git" "$(cat "${RESULT%.json}.log")"
+  assert_contains "  and the result too" "hides files from git" "$(jq -r .discarded "$RESULT")"
   assert_no_file "  the command did not run" "$TMP/ran"
   assert_status "  box verify refuses it too" 1 "$BOX" verify m1 ran --no-wait
   assert_contains "  with one box: line that says why" "box: the index of the worktree of task 'm1' hides files from git" "$OUTPUT"
@@ -119,6 +123,7 @@ echo " an edit that slips in while the state before the check is being read"
 shimmed_check read-tree 1 edit-before
 assert_eq "it is part of that state, which is then not the commit: refused" "2" "$(jq -r .exit_code "$RESULT")"
 assert_contains "as uncommitted work" "commit first: a check is for a commit" "$(cat "${RESULT%.json}.log")"
+assert_contains "and the result says so" "commit first: a check is for a commit" "$(jq -r .discarded "$RESULT")"
 assert_no_file "the command did not run" "$TMP/ran"
 restore "$HEAD_SHA"
 
@@ -133,6 +138,7 @@ for step in read-tree add write-tree; do
   shimmed_check "$step" 1 fail
   assert_eq "$step fails before the check: refused" "2" "$(jq -r .exit_code "$RESULT")"
   assert_contains "  its log says why" "the state of the worktree cannot be read" "$(cat "${RESULT%.json}.log")"
+  assert_contains "  and the result too" "the state of the worktree cannot be read" "$(jq -r .discarded "$RESULT")"
   assert_no_file "  the command did not run" "$TMP/ran"
   shimmed_check "$step" 2 fail
   assert_eq "$step fails after the check: the result is not a pass" "1 2" "$(wc -l <"$TMP/ran" | tr -d ' ') $(jq -r .exit_code "$RESULT")"

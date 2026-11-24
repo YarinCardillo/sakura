@@ -5,6 +5,7 @@ use crate::error::{BridgeError, BridgeResult};
 use crate::said::{Key, Said};
 
 const SLUG_MAX_LEN: usize = 40;
+const TASK_ID_MAX_LEN: usize = 48;
 const VERB_MAX_LEN: usize = 31;
 const SHA_MIN_LEN: usize = 7;
 const SHA_MAX_LEN: usize = 40;
@@ -15,17 +16,30 @@ const BRANCH_MAX_LEN: usize = 255;
 /// The longest value `box` takes for a field of a project.
 const TEXT_MAX_LEN: usize = 2000;
 
-/// Task name: `box`'s pattern `^[a-z0-9]+(-[a-z0-9]+)*$`, at most 40 characters; never read as a flag.
+/// Task id follows the engine's `flow.store.TASK_ID` pattern and cannot be read as a flag.
 pub fn task(value: &str) -> BridgeResult<&str> {
-    slug(Key("validate.label.task"), value)
+    let is_alphanumeric = |byte: u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
+    let mut bytes = value.bytes();
+    if value.len() <= TASK_ID_MAX_LEN
+        && bytes.next().is_some_and(is_alphanumeric)
+        && bytes.all(|byte| is_alphanumeric(byte) || byte == b'-')
+    {
+        Ok(value)
+    } else {
+        Err(invalid_name(
+            Key("validate.label.task"),
+            value,
+            Key("validate.task_id_rule"),
+        ))
+    }
 }
 
-/// Account name: same rule as a task name.
+/// Account name for the `box` interface.
 pub fn account(value: &str) -> BridgeResult<&str> {
     slug(Key("validate.label.account"), value)
 }
 
-/// Project name: same rule as a task name.
+/// Project name for the `box` interface.
 pub fn project(value: &str) -> BridgeResult<&str> {
     slug(Key("validate.label.project"), value)
 }
@@ -124,7 +138,7 @@ pub fn terminal_size(cols: u16, rows: u16) -> BridgeResult<(u16, u16)> {
     }
 }
 
-/// The rule of task, account and profile names, as the interface writes it under a name field.
+/// The rule for `box` account and project names.
 pub const SLUG_RULE: Key = Key("validate.slug_rule");
 
 /// `box`'s name pattern `^[a-z0-9]+(-[a-z0-9]+)*$`, at most 40 characters.
@@ -142,12 +156,17 @@ fn slug(label: Key, value: &str) -> BridgeResult<&str> {
     if is_slug(value) {
         Ok(value)
     } else {
-        let said = Said::new("error.invalid.name")
+        Err(invalid_name(label, value, SLUG_RULE))
+    }
+}
+
+fn invalid_name(label: Key, value: &str, rule: Key) -> BridgeError {
+    BridgeError::invalid(
+        Said::new("error.invalid.name")
             .said("label", label.into())
             .text("value", value)
-            .said("rule", SLUG_RULE.into());
-        Err(BridgeError::invalid(said))
-    }
+            .said("rule", rule.into()),
+    )
 }
 
 #[cfg(test)]
@@ -191,10 +210,15 @@ mod tests {
     }
 
     #[test]
-    fn task_accepts_lowercase_digits_and_inner_hyphens() {
-        assert!(task("sample-accent").is_ok());
-        assert!(task("m1").is_ok());
-        assert!(task(&"a".repeat(40)).is_ok());
+    fn task_matches_the_engine_alphabet_and_length() {
+        for value in ["sample-accent", "m1", "0", "a--b", "x-", &"a".repeat(48)] {
+            assert!(task(value).is_ok(), "{value:?}");
+        }
+        for validate in [account, project] {
+            for value in ["a--b", "x-", &"a".repeat(41)] {
+                assert!(validate(value).is_err(), "{value:?}");
+            }
+        }
     }
 
     #[test]
@@ -202,8 +226,6 @@ mod tests {
         let bad = [
             "",
             "-x",
-            "x-",
-            "a--b",
             "A",
             "a b",
             "a/b",
@@ -214,7 +236,7 @@ mod tests {
             "$(id)",
             "è",
             "..",
-            &"a".repeat(41),
+            &"a".repeat(49),
         ];
         for value in bad {
             let error = task(value).unwrap_err();

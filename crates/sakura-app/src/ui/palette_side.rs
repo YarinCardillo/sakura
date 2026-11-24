@@ -1,6 +1,6 @@
 //! The command palette in the desk's window: where the window is when Cmd+K is pressed, and what the desk
-//! does for a command only it can carry out. A command on a lavoro names its lavoro; the palette checks
-//! it against the window as it is when it is chosen, and the desk finds the lavoro again by name.
+//! does for a command only it can carry out. A command on a task names its task; the palette checks
+//! it against the window as it is when it is chosen, and the desk finds the task again by name.
 
 use super::desk::Desk;
 use super::palette::{self, Ask, Palette, PaletteEvent, PlayState, ShownTask, Situation};
@@ -33,7 +33,7 @@ impl Desk {
         palette
     }
 
-    /// Where the window is: its lavori in the sidebar's order, the one shown and what can be done with
+    /// Where the window is: its tasks in the sidebar's order, the one shown and what can be done with
     /// it now, the panes, the language.
     pub fn situation(&self, cx: &App) -> Situation {
         let facts = self.facts.read(cx);
@@ -63,7 +63,7 @@ impl Desk {
     /// Where the Play of `task` stands, as the palette offers it.
     fn play_state(&self, task: &str) -> PlayState {
         let plays = &self.plays;
-        match (plays.is_offered(task), plays.is_running(task)) {
+        match (plays.is_offered(), plays.is_running(task)) {
             (false, _) => PlayState::Absent,
             (true, true) => PlayState::Running,
             (true, false) if plays.can_start(task) => PlayState::AtRest,
@@ -71,7 +71,7 @@ impl Desk {
         }
     }
 
-    /// Carries out what the palette asked, on the lavoro it names.
+    /// Carries out what the palette asked, on the task it names.
     fn palette_asked(&mut self, ask: &Ask, window: &mut Window, cx: &mut Context<Self>) {
         match ask {
             Ask::ShowTask(task) => self.select(task.clone(), cx),

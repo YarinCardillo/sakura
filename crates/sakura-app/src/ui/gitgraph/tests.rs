@@ -253,6 +253,30 @@ fn a_first_read_that_fails_offers_to_try_again(cx: &mut TestAppContext) {
     assert!(cx.debug_bounds("graph-row-t1").is_some());
 }
 
+#[gpui::test]
+fn a_read_says_it_is_reading_only_once_it_is_slow(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_component::init(cx);
+        Theme::set(Appearance::Dark, cx);
+    });
+    let read: ReadGraph = Rc::new(|| Box::pin(std::future::pending()));
+    let (_, cx) = cx.add_window_view(move |window, cx| {
+        let graph = cx.new(|cx| GitGraph::new(read, Rc::new(|_, _| None), cx));
+        gpui_component::Root::new(graph, window, cx)
+    });
+    draw(cx);
+    assert!(
+        cx.debug_bounds("graph-reading").is_none(),
+        "a read is not said at once"
+    );
+    cx.executor().advance_clock(crate::ui::patience::SLOW_READ);
+    draw(cx);
+    assert!(
+        cx.debug_bounds("graph-reading").is_some(),
+        "a slow read is said"
+    );
+}
+
 #[test]
 fn rows_stand_on_the_grid_in_both_languages_at_both_widths() {
     real_text::run(|cx| {

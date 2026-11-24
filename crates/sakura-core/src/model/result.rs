@@ -16,6 +16,8 @@ pub enum ResultView {
     MaiEseguito,
     /// Cancelled on HEAD before it ended: neither passed nor failed.
     Annullata,
+    /// Set aside by `box` on HEAD (the folder changed while it ran): neither passed nor failed.
+    Scartata,
     /// Passed on HEAD, but what `box` recorded with it keeps it from being plain green.
     VerdeConRiserva(Reserve),
 }
@@ -29,6 +31,7 @@ impl ResultView {
             ResultView::Vecchio => Key("result.old"),
             ResultView::MaiEseguito => Key("result.never_run"),
             ResultView::Annullata => Key("result.cancelled"),
+            ResultView::Scartata => Key("result.discarded"),
             ResultView::VerdeConRiserva(reserve) => reserve.word(),
         }
     }
@@ -40,6 +43,7 @@ pub fn result_view(task: &Task, verb: &str) -> ResultView {
         None => ResultView::MaiEseguito,
         Some(result) if !is_for_head(task, result) => ResultView::Vecchio,
         Some(result) if result.cancelled => ResultView::Annullata,
+        Some(result) if result.discarded.is_some() => ResultView::Scartata,
         Some(result) if result.exit_code == 0 => match distrust(verb, result) {
             Some(distrust) => ResultView::VerdeConRiserva(distrust.reserve()),
             None => ResultView::Passato,

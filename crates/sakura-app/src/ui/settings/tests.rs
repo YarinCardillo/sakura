@@ -19,7 +19,9 @@ use gpui::{
 };
 use gpui_component::input::InputState;
 use sakura_core::error::{BridgeError, BridgeResult};
-use sakura_core::models::{Account, BoxStatus, DiskUse, Place};
+use sakura_core::models::{
+    Account, BoxStatus, CheckRunner, DiskUse, EnginePrerequisites, Place, RunnerKind,
+};
 use sakura_core::said::Said;
 use sakura_core::settings::detect::{parse_detected, Addition, Detected};
 use sakura_core::settings::{parse_projects, Branches, Change, Listed};
@@ -66,6 +68,8 @@ struct Fake {
     is_refusing: Cell<bool>,
     /// While set, an answer waits until the test lets it go.
     is_holding: Cell<bool>,
+    /// The choice of runner `box status` says; none from a service with one runner.
+    check_runner: RefCell<Option<CheckRunner>>,
     held: RefCell<Vec<Box<dyn FnOnce()>>>,
 }
 
@@ -81,6 +85,7 @@ impl Fake {
             is_unreadable: Cell::new(false),
             is_refusing: Cell::new(false),
             is_holding: Cell::new(false),
+            check_runner: RefCell::new(None),
             held: RefCell::default(),
         })
     }
@@ -163,13 +168,28 @@ impl SettingsSource for Fake {
         let accounts = vec![
             account("personal", Place::Box, true),
             account("work", Place::Box, false),
+            account("studio", Place::Box, false),
             account("personal", Place::Mac, true),
         ];
         self.read("accounts", accounts)
     }
 
     fn status(&self) -> Reading<BoxStatus> {
-        self.read("status", serde_json::from_str(STATUS).expect("the fixture"))
+        let mut status: BoxStatus = serde_json::from_str(STATUS).expect("the fixture");
+        status.check_runner = self.check_runner.borrow().clone();
+        self.read("status", status)
+    }
+
+    #[cfg(feature = "restate-engine")]
+    fn set_runner(&self, runner: RunnerKind) -> Reading<()> {
+        let call = format!("runner {}", runner.word());
+        if self.is_refusing.get() {
+            return self.answer(call, Err(refusal()));
+        }
+        if let Some(choice) = self.check_runner.borrow_mut().as_mut() {
+            choice.runner = runner;
+        }
+        self.answer(call, Ok(()))
     }
 
     fn set(&self, project: &str, change: Change) -> Reading<()> {
@@ -235,6 +255,112 @@ fn draw(cx: &mut VisualTestContext) {
 
 fn open(cx: &mut TestAppContext) -> Opened<'_> {
     open_over(cx, Fake::new())
+}
+
+#[gpui::test]
+fn updates_section_shows_the_build_version_and_its_unconfigured_state(cx: &mut TestAppContext) {
+    crate::l10n::set_for_test(Language::English);
+    let opened = open(cx);
+    let section = super::Section::ALL
+        .into_iter()
+        .find(|section| section.title() == crate::l10n::Key("settings.section.updates"))
+        .expect("Updates is a Settings section");
+    opened
+        .settings
+        .update(opened.cx, |settings, cx| settings.show(section, cx));
+    draw(opened.cx);
+    assert!(is_there(opened.cx, "settings-updates-version"));
+    assert!(is_there(opened.cx, "settings-updates-automatic"));
+    assert!(is_there(opened.cx, "settings-updates-check"));
+}
+
+#[gpui::test]
+fn updates_rows_show_each_state_as_a_searchable_sentence(cx: &mut TestAppContext) {
+    use crate::updates::{Release, UpdateState};
+    let opened = open(cx);
+    let section = super::Section::ALL
+        .into_iter()
+        .find(|section| section.title() == crate::l10n::Key("settings.section.updates"))
+        .expect("Updates is a Settings section");
+    let available = UpdateState::Available(Release {
+        version: "999.0.0".into(),
+        url: "https://github.com/example/app/releases/tag/v999.0.0".into(),
+    });
+    for state in [
+        UpdateState::NotSetUp,
+        UpdateState::Ready,
+        UpdateState::Checking,
+        UpdateState::UpToDate,
+        available,
+        UpdateState::Failed,
+    ] {
+        opened
+            .cx
+            .update(|_, cx| crate::updates::install_for_test(state.clone(), cx));
+        opened.settings.update(opened.cx, |settings, cx| {
+            let groups = settings.groups(section, cx);
+            let row = &groups[0].rows[2];
+            assert_eq!(
+                row.description().map(|text| text.as_ref()),
+                Some(crate::updates::sentence(&state).as_str())
+            );
+            assert!(row.matches(&crate::updates::sentence(&state)));
+        });
+    }
+}
+
+#[gpui::test]
+fn updates_toggle_is_kept_without_taking_the_keyboard_or_drawing_a_ring(cx: &mut TestAppContext) {
+    let opened = open(cx);
+    opened
+        .cx
+        .update(|_, cx| crate::prefs::Preferences::default().install(None, cx));
+    let section = super::Section::ALL
+        .into_iter()
+        .find(|section| section.title() == crate::l10n::Key("settings.section.updates"))
+        .expect("Updates is a Settings section");
+    opened
+        .settings
+        .update(opened.cx, |settings, cx| settings.show(section, cx));
+    draw(opened.cx);
+    opened
+        .cx
+        .update(|window, cx| assert!(window.focused(cx).is_none()));
+    click(opened.cx, "settings-updates-automatic");
+    opened.cx.update(|window, cx| {
+        assert!(!crate::prefs::Preferences::current(cx).is_automatic_updates_enabled);
+        assert!(window.focused(cx).is_none());
+    });
+    assert_eq!(crate::ui::focus_tests::rings(opened.cx), 0);
+}
+
+#[gpui::test]
+fn updates_available_release_opens_its_public_page_without_taking_focus(cx: &mut TestAppContext) {
+    let opened = open(cx);
+    let url = "https://github.com/example/app/releases/tag/v999.0.0";
+    opened.cx.update(|_, cx| {
+        crate::updates::install_for_test(
+            crate::updates::UpdateState::Available(crate::updates::Release {
+                version: "999.0.0".into(),
+                url: url.into(),
+            }),
+            cx,
+        )
+    });
+    let section = super::Section::ALL
+        .into_iter()
+        .find(|section| section.title() == crate::l10n::Key("settings.section.updates"))
+        .unwrap();
+    opened
+        .settings
+        .update(opened.cx, |settings, cx| settings.show(section, cx));
+    draw(opened.cx);
+    click(opened.cx, "settings-update-release");
+    assert_eq!(opened.cx.opened_url().as_deref(), Some(url));
+    opened
+        .cx
+        .update(|window, cx| assert!(window.focused(cx).is_none()));
+    assert_eq!(crate::ui::focus_tests::rings(opened.cx), 0);
 }
 
 fn open_over(cx: &mut TestAppContext, source: Rc<Fake>) -> Opened<'_> {
@@ -309,7 +435,23 @@ fn is_there(cx: &mut VisualTestContext, selector: &'static str) -> bool {
     cx.debug_bounds(selector).is_some()
 }
 
+/// A press on what `selector` names; one below the window is scrolled into view first, as the
+/// person scrolls the page to reach it.
 fn click(cx: &mut VisualTestContext, selector: &'static str) {
+    let height = cx.update(|window, _| window.viewport_size().height);
+    let target = bounds(cx, selector);
+    if target.bottom() > height {
+        let wheel = gpui::ScrollEvent {
+            position: gpui::point(target.center().x, height / 2.),
+            delta: gpui::ScrollDelta::Pixels(gpui::point(
+                gpui::px(0.),
+                height / 2. - target.bottom(),
+            )),
+            ..Default::default()
+        };
+        cx.simulate_event(wheel);
+        draw(cx);
+    }
     let centre = bounds(cx, selector).center();
     cx.simulate_click(centre, Modifiers::none());
     draw(cx);
@@ -785,13 +927,14 @@ fn only_an_account_of_the_boxes_that_is_not_signed_in_offers_to_sign_in(cx: &mut
     ] {
         assert!(is_there(opened.cx, account), "{account}");
     }
-    let sign_in = bounds(opened.cx, "settings-sign-in");
+    let sign_in = bounds(opened.cx, "settings-sign-in-work");
     let work = bounds(opened.cx, "settings-account-box-work");
     assert!(
         work.contains(&sign_in.center()),
-        "the one offer is on the account that is signed out"
+        "the offer is on the account that is signed out"
     );
-    click(opened.cx, "settings-sign-in");
+    assert!(!is_there(opened.cx, "settings-sign-in-personal"));
+    click(opened.cx, "settings-sign-in-work");
     let asked = SettingsEvent::SignInAsked {
         account: "work".into(),
     };
@@ -801,6 +944,29 @@ fn only_an_account_of_the_boxes_that_is_not_signed_in_offers_to_sign_in(cx: &mut
         ["projects", "accounts"],
         "nothing is asked of box to sign in"
     );
+}
+
+#[gpui::test]
+fn two_accounts_signed_out_have_a_sign_in_each_and_a_press_asks_for_that_one_only(
+    cx: &mut TestAppContext,
+) {
+    let opened = open(cx);
+    click(opened.cx, "settings-section-accounts");
+    for (row, sign_in) in [
+        ("settings-account-box-work", "settings-sign-in-work"),
+        ("settings-account-box-studio", "settings-sign-in-studio"),
+    ] {
+        let (row_at, sign_in_at) = (bounds(opened.cx, row), bounds(opened.cx, sign_in));
+        assert!(
+            row_at.contains(&sign_in_at.center()),
+            "{sign_in} is on {row}"
+        );
+    }
+    click(opened.cx, "settings-sign-in-studio");
+    let asked = SettingsEvent::SignInAsked {
+        account: "studio".into(),
+    };
+    assert_eq!(*opened.events.borrow(), [asked]);
 }
 
 #[gpui::test]
@@ -987,22 +1153,25 @@ fn the_window_stands_on_the_grid_and_a_choice_moves_nothing() {
     real_text::run(|cx| {
         let mut opened = open(cx);
         let window = opened.cx.update(|window, _| window.viewport_size());
-        let (projects, panel) = (
+        let (projects, accounts, panel) = (
             bounds(opened.cx, "settings-section-projects"),
+            bounds(opened.cx, "settings-section-accounts"),
             bounds(opened.cx, "settings-panel"),
         );
-        assert_near(projects.size.height, theme::ROW_HEIGHT, "a section's row");
-        assert_near(projects.left(), theme::PANEL_INSET, "the list's inset");
+        assert!(
+            projects.right() <= sizes::SECTIONS_WIDTH,
+            "a section's row is in the list"
+        );
+        assert!(
+            accounts.top() > projects.bottom(),
+            "the rows stand in a column"
+        );
         assert_near(
             panel.left(),
             sizes::SECTIONS_WIDTH,
             "the panel starts where the list ends",
         );
-        assert_near(
-            panel.right(),
-            window.width - theme::PANEL_INSET,
-            "the panel's inset",
-        );
+        assert_near(panel.right(), window.width, "and ends at the window's edge");
         opened.open_project();
         let rows = [
             "settings-row-base",
@@ -1022,8 +1191,8 @@ fn the_window_stands_on_the_grid_and_a_choice_moves_nothing() {
             );
         }
         assert!(
-            first.size.width <= sizes::PAGE_MAX_WIDTH,
-            "the page is one column"
+            first.left() >= panel.left() && first.right() <= panel.right(),
+            "the form stands in the panel"
         );
         let before = (
             bounds(opened.cx, "settings-place-mac"),
@@ -1118,11 +1287,10 @@ fn the_controls_of_every_section_end_on_one_line_and_stay_inside_their_rows() {
         let theme = inside(opened.cx, "settings-row-theme", &themes);
         let language = inside(opened.cx, "settings-row-language", &languages);
         assert_near(
-            theme.left(),
-            language.left(),
-            "the rows share their left edge",
+            theme.right(),
+            language.right(),
+            "the controls end on one line",
         );
-        assert_near(theme.right(), language.right(), "and their right edge");
         let before = bounds(opened.cx, "settings-language-it");
         click(opened.cx, "settings-theme-light");
         assert_eq!(
@@ -1137,8 +1305,12 @@ fn the_controls_of_every_section_end_on_one_line_and_stay_inside_their_rows() {
             &["settings-terminal-font"],
         );
         let size = inside(opened.cx, "settings-row-terminal-size", &sizes_of_text);
-        assert_near(font.left(), theme.left(), "the terminal's rows start there");
-        assert_near(size.right(), theme.right(), "and end there");
+        assert_near(
+            font.right(),
+            theme.right(),
+            "the terminal's controls end there",
+        );
+        assert_near(size.right(), theme.right(), "and its sizes");
         assert_near(
             bounds(opened.cx, "settings-terminal-font").right(),
             bounds(opened.cx, "settings-theme-dark").right() + theme::TAB_GAP,
@@ -1175,7 +1347,11 @@ fn the_controls_of_every_section_end_on_one_line_and_stay_inside_their_rows() {
 
         click(opened.cx, "settings-section-agent");
         let request = bounds(opened.cx, "settings-row-default-request");
-        assert!(request.size.width <= sizes::PAGE_MAX_WIDTH, "one column");
+        let panel = bounds(opened.cx, "settings-panel");
+        assert!(
+            request.right() <= panel.right(),
+            "the field stands in the panel"
+        );
         click(opened.cx, "settings-section-storage");
         inside(
             opened.cx,
@@ -1185,19 +1361,346 @@ fn the_controls_of_every_section_end_on_one_line_and_stay_inside_their_rows() {
         for row in ["settings-storage-folder", "settings-storage-task-0"] {
             let row = bounds(opened.cx, row);
             assert_near(
-                row.left(),
-                request.left(),
-                "Storage starts on the same line",
+                row.right(),
+                request.right(),
+                "Storage ends on the same line",
             );
-            assert_near(row.right(), request.right(), "and ends on it");
         }
         click(opened.cx, "settings-section-shortcuts");
         let shortcut = bounds(opened.cx, "settings-shortcut-0");
         assert_near(
-            shortcut.left(),
-            request.left(),
-            "every page starts on one line",
+            shortcut.right(),
+            request.right(),
+            "every page ends on one line",
         );
-        assert_near(shortcut.right(), request.right(), "and ends on one");
     });
+}
+
+/// The words typed in the search field, with the keyboard as the person types them.
+fn search_for(cx: &mut VisualTestContext, words: &str) {
+    click(cx, "settings-search");
+    cx.simulate_input(words);
+    draw(cx);
+}
+
+/// The search field emptied with Escape.
+fn empty_search(cx: &mut VisualTestContext) {
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+}
+
+const SECTION_ROWS: [&str; 9] = [
+    "settings-section-projects",
+    "settings-section-accounts",
+    "settings-section-agent",
+    "settings-section-appearance",
+    "settings-section-notifications",
+    "settings-section-machine",
+    "settings-section-storage",
+    "settings-section-shortcuts",
+    "settings-section-about",
+];
+
+/// The sections the list shows now, in its order.
+fn listed(cx: &mut VisualTestContext) -> Vec<&'static str> {
+    SECTION_ROWS
+        .into_iter()
+        .filter(|row| is_there(cx, row))
+        .collect()
+}
+
+#[gpui::test]
+fn a_search_lists_only_the_sections_that_hold_it_and_shows_only_its_rows(cx: &mut TestAppContext) {
+    l10n::set_for_test(Language::English);
+    let opened = open(cx);
+    assert_eq!(
+        listed(opened.cx),
+        SECTION_ROWS,
+        "every section before a search"
+    );
+    search_for(opened.cx, "theme");
+    assert_eq!(listed(opened.cx), ["settings-section-appearance"]);
+    assert_eq!(opened.cx.window_title().as_deref(), Some("Appearance"));
+    assert!(is_there(opened.cx, "settings-row-theme"));
+    assert!(
+        !is_there(opened.cx, "settings-row-language"),
+        "a row the search does not find is not shown"
+    );
+    empty_search(opened.cx);
+    search_for(opened.cx, " DARK MODE");
+    assert!(
+        is_there(opened.cx, "settings-row-theme"),
+        "a word the title does not have finds the row, whatever its case"
+    );
+}
+
+#[gpui::test]
+fn a_section_with_nothing_the_search_finds_is_not_listed_and_nothing_found_is_said(
+    cx: &mut TestAppContext,
+) {
+    l10n::set_for_test(Language::English);
+    let opened = open(cx);
+    search_for(opened.cx, "notification");
+    assert_eq!(listed(opened.cx), ["settings-section-notifications"]);
+    assert!(is_there(opened.cx, "settings-notify-needs-you"));
+    empty_search(opened.cx);
+    search_for(opened.cx, "no setting is called this");
+    assert!(listed(opened.cx).is_empty());
+    assert!(is_there(opened.cx, "settings-no-results"));
+}
+
+#[gpui::test]
+fn emptying_the_search_shows_again_the_section_that_was_open(cx: &mut TestAppContext) {
+    l10n::set_for_test(Language::English);
+    let opened = open(cx);
+    click(opened.cx, "settings-section-notifications");
+    search_for(opened.cx, "terminal");
+    assert_eq!(
+        opened.cx.window_title().as_deref(),
+        Some("Appearance"),
+        "the section that holds it is on screen"
+    );
+    empty_search(opened.cx);
+    assert_eq!(listed(opened.cx), SECTION_ROWS);
+    assert_eq!(opened.cx.window_title().as_deref(), Some("Notifications"));
+    assert!(is_there(opened.cx, "settings-notify-finished"));
+}
+
+#[gpui::test]
+fn a_section_shown_by_a_search_is_read_the_first_time_as_one_chosen_is(cx: &mut TestAppContext) {
+    l10n::set_for_test(Language::English);
+    let opened = open(cx);
+    search_for(opened.cx, "runner");
+    assert_eq!(opened.cx.window_title().as_deref(), Some("Machine"));
+    assert_eq!(opened.source.asked(), ["projects", "status"]);
+}
+
+#[gpui::test]
+fn every_setting_has_a_sentence_that_says_what_it_changes_in_both_languages(
+    cx: &mut TestAppContext,
+) {
+    let opened = open(cx);
+    // What these list is read when they are first shown.
+    for row in [
+        "settings-section-accounts",
+        "settings-section-machine",
+        "settings-section-appearance",
+    ] {
+        click(opened.cx, row);
+    }
+    for language in [Language::English, Language::Italian] {
+        l10n::set_for_test(language);
+        opened.settings.update(opened.cx, |settings, cx| {
+            for section in super::Section::ALL {
+                let groups = settings.groups(section, cx);
+                let rows = groups.iter().flat_map(|group| group.rows.iter());
+                let mut count = 0;
+                for row in rows.filter(|row| row.is_setting()) {
+                    let description = row.description().map(|text| text.trim().len());
+                    assert!(
+                        description.is_some_and(|length| length > 10),
+                        "{section:?} in {language:?}: {:?}",
+                        row.description()
+                    );
+                    count += 1;
+                }
+                // The brand's page and the menu bar's table hold no setting.
+                let is_list = matches!(section, super::Section::About | super::Section::Shortcuts);
+                assert!(count > 0 || is_list, "{section:?} has settings");
+            }
+        });
+    }
+}
+
+#[gpui::test]
+fn the_window_opens_with_the_caret_nowhere_and_a_click_or_typing_in_the_search_draws_no_ring(
+    cx: &mut TestAppContext,
+) {
+    let opened = open(cx);
+    opened.cx.update(|window, cx| {
+        assert!(window.focused(cx).is_none(), "nothing has the caret");
+    });
+    click(opened.cx, "settings-search");
+    opened.cx.update(|window, cx| {
+        assert!(
+            window.focused(cx).is_some(),
+            "the click gave the field the caret"
+        );
+    });
+    assert_eq!(crate::ui::focus_tests::rings(opened.cx), 0, "with no ring");
+    opened.cx.simulate_input("theme");
+    draw(opened.cx);
+    assert_eq!(
+        crate::ui::focus_tests::rings(opened.cx),
+        0,
+        "typing draws none"
+    );
+}
+
+#[gpui::test]
+fn a_click_on_a_switch_draws_no_ring(cx: &mut TestAppContext) {
+    let opened = open(cx);
+    click(opened.cx, "settings-section-notifications");
+    click(opened.cx, "settings-notify-finished");
+    assert_eq!(crate::ui::focus_tests::rings(opened.cx), 0);
+}
+
+#[gpui::test]
+fn a_search_finds_a_shortcut_by_its_command_or_its_menu(cx: &mut TestAppContext) {
+    l10n::set_for_test(Language::English);
+    let opened = open(cx);
+    for words in ["new task", "file", "keyboard"] {
+        search_for(opened.cx, words);
+        assert!(
+            listed(opened.cx).contains(&"settings-section-shortcuts"),
+            "{words}"
+        );
+        click(opened.cx, "settings-section-shortcuts");
+        assert!(is_there(opened.cx, "settings-shortcut-0"), "{words}");
+        empty_search(opened.cx);
+    }
+}
+
+#[gpui::test]
+fn tab_gives_the_search_field_the_caret_first(cx: &mut TestAppContext) {
+    // As the app binds it: Tab before anything has the focus moves to the first control.
+    cx.update(crate::ui::keyboard::install);
+    let opened = open(cx);
+    opened.cx.simulate_keystrokes("tab");
+    draw(opened.cx);
+    let search = opened
+        .settings
+        .read_with(opened.cx, |settings, _| settings.search.clone());
+    opened.cx.update(|window, cx| {
+        let handle = gpui::Focusable::focus_handle(search.read(cx), cx);
+        assert!(handle.is_focused(window), "the first stop is the search");
+    });
+    opened.cx.simulate_input("theme");
+    draw(opened.cx);
+    assert_eq!(listed(opened.cx), ["settings-section-appearance"]);
+}
+
+/// A service that offers the choice of runner, with the engine's programs as `restate_server` and
+/// `node` say.
+fn offering_the_engine(restate_server: bool, node: bool) -> Rc<Fake> {
+    let source = Fake::new();
+    *source.check_runner.borrow_mut() = Some(CheckRunner {
+        runner: RunnerKind::Bash,
+        engine: Some(EnginePrerequisites {
+            restate_server,
+            node,
+            setup: None,
+        }),
+    });
+    source
+}
+
+#[cfg(feature = "restate-engine")]
+/// The sentence of the first row of "Checks" in "Machine".
+fn first_check_row(opened: &mut Opened) -> String {
+    opened.settings.update(opened.cx, |settings, cx| {
+        let groups = settings.groups(super::Section::Machine, cx);
+        let row = &groups[0].rows[0];
+        row.description()
+            .map(|text| text.to_string())
+            .unwrap_or_default()
+    })
+}
+
+#[cfg(feature = "restate-engine")]
+#[gpui::test]
+fn the_engine_switch_is_off_by_default_and_a_press_writes_the_runner_and_reads_again(
+    cx: &mut TestAppContext,
+) {
+    l10n::set_for_test(Language::English);
+    let mut opened = open_over(cx, offering_the_engine(true, true));
+    click(opened.cx, "settings-section-machine");
+    assert!(is_there(opened.cx, "settings-machine-engine"));
+    assert_eq!(
+        first_check_row(&mut opened),
+        l10n::tr(l10n::Key("settings.machine.engine.description"))
+    );
+    click(opened.cx, "settings-machine-engine");
+    assert_eq!(
+        opened.source.asked(),
+        ["projects", "status", "runner engine", "status"]
+    );
+    let is_on = opened.settings.read_with(opened.cx, |settings, _| {
+        let status = settings.machine.as_ref().and_then(|loaded| loaded.ready());
+        status
+            .and_then(|status| status.check_runner.clone())
+            .map(|c| c.runner)
+    });
+    assert_eq!(is_on, Some(RunnerKind::Engine));
+    click(opened.cx, "settings-machine-engine");
+    assert_eq!(
+        opened.source.count("runner bash"),
+        1,
+        "a second press turns it off"
+    );
+}
+
+#[cfg(feature = "restate-engine")]
+#[gpui::test]
+fn the_engine_on_without_its_programs_says_what_to_install_in_one_line(cx: &mut TestAppContext) {
+    l10n::set_for_test(Language::English);
+    let mut opened = open_over(cx, offering_the_engine(false, true));
+    click(opened.cx, "settings-section-machine");
+    let off = first_check_row(&mut opened);
+    assert!(
+        !off.contains("brew install"),
+        "off, nothing to install: {off}"
+    );
+    click(opened.cx, "settings-machine-engine");
+    let on = first_check_row(&mut opened);
+    assert_eq!(
+        on,
+        l10n::tr(l10n::Key("settings.machine.engine.install.restate"))
+    );
+    assert!(on.contains("brew install restatedev/tap/restate-server"));
+    l10n::set_for_test(Language::Italian);
+    let italian = first_check_row(&mut opened);
+    assert!(
+        italian.starts_with("Per eseguire le verifiche installa"),
+        "{italian}"
+    );
+}
+
+#[cfg(feature = "restate-engine")]
+#[gpui::test]
+fn a_refused_change_of_runner_is_said_in_the_row_and_the_switch_stays(cx: &mut TestAppContext) {
+    l10n::set_for_test(Language::English);
+    let source = offering_the_engine(true, true);
+    source.is_refusing.set(true);
+    let mut opened = open_over(cx, source);
+    click(opened.cx, "settings-section-machine");
+    click(opened.cx, "settings-machine-engine");
+    assert_eq!(first_check_row(&mut opened), "Not changed: refused");
+    let runner = opened.settings.read_with(opened.cx, |settings, _| {
+        let status = settings.machine.as_ref().and_then(|loaded| loaded.ready());
+        status
+            .and_then(|status| status.check_runner.clone())
+            .map(|c| c.runner)
+    });
+    assert_eq!(runner, Some(RunnerKind::Bash));
+}
+
+#[gpui::test]
+fn a_service_with_one_runner_offers_no_switch(cx: &mut TestAppContext) {
+    let opened = open(cx);
+    click(opened.cx, "settings-section-machine");
+    assert!(is_there(opened.cx, "settings-machine-runner"));
+    assert!(!is_there(opened.cx, "settings-machine-engine"));
+}
+
+#[cfg(not(feature = "restate-engine"))]
+#[gpui::test]
+fn a_service_that_offers_the_engine_still_shows_no_switch_in_the_default_build(
+    cx: &mut TestAppContext,
+) {
+    let opened = open_over(cx, offering_the_engine(true, true));
+    click(opened.cx, "settings-section-machine");
+    assert!(is_there(opened.cx, "settings-machine-runner"));
+    assert!(!is_there(opened.cx, "settings-machine-engine"));
+    assert_eq!(opened.source.asked(), ["projects", "status"]);
 }

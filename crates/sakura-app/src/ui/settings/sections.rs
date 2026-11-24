@@ -1,18 +1,26 @@
-//! What each section of Settings draws: the projects (their list, one project, the flow that adds
-//! one), the accounts, the agent, the appearance, the notifications, the machine and the shortcuts.
+//! What each section of Settings holds, as rows: a setting has its title, the sentence that says what
+//! changes with it and its control; the projects (their list, one project, the flow that adds one) and
+//! the brand's page are parts of their section drawn whole.
 
-use super::controls::{self, Choice, Loaded, Segment, Sent};
-use super::{Deps, Notify, ProjectsPage, Read, Section, Settings, SettingsEvent, ThemeChoice};
+use super::controls::{self, Choice, Loaded, Segment};
+use super::rows::{self, Group, Row};
+use super::{
+    project_folder, Deps, Notify, ProjectsPage, Read, Section, Settings, SettingsEvent, Shortcut,
+    ThemeChoice,
+};
 use crate::l10n::{say, tr, Key, Language, LanguageChoice};
 use crate::theme::settings as sizes;
-use crate::theme::{self, Palette};
+use crate::theme::{self, Theme};
+use crate::ui::brand;
 use crate::ui::chrome::text;
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, AnyElement, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
-    ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
+    div, AnyElement, AnyView, AppContext as _, Context, Entity, InteractiveElement as _,
+    IntoElement, ParentElement as _, SharedString, Styled as _, Window,
 };
 use gpui_component::input::{InputEvent, Textarea, TextareaState};
 use gpui_component::switch::Switch;
+use gpui_component::FocusableExt as _;
 use sakura_core::error::BridgeError;
 use sakura_core::models::{Account, AgentPhase, BoxStatus, DiskUse, Place, RunnerPhase};
 use sakura_core::publish;
@@ -28,212 +36,185 @@ const MEGABYTE: u64 = 1024 * 1024;
 const GIGABYTE: u64 = 1024 * MEGABYTE;
 
 impl Settings {
-    /// "Projects": the list, the project that was opened, or the flow that adds one.
-    pub(super) fn projects_section(&self, palette: &Palette, cx: &Context<Self>) -> AnyElement {
-        match &self.page {
-            ProjectsPage::Form(form) => form.clone().into_any_element(),
-            ProjectsPage::Adding(flow) => flow.clone().into_any_element(),
-            ProjectsPage::List => self.projects_list(palette, cx),
+    /// The rows of `section`, in their groups.
+    pub(super) fn groups(&self, section: Section, cx: &Context<Self>) -> Vec<Group> {
+        match section {
+            Section::Projects => self.projects_groups(cx),
+            Section::Accounts => self.accounts_groups(cx),
+            Section::Agent => self.agent_groups(cx),
+            Section::Appearance => self.appearance_groups(cx),
+            Section::Notifications => vec![self.notify_group(cx)],
+            Section::Machine => self.machine_groups(cx),
+            Section::Storage => self.storage_groups(cx),
+            Section::Updates => vec![super::updates::group(cx)],
+            Section::Shortcuts => self.shortcuts_groups(cx),
+            Section::About => vec![about_group()],
         }
     }
 
-    fn projects_list(&self, palette: &Palette, cx: &Context<Self>) -> AnyElement {
-        let title = tr(Section::Projects.title());
-        let listed = match &self.projects {
-            Loaded::Reading => vec![controls::quiet(tr(Key("settings.reading")), palette)],
-            Loaded::Failed(error) => vec![self.unread(Read::Projects, error, palette, cx)],
-            Loaded::Ready(projects) if projects.is_empty() => {
-                vec![controls::quiet(tr(Key("settings.projects.none")), palette)]
-            }
-            Loaded::Ready(projects) => {
-                let rows = projects
-                    .iter()
-                    .map(|listed| self.project_row(listed, palette, cx));
-                vec![controls::group(None, rows.collect(), palette)]
-            }
+    /// "Projects": the list, the project that was opened, or the flow that adds one.
+    fn projects_groups(&self, cx: &Context<Self>) -> Vec<Group> {
+        let words = keywords(Key("settings.projects.keywords"));
+        let whole = |page: AnyView, name: Option<String>| {
+            let mut words = words.clone();
+            words.extend(name.map(SharedString::from));
+            let row = Row::custom(words, move |_, _| page.clone());
+            vec![Group::new(None, vec![row])]
         };
-        let add = Self::on(cx, |settings, window, cx| settings.add_project(window, cx));
-        let add = controls::button(
-            "settings-add-project",
-            tr(Key("settings.projects.add")),
-            add,
-            cx,
-        );
-        let groups = listed
-            .into_iter()
-            .chain([div().flex().child(add).into_any_element()]);
-        controls::page(title, groups.collect(), palette).into_any_element()
+        match &self.page {
+            ProjectsPage::Form(form) => {
+                let name = form.read(cx).name().to_string();
+                whole(form.clone().into(), Some(name))
+            }
+            ProjectsPage::Adding(flow) => whole(flow.clone().into(), None),
+            ProjectsPage::List => self.projects_list(words, cx),
+        }
     }
 
-    /// One project of the list: a press opens it. One that cannot be used says so, with the
-    /// service's words as its details, and opens nothing.
-    fn project_row(&self, listed: &Listed, palette: &Palette, cx: &Context<Self>) -> AnyElement {
+    fn projects_list(&self, words: Vec<SharedString>, cx: &Context<Self>) -> Vec<Group> {
+        let mut rows = match &self.projects {
+            Loaded::Reading => vec![quiet_row(words.clone(), tr(Key("settings.reading")))],
+            Loaded::Failed(error) => {
+                vec![self.unread_row(Read::Projects, error, words.clone(), cx)]
+            }
+            Loaded::Ready(projects) if projects.is_empty() => {
+                vec![quiet_row(words.clone(), tr(Key("settings.projects.none")))]
+            }
+            Loaded::Ready(projects) => projects
+                .iter()
+                .map(|listed| self.project_row(listed, cx))
+                .collect(),
+        };
+        let add = Self::on(cx, |settings, window, cx| settings.add_project(window, cx));
+        rows.push(Row::setting(
+            tr(Key("settings.projects.add")),
+            tr(Key("settings.projects.add.description")),
+            words,
+            move |_, cx| {
+                let label = tr(Key("settings.projects.add.choose"));
+                controls::button("settings-add-project", label, add.clone(), cx)
+            },
+        ));
+        vec![Group::new(None, rows)]
+    }
+
+    /// One project of the list: its folder under its name, and the button that opens it. One that
+    /// cannot be used says so, with the service's words as its sentence, and opens nothing.
+    fn project_row(&self, listed: &Listed, cx: &Context<Self>) -> Row {
         let name = listed.name().to_string();
         let id = SharedString::from(format!("settings-project-{name}"));
-        let hover = palette.hover;
         match listed {
             Listed::Usable(project) => {
-                let folder = text(theme::TEXT_SMALL, palette.text_tertiary)
-                    .min_w_0()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .child(project.repo.clone());
-                let open = cx.listener(move |settings, _: &gpui::ClickEvent, window, cx| {
-                    settings.open_project(&name, window, cx);
+                let folder = project_folder(project);
+                let opened = name.clone();
+                let open = Self::on(cx, move |settings, window, cx| {
+                    settings.open_project(&opened, window, cx);
                 });
-                div()
-                    .id(id.clone())
-                    .rounded(theme::RADIUS_SURFACE)
-                    .hover(move |style| style.bg(hover))
-                    .on_click(open)
-                    .child(controls::row(
-                        id,
-                        project.name.clone(),
-                        folder,
-                        None,
-                        palette,
-                    ))
-                    .into_any_element()
+                Row::setting(name, folder, Vec::new(), move |_, cx| {
+                    let label = tr(Key("settings.projects.open"));
+                    controls::button(id.clone(), label, open.clone(), cx)
+                })
             }
             Listed::Unusable { error, .. } => {
-                let unusable = BridgeError::failed(Said::new("settings.projects.unusable"))
-                    .with_details(Some(error.clone()));
-                let said = controls::failed(format!("{id}-unusable"), &unusable, palette);
-                controls::row(id, name, said, None, palette)
+                let unusable = BridgeError::failed(Said::new("settings.projects.unusable"));
+                Row::setting(name, error.clone(), Vec::new(), move |_, cx| {
+                    let said = controls::failed(format!("{id}-unusable"), &unusable, &palette(cx));
+                    marked(id.clone(), said)
+                })
             }
         }
     }
 
     /// What could not be read, said once with "Retry": nothing is read again by itself.
-    fn unread(
+    fn unread_row(
         &self,
         what: Read,
         error: &BridgeError,
-        palette: &Palette,
+        words: Vec<SharedString>,
         cx: &Context<Self>,
-    ) -> AnyElement {
+    ) -> Row {
         let retry = Self::on(cx, move |settings, _, cx| settings.read(what, cx));
-        div()
-            .flex()
-            .items_center()
-            .gap(theme::GAP_WIDE)
-            .child(controls::failed("settings-unread", error, palette))
-            .child(controls::button(
-                "settings-retry",
-                tr(Key("common.retry")),
-                retry,
-                cx,
-            ))
-            .into_any_element()
+        let error = error.clone();
+        Row::custom(words, move |_, cx| {
+            div()
+                .flex()
+                .items_center()
+                .gap(theme::GAP_WIDE)
+                .child(controls::failed("settings-unread", &error, &palette(cx)))
+                .child(controls::button(
+                    "settings-retry",
+                    tr(Key("common.retry")),
+                    retry.clone(),
+                    cx,
+                ))
+        })
     }
 
     /// "Accounts": the accounts of the boxes, signed in or not, and the person's logins on this
     /// Mac, which need nothing.
-    pub(super) fn accounts_section(&self, palette: &Palette, cx: &Context<Self>) -> AnyElement {
-        let title = tr(Section::Accounts.title());
-        let groups = match self.accounts.as_ref().unwrap_or(&Loaded::Reading) {
-            Loaded::Reading => vec![controls::quiet(tr(Key("settings.reading")), palette)],
-            Loaded::Failed(error) => vec![self.unread(Read::Accounts, error, palette, cx)],
+    fn accounts_groups(&self, cx: &Context<Self>) -> Vec<Group> {
+        let words = keywords(Key("settings.accounts.keywords"));
+        let accounts = match self.accounts.as_ref().unwrap_or(&Loaded::Reading) {
+            Loaded::Reading => {
+                return vec![Group::new(
+                    None,
+                    vec![quiet_row(words, tr(Key("settings.reading")))],
+                )]
+            }
+            Loaded::Failed(error) => {
+                let unread = self.unread_row(Read::Accounts, error, words, cx);
+                return vec![Group::new(None, vec![unread])];
+            }
             Loaded::Ready(accounts) if accounts.is_empty() => {
-                vec![controls::quiet(tr(Key("settings.accounts.none")), palette)]
+                let none = quiet_row(words, tr(Key("settings.accounts.none")));
+                return vec![Group::new(None, vec![none])];
             }
-            Loaded::Ready(accounts) => {
-                let of = |place: Place, name: Key| {
-                    let rows = accounts.iter().filter(|account| account.place == place);
-                    let rows: Vec<AnyElement> = rows
-                        .map(|account| self.account_row(account, palette, cx))
-                        .collect();
-                    (!rows.is_empty()).then(|| controls::group(Some(tr(name)), rows, palette))
-                };
-                let boxes = of(Place::Box, Key("settings.accounts.boxes"));
-                let mac = of(Place::Mac, Key("settings.accounts.mac"));
-                boxes.into_iter().chain(mac).collect()
-            }
+            Loaded::Ready(accounts) => accounts,
         };
-        controls::page(title, groups, palette).into_any_element()
-    }
-
-    fn account_row(&self, account: &Account, palette: &Palette, cx: &Context<Self>) -> AnyElement {
-        let id = SharedString::from(format!(
-            "settings-account-{}-{}",
-            place_id(account.place),
-            account.name
-        ));
-        let state = |key: Key| controls::quiet(tr(key), palette);
-        let control = match (account.place, account.is_usable()) {
-            (Place::Mac, true) => state(Key("settings.accounts.mac.login")),
-            (Place::Mac, false) => state(Key("settings.accounts.mac.missing")),
-            (Place::Box, true) => state(Key("settings.accounts.signed_in")),
-            (Place::Box, false) => {
-                let name = account.name.clone();
-                let ask = Self::on(cx, move |_, _, cx| {
-                    cx.emit(SettingsEvent::SignInAsked {
-                        account: name.clone(),
-                    });
-                });
-                let sign_in = controls::button(
-                    "settings-sign-in",
-                    tr(Key("settings.accounts.sign_in")),
-                    ask,
-                    cx,
-                );
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(theme::GAP_WIDE)
-                    .child(state(Key("settings.accounts.signed_out")))
-                    .child(sign_in)
-                    .into_any_element()
-            }
+        let of = |place: Place, name: Key| {
+            let rows = accounts.iter().filter(|account| account.place == place);
+            let rows: Vec<Row> = rows
+                .map(|account| account_row(account, &words, cx))
+                .collect();
+            (!rows.is_empty()).then(|| Group::new(Some(tr(name).into()), rows))
         };
-        controls::row(id, account.name.clone(), control, None, palette)
+        let boxes = of(Place::Box, Key("settings.accounts.boxes"));
+        let mac = of(Place::Mac, Key("settings.accounts.mac"));
+        boxes.into_iter().chain(mac).collect()
     }
 
     /// "Agent": what "Publish" asks the agent in the projects that have no request of their own,
     /// and the one control that brings the app's own request back.
-    pub(super) fn agent_section(&self, palette: &Palette, cx: &Context<Self>) -> AnyElement {
-        let field = div()
-            .w(sizes::FIELD_WIDTH)
-            .my(theme::GAP)
-            .rounded(theme::RADIUS_CONTROL)
-            .bg(palette.fill)
-            .child(
-                Textarea::new(&self.default_request)
-                    .appearance(false)
-                    .bordered(false),
-            );
-        let refused = self.default_refused.clone().map(Sent::Failed);
-        let rows = vec![controls::row(
-            "settings-row-default-request",
+    fn agent_groups(&self, cx: &Context<Self>) -> Vec<Group> {
+        let field = self.default_request.clone();
+        let refused = self.default_refused.clone();
+        let request = Row::setting(
             tr(Key("settings.project.request")),
-            field,
-            refused.as_ref(),
-            palette,
-        )];
-        let default = say(&publish::default_request(tr(Key("settings.agent.base"))));
-        let empty = Said::new("settings.agent.request.empty").text("request", default);
-        let notes = div()
-            .debug_selector(|| "settings-agent-notes".into())
-            .flex()
-            .flex_col()
-            .gap(theme::GAP)
-            .child(controls::quiet(say(&empty), palette))
-            .child(controls::quiet(
-                tr(Key("settings.agent.request.note")),
-                palette,
-            ));
-        let restore = controls::button(
-            "settings-default-request-restore",
-            tr(Key("settings.agent.request.restore")),
-            Self::on(cx, Self::restore_default_request),
-            cx,
+            tr(Key("settings.agent.request.description")),
+            keywords(Key("settings.agent.request.keywords")),
+            move |_, cx| request_field(&field, refused.as_ref(), cx),
+        )
+        .stacked();
+        let restore = Self::on(cx, Self::restore_default_request);
+        let restore = Row::setting(
+            tr(Key("settings.agent.restore.title")),
+            tr(Key("settings.agent.restore.description")),
+            keywords(Key("settings.agent.request.keywords")),
+            move |_, cx| {
+                let label = tr(Key("settings.agent.request.restore"));
+                controls::button(
+                    "settings-default-request-restore",
+                    label,
+                    restore.clone(),
+                    cx,
+                )
+            },
         );
-        let groups = vec![
-            controls::group(Some(tr(Key("settings.project.publishing"))), rows, palette),
-            notes.into_any_element(),
-            div().flex().child(restore).into_any_element(),
-        ];
-        controls::page(tr(Section::Agent.title()), groups, palette).into_any_element()
+        let publishing = Some(tr(Key("settings.project.publishing")).into());
+        vec![
+            Group::new(publishing, vec![request]).footer(|_, cx| request_notes(cx)),
+            Group::new(None, vec![restore]),
+        ]
     }
 
     /// Empties the field and takes the app's own request again.
@@ -273,111 +254,71 @@ impl Settings {
 
     /// "Notifications": what the system tells the person of while the app is not in front, each a
     /// switch that applies at once.
-    pub(super) fn notifications_section(
-        &self,
-        palette: &Palette,
-        cx: &Context<Self>,
-    ) -> AnyElement {
+    fn notify_group(&self, cx: &Context<Self>) -> Group {
         let switch = |id: &'static str, name: Key, is_on: bool, set: fn(&mut Notify, bool)| {
             let settings = cx.weak_entity();
-            let control = Switch::new(id)
-                .checked(is_on)
-                .on_click(move |is_on: &bool, _, cx| {
-                    let is_on = *is_on;
-                    drop(settings.update(cx, |settings, cx| {
-                        set(&mut settings.notify, is_on);
-                        cx.emit(SettingsEvent::NotifyChanged(settings.notify));
-                        cx.notify();
-                    }));
-                });
-            let control = div().debug_selector(move || id.into()).child(control);
-            controls::row(format!("{id}-row"), tr(name), control, None, palette)
+            let control = move |window: &mut Window, _: &mut gpui::App| {
+                let settings = settings.clone();
+                // A switch pressed with the pointer keeps the focus but shows no ring; one reached
+                // with the keyboard shows it.
+                let switch = Switch::new(id)
+                    .focus_ring(window.last_input_was_keyboard())
+                    .checked(is_on)
+                    .on_click(move |is_on: &bool, _, cx| {
+                        let is_on = *is_on;
+                        drop(settings.update(cx, |settings, cx| {
+                            set(&mut settings.notify, is_on);
+                            cx.emit(SettingsEvent::NotifyChanged(settings.notify));
+                            cx.notify();
+                        }));
+                    });
+                let switch = div().debug_selector(move || id.into()).child(switch);
+                marked(format!("{id}-row"), switch)
+            };
+            (name, control)
         };
         let notify = self.notify;
-        let told = vec![
-            switch(
-                "settings-notify-needs-you",
-                Key("settings.notify.needs_you"),
-                notify.needs_you,
-                |notify, is_on| notify.needs_you = is_on,
+        let (needs_you, needs_you_switch) = switch(
+            "settings-notify-needs-you",
+            Key("settings.notify.needs_you"),
+            notify.needs_you,
+            |notify, is_on| notify.needs_you = is_on,
+        );
+        let (finished, finished_switch) = switch(
+            "settings-notify-finished",
+            Key("settings.notify.finished"),
+            notify.finished,
+            |notify, is_on| notify.finished = is_on,
+        );
+        let words = keywords(Key("settings.notify.keywords"));
+        let rows = vec![
+            Row::setting(
+                tr(needs_you),
+                tr(Key("settings.notify.needs_you.description")),
+                words.clone(),
+                needs_you_switch,
             ),
-            switch(
-                "settings-notify-finished",
-                Key("settings.notify.finished"),
-                notify.finished,
-                |notify, is_on| notify.finished = is_on,
+            Row::setting(
+                tr(finished),
+                tr(Key("settings.notify.finished.description")),
+                words,
+                finished_switch,
             ),
         ];
-        let groups = vec![controls::group(
-            Some(tr(Key("settings.notify.told"))),
-            told,
-            palette,
-        )];
-        controls::page(tr(Section::Notifications.title()), groups, palette).into_any_element()
+        Group::new(Some(tr(Key("settings.notify.told")).into()), rows)
     }
 
     /// "Appearance": the theme, the language and the terminal's text, each a choice that applies at
     /// once.
-    pub(super) fn appearance_section(&self, palette: &Palette, cx: &Context<Self>) -> AnyElement {
-        let groups = vec![
-            controls::group(None, self.look_rows(palette, cx), palette),
-            controls::group(
-                Some(tr(Key("settings.appearance.terminal"))),
-                self.terminal_rows(palette, cx),
-                palette,
-            ),
-        ];
-        controls::page(tr(Section::Appearance.title()), groups, palette).into_any_element()
-    }
-
-    /// The terminal's font, among the installed ones whose letters have one width, and its size.
-    fn terminal_rows(&self, palette: &Palette, cx: &Context<Self>) -> Vec<AnyElement> {
-        let own: SharedString = tr(Key("settings.appearance.terminal.font.own")).into();
-        let current = self.terminal.family.clone();
-        let mut families = self.families.clone().unwrap_or_default();
-        // The family in force is always a choice: before the list is read, and when it was removed.
-        if let Some(family) = current.clone().filter(|family| !families.contains(family)) {
-            families.insert(0, family);
-        }
-        let names = std::iter::once(None).chain(families.into_iter().map(Some));
-        let choices = names.map(|name| Choice {
-            label: name.clone().map_or(own.clone(), SharedString::from),
-            is_on: name == current,
-            on_pick: Self::on(cx, move |settings, _, cx| {
-                settings.set_terminal_family(name.clone(), cx);
-            }),
-        });
-        let shown = current.clone().map_or(own.clone(), SharedString::from);
-        let font = controls::menu("settings-terminal-font", shown, choices.collect(), cx);
-        let size_now = self.terminal.size;
-        let sizes = theme::TERMINAL_TEXT_SIZES.into_iter().map(|size| Segment {
-            id: size_id(size),
-            label: size.to_string().into(),
-            is_on: size_now.map_or(f32::from(size) == theme::TERMINAL_TEXT, |now| now == size),
-            on_press: Self::on(cx, move |settings, _, cx| {
-                settings.set_terminal_size(size, cx);
-            }),
-        });
+    fn appearance_groups(&self, cx: &Context<Self>) -> Vec<Group> {
+        let terminal = Some(tr(Key("settings.appearance.terminal")).into());
         vec![
-            controls::row(
-                "settings-row-terminal-font",
-                tr(Key("settings.appearance.terminal.font")),
-                font,
-                None,
-                palette,
-            ),
-            controls::row(
-                "settings-row-terminal-size",
-                tr(Key("settings.appearance.terminal.size")),
-                controls::segments(sizes.collect(), palette),
-                None,
-                palette,
-            ),
+            Group::new(None, vec![self.theme_row(cx), self.language_row(cx)]),
+            Group::new(terminal, vec![self.font_row(cx), self.size_row(cx)]),
         ]
     }
 
-    /// The theme and the language.
-    fn look_rows(&self, palette: &Palette, cx: &Context<Self>) -> Vec<AnyElement> {
+    fn theme_row(&self, cx: &Context<Self>) -> Row {
         let theme = |id, label, choice: ThemeChoice| Segment {
             id,
             label: tr(label).into(),
@@ -407,6 +348,15 @@ impl Settings {
                 ThemeChoice::Dark,
             ),
         ];
+        Row::setting(
+            tr(Key("settings.appearance.theme")),
+            tr(Key("settings.appearance.theme.description")),
+            keywords(Key("settings.appearance.theme.keywords")),
+            move |_, cx| segments_in("settings-row-theme", themes.clone(), cx),
+        )
+    }
+
+    fn language_row(&self, cx: &Context<Self>) -> Row {
         let current = (self.language.current)(cx);
         let language = |id, label: &'static str, choice: LanguageChoice| Segment {
             id,
@@ -434,105 +384,346 @@ impl Settings {
                 LanguageChoice::Is(Language::Italian),
             ),
         ];
-        vec![
-            controls::row(
-                "settings-row-theme",
-                tr(Key("settings.appearance.theme")),
-                controls::segments(themes, palette),
-                None,
-                palette,
-            ),
-            controls::row(
-                "settings-row-language",
-                tr(Key("settings.appearance.language")),
-                controls::segments(languages, palette),
-                None,
-                palette,
-            ),
-        ]
+        Row::setting(
+            tr(Key("settings.appearance.language")),
+            tr(Key("settings.appearance.language.description")),
+            keywords(Key("settings.appearance.language.keywords")),
+            move |_, cx| segments_in("settings-row-language", languages.clone(), cx),
+        )
+    }
+
+    /// The terminal's font, among the installed ones whose letters have one width.
+    fn font_row(&self, cx: &Context<Self>) -> Row {
+        let own: SharedString = tr(Key("settings.appearance.terminal.font.own")).into();
+        let current = self.terminal.family.clone();
+        let mut families = self.families.clone().unwrap_or_default();
+        // The family in force is always a choice: before the list is read, and when it was removed.
+        if let Some(family) = current.clone().filter(|family| !families.contains(family)) {
+            families.insert(0, family);
+        }
+        let names = std::iter::once(None).chain(families.into_iter().map(Some));
+        let choices: Vec<Choice> = names
+            .map(|name| Choice {
+                label: name.clone().map_or(own.clone(), SharedString::from),
+                is_on: name == current,
+                on_pick: Self::on(cx, move |settings, _, cx| {
+                    settings.set_terminal_family(name.clone(), cx);
+                }),
+            })
+            .collect();
+        let shown = current.map_or(own, SharedString::from);
+        Row::setting(
+            tr(Key("settings.appearance.terminal.font")),
+            tr(Key("settings.appearance.terminal.font.description")),
+            keywords(Key("settings.appearance.terminal.font.keywords")),
+            move |_, cx| {
+                let menu =
+                    controls::menu("settings-terminal-font", shown.clone(), choices.clone(), cx);
+                marked("settings-row-terminal-font", menu)
+            },
+        )
+    }
+
+    /// The size of the terminal's text, one of a few, in points.
+    fn size_row(&self, cx: &Context<Self>) -> Row {
+        let size_now = self.terminal.size;
+        let sizes: Vec<Segment> = theme::TERMINAL_TEXT_SIZES
+            .into_iter()
+            .map(|size| Segment {
+                id: size_id(size),
+                label: size.to_string().into(),
+                is_on: size_now.map_or(f32::from(size) == theme::TERMINAL_TEXT, |now| now == size),
+                on_press: Self::on(cx, move |settings, _, cx| {
+                    settings.set_terminal_size(size, cx);
+                }),
+            })
+            .collect();
+        Row::setting(
+            tr(Key("settings.appearance.terminal.size")),
+            tr(Key("settings.appearance.terminal.size.description")),
+            keywords(Key("settings.appearance.terminal.size.keywords")),
+            move |_, cx| segments_in("settings-row-terminal-size", sizes.clone(), cx),
+        )
     }
 
     /// "Storage": the folder the data is in, and what each task in a box has taken of the budget
     /// the service gives it, as `box status` says it. Read only.
-    pub(super) fn storage_section(&self, palette: &Palette, cx: &Context<Self>) -> AnyElement {
-        let refresh = Self::on(cx, |settings, _, cx| settings.read(Read::Machine, cx));
-        let refresh = controls::button(
-            "settings-storage-refresh",
-            tr(Key("settings.machine.refresh")),
-            refresh,
-            cx,
-        );
-        // A long path is cut at the width of a field; it never leaves its row.
-        let path = text(theme::TEXT_SMALL, palette.text_tertiary)
-            .debug_selector(|| "settings-storage-folder-path".into())
-            .max_w(sizes::FIELD_WIDTH)
-            .truncate()
-            .child(self.data_folder.clone());
-        let folder = controls::row(
-            "settings-storage-folder",
+    fn storage_groups(&self, cx: &Context<Self>) -> Vec<Group> {
+        let words = keywords(Key("settings.storage.keywords"));
+        let folder = self.data_folder.clone();
+        let folder = Row::setting(
             tr(Key("settings.storage.folder")),
-            path,
-            None,
-            palette,
+            tr(Key("settings.storage.folder.description")),
+            words.clone(),
+            move |_, cx| {
+                // A long path is cut at the width of a field; it never leaves its row.
+                let path = text(sizes::SETTING_TEXT, palette(cx).text_tertiary)
+                    .debug_selector(|| "settings-storage-folder-path".into())
+                    .max_w(sizes::FIELD_WIDTH)
+                    .truncate()
+                    .child(folder.clone());
+                marked("settings-storage-folder", path)
+            },
         );
-        let mut groups = vec![controls::group(
-            Some(tr(Key("settings.storage.data"))),
-            vec![folder],
-            palette,
-        )];
-        groups.push(match self.machine.as_ref().unwrap_or(&Loaded::Reading) {
-            Loaded::Reading => controls::quiet(tr(Key("settings.reading")), palette),
-            Loaded::Failed(error) => controls::failed("settings-unread", error, palette),
-            Loaded::Ready(status) => stored_group(status, palette),
-        });
-        groups.push(div().flex().child(refresh).into_any_element());
-        controls::page(tr(Section::Storage.title()), groups, palette).into_any_element()
+        let tasks = match self.machine.as_ref().unwrap_or(&Loaded::Reading) {
+            Loaded::Reading => vec![quiet_row(words.clone(), tr(Key("settings.reading")))],
+            Loaded::Failed(error) => vec![failed_row(error, words.clone())],
+            Loaded::Ready(status) => stored_rows(status, &words),
+        };
+        let refresh = self.refresh_row("settings-storage-refresh", words, cx);
+        vec![
+            Group::new(Some(tr(Key("settings.storage.data")).into()), vec![folder]),
+            Group::new(Some(tr(Key("settings.storage.tasks")).into()), tasks),
+            Group::new(None, vec![refresh]),
+        ]
     }
 
-    /// "Machine": what `box status` says of the runner of the checks and of the agents in boxes.
-    pub(super) fn machine_section(&self, palette: &Palette, cx: &Context<Self>) -> AnyElement {
-        let refresh = Self::on(cx, |settings, _, cx| settings.read(Read::Machine, cx));
-        let refresh = controls::button(
-            "settings-machine-refresh",
-            tr(Key("settings.machine.refresh")),
-            refresh,
-            cx,
-        );
+    /// "Machine": the runner of the checks, chosen and as `box status` says it, and the agents in boxes.
+    fn machine_groups(&self, cx: &Context<Self>) -> Vec<Group> {
+        let words = keywords(Key("settings.machine.keywords"));
+        let refresh = vec![self.refresh_row("settings-machine-refresh", words.clone(), cx)];
+        let checks = Some(tr(Key("settings.machine.checks")).into());
+        let agents = Some(tr(Key("settings.machine.agents")).into());
         let mut groups = match self.machine.as_ref().unwrap_or(&Loaded::Reading) {
-            Loaded::Reading => vec![controls::quiet(tr(Key("settings.reading")), palette)],
-            Loaded::Failed(error) => vec![controls::failed("settings-unread", error, palette)],
+            Loaded::Reading => {
+                vec![Group::new(
+                    None,
+                    vec![quiet_row(words, tr(Key("settings.reading")))],
+                )]
+            }
+            Loaded::Failed(error) => vec![Group::new(None, vec![failed_row(error, words)])],
             Loaded::Ready(status) => {
-                vec![runner_group(status, palette), agents_group(status, palette)]
+                let mut rows: Vec<Row> = Vec::new();
+                // The engine switch is built only with the `restate-engine` feature, and only for a
+                // service that says it has a choice of runner.
+                #[cfg(feature = "restate-engine")]
+                rows.extend(
+                    status
+                        .check_runner
+                        .as_ref()
+                        .map(|choice| self.engine_row(choice, cx)),
+                );
+                rows.extend(runner_rows(status, &words));
+                vec![
+                    Group::new(checks, rows),
+                    Group::new(agents, agent_rows(status, &words)),
+                ]
             }
         };
-        groups.push(div().flex().child(refresh).into_any_element());
-        controls::page(tr(Section::Machine.title()), groups, palette).into_any_element()
+        groups.push(Group::new(None, refresh));
+        groups
     }
 
-    /// "Shortcuts": the menu bar's own table, read only, one group for each menu.
-    pub(super) fn shortcuts_section(&self, palette: &Palette, cx: &Context<Self>) -> AnyElement {
-        let mut menus: Vec<(SharedString, Vec<AnyElement>)> = Vec::new();
-        for (nth, shortcut) in (self.shortcuts)(cx).into_iter().enumerate() {
-            let keys = text(theme::TEXT_SMALL, palette.text_secondary)
-                .px(theme::GAP_SMALL)
-                .rounded(theme::RADIUS_CHIP)
-                .bg(palette.fill)
-                .child(shortcut.keys);
-            let id = SharedString::from(format!("settings-shortcut-{nth}"));
-            let row = controls::row(id, shortcut.action, keys, None, palette);
+    /// What reads the machine again: the read is done when the section is first shown, and again
+    /// only when asked.
+    fn refresh_row(&self, id: &'static str, words: Vec<SharedString>, cx: &Context<Self>) -> Row {
+        let refresh = Self::on(cx, |settings, _, cx| settings.read(Read::Machine, cx));
+        Row::setting(
+            tr(Key("settings.machine.status")),
+            tr(Key("settings.machine.status.description")),
+            words,
+            move |_, cx| {
+                let label = tr(Key("settings.machine.refresh"));
+                controls::button(id, label, refresh.clone(), cx)
+            },
+        )
+    }
+
+    /// "Shortcuts": the menu bar's own table, read only, one group for each menu with a line for each
+    /// command and its keys. A search keeps the commands it finds, or every command of a menu whose
+    /// name it holds.
+    fn shortcuts_groups(&self, cx: &Context<Self>) -> Vec<Group> {
+        let words = keywords(Key("settings.shortcuts.keywords"));
+        let shortcuts = (self.shortcuts)(cx);
+        if shortcuts.is_empty() {
+            let none = quiet_row(words, tr(Key("settings.shortcuts.none")));
+            return vec![Group::new(None, vec![none])];
+        }
+        let query = self.search.read(cx).value();
+        let is_all = words.iter().any(|word| rows::holds(word, &query));
+        let mut menus: Vec<(SharedString, Vec<(usize, Shortcut)>)> = Vec::new();
+        for (nth, shortcut) in shortcuts.into_iter().enumerate() {
             match menus.last_mut() {
-                Some((menu, rows)) if *menu == shortcut.menu => rows.push(row),
-                _ => menus.push((shortcut.menu, vec![row])),
+                Some((menu, listed)) if *menu == shortcut.menu => listed.push((nth, shortcut)),
+                _ => menus.push((shortcut.menu.clone(), vec![(nth, shortcut)])),
             }
         }
-        let groups = if menus.is_empty() {
-            vec![controls::quiet(tr(Key("settings.shortcuts.none")), palette)]
-        } else {
-            let group = |(menu, rows)| controls::named_group(Some(menu), rows, palette);
-            menus.into_iter().map(group).collect()
+        let menu_group = |(menu, listed): (SharedString, Vec<(usize, Shortcut)>)| {
+            let mut found = words.clone();
+            found.push(menu.clone());
+            found.extend(listed.iter().map(|(_, shortcut)| shortcut.action.clone()));
+            let is_menu = is_all || rows::holds(&menu, &query);
+            let shown: Vec<(usize, Shortcut)> = listed
+                .into_iter()
+                .filter(|(_, shortcut)| is_menu || rows::holds(&shortcut.action, &query))
+                .collect();
+            let lines = Row::custom(found, move |_, cx| shortcut_lines(&shown, cx));
+            Group::new(Some(menu), vec![lines])
         };
-        controls::page(tr(Section::Shortcuts.title()), groups, palette).into_any_element()
+        menus.into_iter().map(menu_group).collect()
     }
+}
+
+/// The commands of one menu, a line each: its name at the left and its keys at the right, a hairline
+/// between two lines.
+fn shortcut_lines(shown: &[(usize, Shortcut)], cx: &gpui::App) -> AnyElement {
+    let palette = palette(cx);
+    let lines = shown.iter().enumerate().map(|(line, (nth, shortcut))| {
+        let keys = text(sizes::SETTING_TEXT, palette.text_secondary)
+            .px(theme::GAP_SMALL)
+            .rounded(theme::RADIUS_CHIP)
+            .bg(palette.fill)
+            .child(shortcut.keys.clone());
+        div()
+            .when(line > 0, |row| {
+                row.border_t_1().border_color(palette.border)
+            })
+            .min_h(sizes::SETTING_ROW_HEIGHT)
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap(theme::GAP_WIDE)
+            .child(text(sizes::SETTING_TEXT, palette.text).child(shortcut.action.clone()))
+            .child(marked(format!("settings-shortcut-{nth}"), keys))
+    });
+    div().flex().flex_col().children(lines).into_any_element()
+}
+
+/// The current palette, inside a row's control.
+fn palette(cx: &gpui::App) -> theme::Palette {
+    Theme::palette(cx)
+}
+
+/// The words a person may search a row by, from a list in the locale files (separated by commas).
+pub(super) fn keywords(key: Key) -> Vec<SharedString> {
+    tr(key)
+        .split(',')
+        .map(str::trim)
+        .filter(|word| !word.is_empty())
+        .map(|word| SharedString::from(word.to_string()))
+        .collect()
+}
+
+/// `control`, under the name `id` in the window: what a test or a script finds the row's control by.
+pub(super) fn marked(id: impl Into<SharedString>, control: impl IntoElement) -> AnyElement {
+    let id: SharedString = id.into();
+    div()
+        .debug_selector(move || id.to_string())
+        .child(control)
+        .into_any_element()
+}
+
+/// A choice between a few words, named `id` in the window.
+fn segments_in(id: &'static str, options: Vec<Segment>, cx: &gpui::App) -> AnyElement {
+    marked(id, controls::segments(options, &palette(cx)))
+}
+
+/// A quiet sentence in place of rows: something is being read, a list is empty.
+fn quiet_row(words: Vec<SharedString>, sentence: &'static str) -> Row {
+    Row::custom(words, move |_, cx| controls::quiet(sentence, &palette(cx)))
+}
+
+/// What could not be read, in place of rows; "Refresh" reads it again.
+fn failed_row(error: &BridgeError, words: Vec<SharedString>) -> Row {
+    let error = error.clone();
+    Row::custom(words, move |_, cx| {
+        controls::failed("settings-unread", &error, &palette(cx))
+    })
+}
+
+/// One account: where it is in its sentence, and at the right whether it is signed in, with "Sign in"
+/// for an account of the boxes that is not.
+fn account_row(account: &Account, words: &[SharedString], cx: &Context<Settings>) -> Row {
+    let place = match account.place {
+        Place::Box => "box",
+        Place::Mac => "mac",
+    };
+    let id = format!("settings-account-{place}-{}", account.name);
+    let description = match account.place {
+        Place::Box => tr(Key("settings.accounts.box.description")),
+        Place::Mac => tr(Key("settings.accounts.mac.description")),
+    };
+    let state = match (account.place, account.is_usable()) {
+        (Place::Mac, true) => Key("settings.accounts.mac.login"),
+        (Place::Mac, false) => Key("settings.accounts.mac.missing"),
+        (Place::Box, true) => Key("settings.accounts.signed_in"),
+        (Place::Box, false) => Key("settings.accounts.signed_out"),
+    };
+    let sign_in = (account.place == Place::Box && !account.is_usable()).then(|| {
+        let name = account.name.clone();
+        Settings::on(cx, move |_, _, cx| {
+            cx.emit(SettingsEvent::SignInAsked {
+                account: name.clone(),
+            });
+        })
+    });
+    // Each account's button has an id of its own: the kit keeps pressed and hovered state by id.
+    let button_id = format!("settings-sign-in-{}", account.name);
+    let control = move |_: &mut Window, cx: &mut gpui::App| {
+        let sign_in = sign_in.clone().map(|ask| {
+            let label = tr(Key("settings.accounts.sign_in"));
+            controls::button(button_id.clone(), label, ask, cx)
+        });
+        let state = div()
+            .flex()
+            .items_center()
+            .gap(theme::GAP_WIDE)
+            .child(controls::quiet(tr(state), &palette(cx)))
+            .children(sign_in);
+        marked(id.clone(), state)
+    };
+    Row::setting(account.name.clone(), description, words.to_vec(), control)
+}
+
+/// The brand's page: the product's name, its version and where it comes from.
+fn about_group() -> Group {
+    let words = keywords(Key("settings.about.keywords"));
+    let about = Row::custom(words, |_, cx| brand::about_page(&palette(cx)));
+    Group::new(None, vec![about])
+}
+
+/// The field of the request for projects with none of their own, the width of the page; under it,
+/// what the service refused of the text last typed there.
+fn request_field(
+    field: &Entity<TextareaState>,
+    refused: Option<&BridgeError>,
+    cx: &gpui::App,
+) -> AnyElement {
+    let palette = palette(cx);
+    let box_ = div()
+        .w_full()
+        .rounded(theme::RADIUS_CONTROL)
+        .bg(palette.fill)
+        .child(Textarea::new(field).appearance(false).bordered(false));
+    let failure = refused
+        .map(|error| controls::failed("settings-row-default-request-failed", error, &palette));
+    div()
+        .debug_selector(|| "settings-row-default-request".into())
+        .w_full()
+        .flex()
+        .flex_col()
+        .gap(theme::GAP)
+        .child(box_)
+        .children(failure)
+        .into_any_element()
+}
+
+/// What an empty request stands for, in full, and that a project's own request comes first.
+fn request_notes(cx: &gpui::App) -> AnyElement {
+    let palette = palette(cx);
+    let default = say(&publish::default_request(tr(Key("settings.agent.base"))));
+    let empty = Said::new("settings.agent.request.empty").text("request", default);
+    div()
+        .debug_selector(|| "settings-agent-notes".into())
+        .flex()
+        .flex_col()
+        .gap(theme::GAP)
+        .child(controls::quiet(say(&empty), &palette))
+        .child(controls::quiet(
+            tr(Key("settings.agent.request.note")),
+            &palette,
+        ))
+        .into_any_element()
 }
 
 /// The field of the request for projects with none of their own: the person's text. What an empty
@@ -582,61 +773,52 @@ pub(super) fn disk_said(disk: &DiskUse) -> SharedString {
     say(&taken)
 }
 
-/// The tasks in boxes with what each has taken of its budget; one that is over says so in the
-/// colour of a failure.
-fn stored_group(status: &BoxStatus, palette: &Palette) -> AnyElement {
+/// The tasks in boxes with what each has taken of its budget; one that is over says so in its
+/// sentence, and its figures are in the colour of a failure.
+fn stored_rows(status: &BoxStatus, words: &[SharedString]) -> Vec<Row> {
     let stored = status
         .tasks
         .iter()
         .filter_map(|task| Some((task.name.clone(), task.disk?)));
-    let rows = stored
+    let rows: Vec<Row> = stored
         .take(STORED_MAX)
         .enumerate()
         .map(|(nth, (task, disk))| {
-            let colour = if disk.over_budget {
-                palette.danger
+            let description = if disk.over_budget {
+                tr(Key("settings.storage.task.over"))
             } else {
-                palette.text_tertiary
+                tr(Key("settings.storage.task.description"))
             };
-            let mut said = disk_said(&disk);
-            if disk.over_budget {
-                said = format!("{said} · {}", tr(Key("settings.storage.over"))).into();
-            }
-            let id = SharedString::from(format!("settings-storage-task-{nth}"));
-            let figure = text(theme::TEXT_SMALL, colour).child(said);
-            controls::row(id, task, figure, None, palette)
-        });
-    let rows: Vec<AnyElement> = rows.collect();
-    let title = tr(Key("settings.storage.tasks"));
+            let (said, is_over) = (disk_said(&disk), disk.over_budget);
+            Row::setting(task, description, words.to_vec(), move |_, cx| {
+                let palette = palette(cx);
+                let colour = if is_over {
+                    palette.danger
+                } else {
+                    palette.text_tertiary
+                };
+                let figure = text(sizes::SETTING_TEXT, colour).child(said.clone());
+                marked(format!("settings-storage-task-{nth}"), figure)
+            })
+        })
+        .collect();
     if rows.is_empty() {
-        let none = controls::quiet(tr(Key("settings.storage.none")), palette);
-        let heading = text(theme::TEXT_LABEL, palette.text_tertiary).child(title);
-        return div()
-            .flex()
-            .flex_col()
-            .gap(theme::GAP)
-            .child(heading)
-            .child(none)
-            .into_any_element();
+        return vec![quiet_row(words.to_vec(), tr(Key("settings.storage.none")))];
     }
-    controls::group(Some(title), rows, palette)
-}
-
-fn place_id(place: Place) -> &'static str {
-    match place {
-        Place::Mac => "mac",
-        Place::Box => "box",
-    }
+    rows
 }
 
 /// The runner of the checks: whether it runs, what it runs now, how many wait.
-fn runner_group(status: &BoxStatus, palette: &Palette) -> AnyElement {
-    let said = |id: &'static str, name: Key, value: SharedString| {
-        controls::row(id, tr(name), controls::quiet(value, palette), None, palette)
+fn runner_rows(status: &BoxStatus, words: &[SharedString]) -> Vec<Row> {
+    let said = |id: &'static str, name: Key, description: Key, value: SharedString| {
+        Row::setting(tr(name), tr(description), words.to_vec(), move |_, cx| {
+            marked(id, controls::quiet(value.clone(), &palette(cx)))
+        })
     };
     let state = match status.runner.state {
         RunnerPhase::Running => Key("settings.machine.runner.running"),
         RunnerPhase::Stopped => Key("settings.machine.runner.stopped"),
+        RunnerPhase::NotInstalled => Key("settings.machine.runner.not_installed"),
     };
     let now: SharedString = match &status.runner.current {
         Some(current) => {
@@ -648,57 +830,56 @@ fn runner_group(status: &BoxStatus, palette: &Palette) -> AnyElement {
         None => tr(Key("settings.machine.nothing")).into(),
     };
     let waiting = u64::try_from(status.runner.queue.len()).unwrap_or(u64::MAX);
-    let rows = vec![
+    vec![
         said(
             "settings-machine-runner",
             Key("settings.machine.runner"),
+            Key("settings.machine.runner.description"),
             tr(state).into(),
         ),
-        said("settings-machine-now", Key("settings.machine.now"), now),
+        said(
+            "settings-machine-now",
+            Key("settings.machine.now"),
+            Key("settings.machine.now.description"),
+            now,
+        ),
         said(
             "settings-machine-queue",
             Key("settings.machine.queue"),
+            Key("settings.machine.queue.description"),
             crate::l10n::grouped(waiting).into(),
         ),
-    ];
-    controls::group(Some(tr(Key("settings.machine.checks"))), rows, palette)
+    ]
 }
 
-/// The agents that run in boxes now, with the account, the processor and the memory each takes.
-fn agents_group(status: &BoxStatus, palette: &Palette) -> AnyElement {
+/// The agents that run in boxes now: the account each works as, and the processor and the memory
+/// it takes.
+fn agent_rows(status: &BoxStatus, words: &[SharedString]) -> Vec<Row> {
     let running = status.tasks.iter().filter_map(|task| {
         let agent = task.agent.as_ref()?;
         (agent.state == AgentPhase::Running).then_some((task.name.clone(), agent))
     });
-    let rows = running
+    let rows: Vec<Row> = running
         .take(AGENTS_MAX)
         .enumerate()
         .map(|(nth, (task, agent))| {
-            let mut uses =
-                Said::new("settings.machine.agent").text("account", agent.account.clone());
+            let account =
+                Said::new("settings.machine.agent.account").text("account", agent.account.clone());
+            let mut uses = Said::new("settings.machine.agent");
             uses = uses.tenths("cpu", agent.cpu_percent.unwrap_or(0.));
             uses = uses.number("memory", agent.memory_mb.unwrap_or(0));
-            let id = SharedString::from(format!("settings-machine-agent-{nth}"));
-            controls::row(
-                id,
-                task,
-                controls::quiet(say(&uses), palette),
-                None,
-                palette,
-            )
-        });
-    let rows: Vec<AnyElement> = rows.collect();
-    let title = tr(Key("settings.machine.agents"));
+            let uses = say(&uses);
+            Row::setting(task, say(&account), words.to_vec(), move |_, cx| {
+                let id = format!("settings-machine-agent-{nth}");
+                marked(id, controls::quiet(uses.clone(), &palette(cx)))
+            })
+        })
+        .collect();
     if rows.is_empty() {
-        let none = controls::quiet(tr(Key("settings.machine.agents.none")), palette);
-        let heading = text(theme::TEXT_LABEL, palette.text_tertiary).child(title);
-        return div()
-            .flex()
-            .flex_col()
-            .gap(theme::GAP)
-            .child(heading)
-            .child(none)
-            .into_any_element();
+        return vec![quiet_row(
+            words.to_vec(),
+            tr(Key("settings.machine.agents.none")),
+        )];
     }
-    controls::group(Some(title), rows, palette)
+    rows
 }

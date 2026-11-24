@@ -7,7 +7,7 @@
 use super::source::Source;
 use crate::l10n::{tr, Key};
 use crate::theme::palette::{
-    EMPTY_PADDING_Y, EMPTY_TEXT_SIZE, LAYER, LIST_MAX_HEIGHT, SCRIM_ALPHA, SIDE_MARGIN, TOP, WIDTH,
+    EMPTY_PADDING_Y, EMPTY_TEXT_SIZE, LAYER, LIST_MAX_HEIGHT, SCRIM_ALPHA, SIDE_MARGIN, WIDTH,
 };
 use crate::theme::{self, Theme};
 use crate::ui::centred;
@@ -21,6 +21,7 @@ use gpui_component::command::{Command, CommandItem, CommandState};
 use gpui_component::{ActiveTheme as _, IndexPath};
 use sakura_core::error::BridgeResult;
 use sakura_core::files::Matches;
+use sakura_core::tabs::TabId;
 use std::rc::Rc;
 
 actions!(sakura_files, [ToggleQuickOpen]);
@@ -33,7 +34,11 @@ const ESCAPE: &str = "escape";
 pub enum QuickOpenEvent {
     /// The task quick open was opened for, and the path of the file inside it. The file is that
     /// task's, whatever is on screen by the time the event is taken.
-    Picked { task: String, path: String },
+    Picked {
+        task: String,
+        path: String,
+        tab: Option<TabId>,
+    },
 }
 
 /// What quick open is opened for: a task and its files.
@@ -41,6 +46,7 @@ pub enum QuickOpenEvent {
 pub struct Target {
     /// The task's name.
     pub task: String,
+    pub tab: Option<TabId>,
     pub source: Rc<dyn Source>,
     /// Where the panel starts from the window's left edge: quick open is centred in the panel.
     pub panel_left: Pixels,
@@ -135,8 +141,7 @@ impl QuickOpen {
         }
     }
 
-    /// Shows it with an empty field over the files of `target`; the caret is in the field when a key
-    /// opened it. Whatever was asked in an earlier opening is no longer waited for.
+    /// Opens an empty search over the files of `target`.
     pub fn open(&mut self, target: Target, window: &mut Window, cx: &mut Context<Self>) {
         self.target = Some(target);
         self.opening += 1;
@@ -146,12 +151,7 @@ impl QuickOpen {
         self.before = window.focused(cx);
         // A list of its own for each opening: an empty field, whatever was typed the last time.
         self.state = cx.new(|cx| CommandState::new(window, cx));
-        // Keyboard-opened input receives focus so typing starts immediately.
-        if window.last_input_was_keyboard() {
-            self.state.update(cx, |state, cx| state.focus(window, cx));
-        } else {
-            self.handle.focus(window, cx);
-        }
+        self.handle.focus(window, cx);
         cx.notify();
     }
 
@@ -235,10 +235,13 @@ impl QuickOpen {
             return;
         };
         let picked = paths.get(path.row).cloned();
-        let task = self.target.as_ref().map(|target| target.task.clone());
+        let target = self
+            .target
+            .as_ref()
+            .map(|target| (target.task.clone(), target.tab));
         self.close(window, cx);
-        if let (Some(task), Some(path)) = (task, picked) {
-            cx.emit(QuickOpenEvent::Picked { task, path });
+        if let (Some((task, tab)), Some(path)) = (target, picked) {
+            cx.emit(QuickOpenEvent::Picked { task, path, tab });
         }
     }
 
@@ -334,7 +337,8 @@ fn said(words: Key, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// The dimmed layer over the whole window, with the panel near its top; a press on it closes quick open.
+/// The dimmed layer over the whole window, with the panel where the palette stands; a press on it
+/// closes quick open.
 fn scrim(
     viewport: Size<Pixels>,
     panel_left: Pixels,
@@ -352,7 +356,7 @@ fn scrim(
         .flex()
         .justify_center()
         .items_start()
-        .pt(px(TOP))
+        .pt(theme::DIALOG_TOP)
         .on_mouse_down(MouseButton::Left, move |_, window, cx| {
             drop(quick_open.update(cx, |quick_open, cx| quick_open.close(window, cx)));
         })

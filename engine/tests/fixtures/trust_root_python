@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+"""A test-only stand-in for the interpreter `bin/sakura` starts (`SAKURA_PYTHON`): it runs the very same program with the trust root
+of the test's own engine home (`SAKURA_TEST_TRUST_ROOT`), which a child process cannot get from the in-process patch, because
+the real trust root ignores the environment on purpose. Only tests name this file; the engine never does."""
+import os
+import sys
+
+PRELUDE = """\
+import os, pathlib, sys
+sys.path.insert(0, os.environ["SAKURA_TEST_LIB"])
+from sakura import engine_home
+_root = pathlib.Path(os.environ["SAKURA_TEST_TRUST_ROOT"])
+engine_home.root_for_trust = lambda: _root
+"""
+
+
+def main() -> None:
+    arguments = sys.argv[1:]
+    marker = arguments.index("-c")
+    code = PRELUDE + arguments[marker + 1]
+    os.execv(sys.executable, [sys.executable, *arguments[:marker], "-c", code, *arguments[marker + 2:]])
+
+
+main()

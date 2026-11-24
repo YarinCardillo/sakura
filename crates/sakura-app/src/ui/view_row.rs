@@ -49,8 +49,14 @@ pub fn tab(view: ViewTab, palette: &Palette) -> Stateful<Div> {
 
 /// A tab of a row that can be narrower than its tabs. Before such a row scrolls, the room at each side
 /// of every label gives way, until the tab is `floor` wide (its words and the least room beside them):
-/// chosen or not, a tab keeps its place.
-pub fn tight_tab(view: ViewTab, floor: Pixels, palette: &Palette) -> Stateful<Div> {
+/// chosen or not, a tab keeps its place. `count_room` is the room of a count the tab keeps while it
+/// counts nothing, which gives way with the sides.
+pub fn tight_tab(
+    view: ViewTab,
+    floor: Pixels,
+    count_room: Option<Pixels>,
+    palette: &Palette,
+) -> Stateful<Div> {
     let side = || div().w(theme::CONTROL_PADDING_X);
     let words = div()
         .flex_none()
@@ -63,6 +69,7 @@ pub fn tight_tab(view: ViewTab, floor: Pixels, palette: &Palette) -> Stateful<Di
         .min_w(floor)
         .child(side())
         .child(words)
+        .children(count_room.map(|room| div().w(room)))
         .child(side())
 }
 

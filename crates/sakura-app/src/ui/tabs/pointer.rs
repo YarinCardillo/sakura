@@ -7,8 +7,8 @@ use super::drag::{drop_index, resist_drag, slide_offset, StripBounds, TabBox};
 use super::metrics::{DRAG_THRESHOLD, TAB_GAP, TRAILING_ROOM};
 use super::motion::Sprung;
 use super::strip::{Strip, StripEvent};
+use crate::ui::tabs::model::TabId;
 use gpui::Context;
-use sakura_core::tabs::TabId;
 
 /// A press on a tab that has not moved yet.
 #[derive(Debug, Clone, PartialEq)]

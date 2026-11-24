@@ -90,7 +90,12 @@ impl FilesPane {
     }
 
     /// What stands in the tree's place when it has no rows: why, in one sentence.
-    fn empty(&self, palette: &Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
+    fn empty(
+        &self,
+        shows_reading: bool,
+        palette: &Palette,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
         if self.tree.has_failed("") {
             let retry = bar_toggle("files-retry", tr(Key("common.retry")), true, palette)
                 .on_click(cx.listener(|pane, _, _, cx| pane.retry(cx)));
@@ -98,6 +103,7 @@ impl FilesPane {
             return Some(failed.into_any_element());
         }
         let words = match (self.tree.is_read(), self.tree.is_only_touched()) {
+            (false, _) if !shows_reading => return Some(div().into_any_element()),
             (false, _) => Key("files.tree.reading"),
             (true, _) if !self.rows.is_empty() => return None,
             (true, true) => Key("files.tree.none_touched"),
@@ -107,10 +113,11 @@ impl FilesPane {
     }
 
     /// The kit's tree over the rows, with its scrollbar; Enter opens the file the keyboard is on.
-    fn tree_view(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn tree_view(&self, shows_reading: bool, cx: &mut Context<Self>) -> AnyElement {
         let drawing = RowDrawing {
             rows: self.rows.clone(),
             open: self.open_path(cx).map(str::to_string),
+            shows_reading,
             pane: cx.weak_entity(),
         };
         let row = move |_: usize,
@@ -147,8 +154,9 @@ impl FilesPane {
 /// What drawing a row of the tree needs of the pane.
 struct RowDrawing {
     rows: Rc<Rows>,
-    /// The path of the open file.
     open: Option<String>,
+    /// Folders have been read for long enough for their reading rows to say so.
+    shows_reading: bool,
     pane: WeakEntity<FilesPane>,
 }
 
@@ -164,6 +172,7 @@ impl RowDrawing {
             is_expanded: entry.is_expanded(),
             is_selected: state.is_selected(),
             is_open_file: self.open.as_deref() == Some(id.as_ref()),
+            shows_reading: self.shows_reading,
         };
         let (pane, path, selector) = (self.pane.clone(), id.clone(), format!("files-row-{id}"));
         tree_rows::row(kind, look, &Theme::palette(cx))
@@ -188,9 +197,16 @@ impl Render for FilesPane {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = Theme::palette(cx);
         let has_file = self.open_path(cx).is_some();
-        let tree = match self.empty(&palette, cx) {
+        let shows_reading = match self.reading.is_empty() {
+            true => {
+                self.patience.reset();
+                false
+            }
+            false => self.patience.shows(cx),
+        };
+        let tree = match self.empty(shows_reading, &palette, cx) {
             Some(empty) => empty,
-            None => self.tree_view(cx),
+            None => self.tree_view(shows_reading, cx),
         };
         let tree = div()
             .debug_selector(|| "files-tree-area".into())

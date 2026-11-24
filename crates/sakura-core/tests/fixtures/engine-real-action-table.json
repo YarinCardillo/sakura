@@ -1,0 +1,933 @@
+{
+  "actions": {
+    "A": {
+      "confirm": false,
+      "kinds": [
+        "host"
+      ],
+      "label": "Automation on or off",
+      "needs": [
+        "name",
+        "on"
+      ],
+      "optional": []
+    },
+    "B": {
+      "confirm": false,
+      "kinds": [
+        "host"
+      ],
+      "label": "Always-on service",
+      "needs": [
+        "name",
+        "on"
+      ],
+      "optional": []
+    },
+    "C": {
+      "confirm": true,
+      "kinds": [
+        "flow"
+      ],
+      "label": "Clean up",
+      "needs": [],
+      "optional": []
+    },
+    "D": {
+      "confirm": false,
+      "kinds": [
+        "flow"
+      ],
+      "label": "Change dial",
+      "needs": [
+        "step"
+      ],
+      "optional": []
+    },
+    "E": {
+      "confirm": false,
+      "kinds": [
+        "host"
+      ],
+      "label": "Set phone page port",
+      "needs": [
+        "port"
+      ],
+      "optional": []
+    },
+    "F": {
+      "confirm": false,
+      "kinds": [
+        "host"
+      ],
+      "label": "Allow device on the phone page",
+      "needs": [
+        "device"
+      ],
+      "optional": []
+    },
+    "G": {
+      "confirm": false,
+      "kinds": [
+        "host"
+      ],
+      "label": "Digest now",
+      "needs": [],
+      "optional": []
+    },
+    "H": {
+      "confirm": true,
+      "kinds": [
+        "wait"
+      ],
+      "label": "Put the workspace back on the engine's head",
+      "needs": [],
+      "optional": []
+    },
+    "I": {
+      "confirm": false,
+      "kinds": [
+        "host"
+      ],
+      "label": "Digest settings",
+      "needs": [],
+      "optional": [
+        "account",
+        "at",
+        "language",
+        "lookback_hours",
+        "model"
+      ]
+    },
+    "J": {
+      "confirm": false,
+      "kinds": [
+        "host"
+      ],
+      "label": "Digest source on or off",
+      "needs": [
+        "name",
+        "on"
+      ],
+      "optional": []
+    },
+    "K": {
+      "confirm": false,
+      "kinds": [
+        "host"
+      ],
+      "label": "Set rule",
+      "needs": [
+        "rule",
+        "value"
+      ],
+      "optional": []
+    },
+    "L": {
+      "confirm": false,
+      "kinds": [
+        "project"
+      ],
+      "label": "Start lane",
+      "needs": [
+        "text"
+      ],
+      "optional": [
+        "level",
+        "op",
+        "preset",
+        "track"
+      ]
+    },
+    "M": {
+      "confirm": false,
+      "kinds": [
+        "host"
+      ],
+      "label": "Refresh models",
+      "needs": [],
+      "optional": []
+    },
+    "N": {
+      "confirm": true,
+      "kinds": [
+        "wait"
+      ],
+      "label": "Reject",
+      "needs": [],
+      "optional": []
+    },
+    "O": {
+      "confirm": false,
+      "kinds": [
+        "host"
+      ],
+      "label": "Connect",
+      "needs": [
+        "kind"
+      ],
+      "optional": [
+        "address",
+        "label"
+      ]
+    },
+    "P": {
+      "confirm": false,
+      "kinds": [
+        "host"
+      ],
+      "label": "Add project",
+      "needs": [
+        "folder"
+      ],
+      "optional": []
+    },
+    "Q": {
+      "confirm": false,
+      "kinds": [
+        "host"
+      ],
+      "label": "Set pace",
+      "needs": [
+        "level"
+      ],
+      "optional": []
+    },
+    "R": {
+      "confirm": true,
+      "kinds": [
+        "flow"
+      ],
+      "label": "Resume",
+      "needs": [],
+      "optional": [
+        "note"
+      ]
+    },
+    "S": {
+      "confirm": false,
+      "kinds": [
+        "flow"
+      ],
+      "label": "Switch lane preset",
+      "needs": [
+        "preset"
+      ],
+      "optional": []
+    },
+    "T": {
+      "confirm": true,
+      "kinds": [
+        "flow"
+      ],
+      "label": "Re-contract",
+      "needs": [],
+      "optional": []
+    },
+    "U": {
+      "confirm": false,
+      "kinds": [
+        "host"
+      ],
+      "label": "Use preset",
+      "needs": [
+        "preset"
+      ],
+      "optional": []
+    },
+    "V": {
+      "confirm": false,
+      "kinds": [
+        "host"
+      ],
+      "label": "Save rules as preset",
+      "needs": [
+        "name"
+      ],
+      "optional": []
+    },
+    "W": {
+      "confirm": false,
+      "kinds": [
+        "project"
+      ],
+      "label": "Set accounts pace may use",
+      "needs": [
+        "accounts"
+      ],
+      "optional": []
+    },
+    "X": {
+      "confirm": true,
+      "kinds": [
+        "account"
+      ],
+      "label": "Remove",
+      "needs": [],
+      "optional": []
+    },
+    "Y": {
+      "confirm": false,
+      "kinds": [
+        "host"
+      ],
+      "label": "Give priority to my sessions",
+      "needs": [
+        "on"
+      ],
+      "optional": []
+    },
+    "Z": {
+      "confirm": false,
+      "kinds": [
+        "host"
+      ],
+      "label": "Remove device from the phone page",
+      "needs": [
+        "device"
+      ],
+      "optional": []
+    },
+    "a": {
+      "confirm": true,
+      "kinds": [
+        "flow",
+        "wait"
+      ],
+      "label": "Approve",
+      "needs": [],
+      "optional": [
+        "remember"
+      ]
+    },
+    "c": {
+      "confirm": false,
+      "kinds": [
+        "account"
+      ],
+      "label": "Set reserve",
+      "needs": [
+        "percent"
+      ],
+      "optional": []
+    },
+    "connectoradd": {
+      "confirm": true,
+      "kinds": [
+        "host"
+      ],
+      "label": "Add connector",
+      "needs": [
+        "choices",
+        "op"
+      ],
+      "optional": []
+    },
+    "connectordisconnect": {
+      "confirm": true,
+      "kinds": [
+        "host"
+      ],
+      "label": "Disconnect connector",
+      "needs": [
+        "name",
+        "op",
+        "revision"
+      ],
+      "optional": []
+    },
+    "connectoredit": {
+      "confirm": true,
+      "kinds": [
+        "host"
+      ],
+      "label": "Edit connector",
+      "needs": [
+        "choices",
+        "name",
+        "op",
+        "revision"
+      ],
+      "optional": []
+    },
+    "connectorreplace": {
+      "confirm": true,
+      "kinds": [
+        "host"
+      ],
+      "label": "Review replacement",
+      "needs": [
+        "candidate",
+        "candidate_revision",
+        "name",
+        "op",
+        "revision"
+      ],
+      "optional": []
+    },
+    "d": {
+      "confirm": true,
+      "kinds": [
+        "lane",
+        "outside"
+      ],
+      "label": "Close lane",
+      "needs": [],
+      "optional": []
+    },
+    "dismiss": {
+      "confirm": false,
+      "kinds": [
+        "wait"
+      ],
+      "label": "Dismiss",
+      "needs": [],
+      "optional": []
+    },
+    "e": {
+      "confirm": false,
+      "kinds": [
+        "account"
+      ],
+      "label": "Enable",
+      "needs": [],
+      "optional": []
+    },
+    "g": {
+      "confirm": false,
+      "kinds": [
+        "host"
+      ],
+      "label": "Make a login folder for an account",
+      "needs": [
+        "provider"
+      ],
+      "optional": []
+    },
+    "j": {
+      "confirm": false,
+      "kinds": [
+        "host"
+      ],
+      "label": "Add account",
+      "needs": [
+        "folder",
+        "label",
+        "provider"
+      ],
+      "optional": []
+    },
+    "k": {
+      "confirm": false,
+      "kinds": [
+        "wait"
+      ],
+      "label": "Mark",
+      "needs": [
+        "verdict"
+      ],
+      "optional": [
+        "note"
+      ]
+    },
+    "l": {
+      "confirm": false,
+      "kinds": [
+        "account"
+      ],
+      "label": "Rename",
+      "needs": [
+        "label"
+      ],
+      "optional": []
+    },
+    "m": {
+      "confirm": false,
+      "kinds": [
+        "flow",
+        "lane"
+      ],
+      "label": "Change model",
+      "needs": null,
+      "optional": []
+    },
+    "markreviewed": {
+      "confirm": false,
+      "kinds": [
+        "wait"
+      ],
+      "label": "Mark reviewed",
+      "needs": [],
+      "optional": []
+    },
+    "n": {
+      "confirm": true,
+      "kinds": [
+        "account"
+      ],
+      "label": "Disable",
+      "needs": [],
+      "optional": []
+    },
+    "o": {
+      "confirm": false,
+      "kinds": [
+        "host"
+      ],
+      "label": "Disconnect",
+      "needs": [
+        "name"
+      ],
+      "optional": []
+    },
+    "p": {
+      "confirm": false,
+      "kinds": [
+        "account"
+      ],
+      "label": "Add plan period",
+      "needs": [
+        "plan",
+        "since"
+      ],
+      "optional": []
+    },
+    "q": {
+      "confirm": false,
+      "kinds": [
+        "flow"
+      ],
+      "label": "Set lane pace",
+      "needs": [
+        "level"
+      ],
+      "optional": []
+    },
+    "r": {
+      "confirm": false,
+      "kinds": [
+        "wait"
+      ],
+      "label": "Reply",
+      "needs": [],
+      "optional": [
+        "choice",
+        "text"
+      ]
+    },
+    "read": {
+      "confirm": false,
+      "kinds": [
+        "wait"
+      ],
+      "label": "Mark read",
+      "needs": [],
+      "optional": []
+    },
+    "s": {
+      "confirm": true,
+      "kinds": [
+        "flow"
+      ],
+      "label": "Stop",
+      "needs": [],
+      "optional": []
+    },
+    "scheduledcreate": {
+      "confirm": false,
+      "kinds": [
+        "host"
+      ],
+      "label": "Create task",
+      "needs": [
+        "definition",
+        "op"
+      ],
+      "optional": []
+    },
+    "scheduleddelete": {
+      "confirm": true,
+      "kinds": [
+        "scheduled"
+      ],
+      "label": "Delete",
+      "needs": [],
+      "optional": []
+    },
+    "scheduledpause": {
+      "confirm": false,
+      "kinds": [
+        "scheduled"
+      ],
+      "label": "Pause",
+      "needs": [],
+      "optional": []
+    },
+    "scheduledresume": {
+      "confirm": false,
+      "kinds": [
+        "scheduled"
+      ],
+      "label": "Resume",
+      "needs": [],
+      "optional": []
+    },
+    "scheduledrun": {
+      "confirm": false,
+      "kinds": [
+        "scheduled"
+      ],
+      "label": "Run now",
+      "needs": [
+        "op"
+      ],
+      "optional": []
+    },
+    "scheduledupdate": {
+      "confirm": false,
+      "kinds": [
+        "scheduled"
+      ],
+      "label": "Edit task",
+      "needs": [
+        "definition"
+      ],
+      "optional": []
+    },
+    "setupapply": {
+      "confirm": false,
+      "kinds": [
+        "host"
+      ],
+      "label": "Apply first-launch choices",
+      "needs": [
+        "choices",
+        "op"
+      ],
+      "optional": []
+    },
+    "snooze": {
+      "confirm": false,
+      "kinds": [
+        "wait"
+      ],
+      "label": "Snooze",
+      "needs": [
+        "until"
+      ],
+      "optional": []
+    },
+    "start": {
+      "confirm": false,
+      "kinds": [
+        "wait"
+      ],
+      "label": "Start a lane",
+      "needs": [
+        "op"
+      ],
+      "optional": [
+        "account",
+        "preset",
+        "project",
+        "title"
+      ]
+    },
+    "t": {
+      "confirm": false,
+      "kinds": [
+        "flow"
+      ],
+      "label": "Turn lane step on or off",
+      "needs": [
+        "state",
+        "step"
+      ],
+      "optional": []
+    },
+    "trackdecision": {
+      "confirm": false,
+      "kinds": [
+        "track"
+      ],
+      "label": "Raise decision",
+      "needs": [
+        "op",
+        "text"
+      ],
+      "optional": []
+    },
+    "tracklink": {
+      "confirm": false,
+      "kinds": [
+        "track"
+      ],
+      "label": "Link to Track",
+      "needs": [
+        "op"
+      ],
+      "optional": [
+        "conversation",
+        "project",
+        "task",
+        "title"
+      ]
+    },
+    "tracknew": {
+      "confirm": false,
+      "kinds": [
+        "tracks"
+      ],
+      "label": "New Track",
+      "needs": [
+        "goal",
+        "name",
+        "op"
+      ],
+      "optional": [
+        "project"
+      ]
+    },
+    "trackremove": {
+      "confirm": false,
+      "kinds": [
+        "track"
+      ],
+      "label": "Remove lane reservation",
+      "needs": [
+        "op",
+        "startop"
+      ],
+      "optional": []
+    },
+    "trackretry": {
+      "confirm": false,
+      "kinds": [
+        "track"
+      ],
+      "label": "Retry lane start",
+      "needs": [
+        "op",
+        "startop"
+      ],
+      "optional": []
+    },
+    "trackset": {
+      "confirm": false,
+      "kinds": [
+        "track"
+      ],
+      "label": "Edit Track",
+      "needs": [
+        "op"
+      ],
+      "optional": [
+        "clear",
+        "goal",
+        "name",
+        "status",
+        "summary"
+      ]
+    },
+    "tracksettle": {
+      "confirm": false,
+      "kinds": [
+        "track",
+        "wait"
+      ],
+      "label": "Answer decision",
+      "needs": [
+        "answer",
+        "decision",
+        "op"
+      ],
+      "optional": []
+    },
+    "trackunlink": {
+      "confirm": false,
+      "kinds": [
+        "track"
+      ],
+      "label": "Unlink from Track",
+      "needs": [
+        "op"
+      ],
+      "optional": [
+        "conversation",
+        "project",
+        "task"
+      ]
+    },
+    "unread": {
+      "confirm": false,
+      "kinds": [
+        "wait"
+      ],
+      "label": "Mark unread",
+      "needs": [],
+      "optional": []
+    },
+    "unsnooze": {
+      "confirm": false,
+      "kinds": [
+        "wait"
+      ],
+      "label": "Unsnooze",
+      "needs": [],
+      "optional": []
+    },
+    "w": {
+      "confirm": false,
+      "kinds": [
+        "flow",
+        "lane",
+        "outside"
+      ],
+      "label": "Write to agent",
+      "needs": [
+        "text"
+      ],
+      "optional": []
+    },
+    "y": {
+      "confirm": true,
+      "kinds": [
+        "wait"
+      ],
+      "label": "Accept",
+      "needs": [],
+      "optional": []
+    }
+  },
+  "connector_kinds": [
+    "github",
+    "notion",
+    "linear",
+    "feed",
+    "program"
+  ],
+  "decided_answers": [
+    "approve",
+    "decline",
+    "reply",
+    "choice",
+    "resume",
+    "stop",
+    "accept",
+    "reject",
+    "mark_ok",
+    "mark_ko",
+    "reviewed",
+    "merged",
+    "closed",
+    "started",
+    "dismissed",
+    "close"
+  ],
+  "digest_inputs": {
+    "account": "[A-Za-z0-9][A-Za-z0-9._-]{0,63}",
+    "at": "([01]\\d|2[0-3]):([0-5]\\d)",
+    "language": "[a-z]{2,3}(-[A-Za-z0-9]{2,8})?",
+    "max_lookback_hours": 168,
+    "model": "(?:(?:claude|codex):)?[a-z0-9][a-z0-9._-]{0,63}"
+  },
+  "host_targets": {
+    "automations": [
+      "A"
+    ],
+    "connectors": [
+      "O",
+      "connectoradd",
+      "connectordisconnect",
+      "connectoredit",
+      "connectorreplace",
+      "o"
+    ],
+    "digest": [
+      "G"
+    ],
+    "digest-settings": [
+      "I",
+      "J"
+    ],
+    "engine": [
+      "E",
+      "F",
+      "K",
+      "M",
+      "Q",
+      "U",
+      "V",
+      "Y",
+      "Z",
+      "g",
+      "j",
+      "setupapply"
+    ],
+    "projects": [
+      "P"
+    ],
+    "scheduled": [
+      "scheduledcreate"
+    ],
+    "services": [
+      "B"
+    ]
+  },
+  "input_patterns": {
+    "accounts/": "([A-Za-z0-9][A-Za-z0-9._:@-]{0,79}(,[A-Za-z0-9][A-Za-z0-9._:@-]{0,79}){0,15})?",
+    "level/": "[a-z]{1,12}",
+    "model/lane": "[A-Za-z0-9][A-Za-z0-9._:\\[\\]-]{0,79}",
+    "name/": "[a-z0-9][a-z0-9-]{0,39}",
+    "on/": "yes|no",
+    "preset/": "[a-z0-9][a-z0-9-]{0,39}",
+    "provider/": "claude|codex",
+    "remember/": "yes",
+    "role/": "[a-z][a-z0-9_]{0,39}",
+    "rule/": "[a-z_]+(\\.[a-z_]+){0,2}",
+    "step/": "[a-z0-9_-]{1,40}",
+    "verdict/": "ok|ko"
+  },
+  "pace_levels": [
+    "slowest",
+    "slow",
+    "normal",
+    "fast",
+    "fastest"
+  ],
+  "service_names": [
+    "keeper",
+    "phone-page"
+  ],
+  "wait_actions": {
+    "approval": [
+      "a"
+    ],
+    "automation": [
+      "y",
+      "N"
+    ],
+    "blocked": [],
+    "owner_row": [
+      "k",
+      "H"
+    ],
+    "proposal": [
+      "y",
+      "N"
+    ],
+    "question": [
+      "r"
+    ],
+    "review": [
+      "markreviewed"
+    ],
+    "scheduled_approval": [
+      "y",
+      "N"
+    ],
+    "track_decision": [
+      "tracksettle"
+    ]
+  }
+}

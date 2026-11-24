@@ -1,0 +1,7 @@
+{"timestamp":"2026-10-18T16:59:20.000Z","type":"session_meta","payload":{"id":"sess-codex-1","cwd":"/work/acme","git":{"branch":"feature/y","commit_hash":"abc123"},"base_instructions":"SECRET-MARKER-TEXT long instructions"}}
+{"timestamp":"2026-10-18T16:59:21.000Z","type":"turn_context","payload":{"cwd":"/work/acme/sub","model":"gpt-test-1"}}
+{"timestamp":"2026-10-18T16:59:22.000Z","type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":null}}
+{"timestamp":"2026-10-18T16:59:23.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"cached_input_tokens":400,"output_tokens":50}},"rate_limits":null}}
+{"timestamp":"2026-10-18T16:59:24.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"cached_input_tokens":400,"output_tokens":50}},"rate_limits":null}}
+{"timestamp":"2026-10-18T16:59:25.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":3000,"cached_input_tokens":2000,"output_tokens":150}},"rate_limits":null}}
+{"timestamp":"2026-10-18T16:59:26.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":500,"cached_input_tokens":100,"output_tokens":20}},"rate_limits":null}}

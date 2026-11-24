@@ -6,7 +6,6 @@ use super::{required_verbs, Tone};
 use crate::models::{Place, RunnerState, Task};
 use crate::said::{Key, Said};
 
-/// Length of a short sha.
 pub const SHORT_SHA: usize = 7;
 
 /// What a verb shows: the runner's work for it first, else its last result.
@@ -38,7 +37,7 @@ impl VerifyState {
             VerifyState::Result(ResultView::Fallito) => Tone::Failed,
             VerifyState::Result(ResultView::Vecchio) => Tone::Old,
             VerifyState::Result(ResultView::MaiEseguito) => Tone::Neutral,
-            VerifyState::Result(ResultView::Annullata) => Tone::Old,
+            VerifyState::Result(ResultView::Annullata | ResultView::Scartata) => Tone::Old,
             VerifyState::Result(ResultView::VerdeConRiserva(_)) => Tone::Neutral,
         }
     }
@@ -62,6 +61,27 @@ pub struct VerifyRow {
     /// The last result ran in the task's folder on the Mac, not in a box: it is no evidence against the
     /// agent, and the row says so.
     pub ran_on_mac: bool,
+    /// Why `box` set the last result aside, when it did and no request replaces it.
+    pub discarded: Option<Said>,
+}
+
+/// The reasons `box` gives for a result it set aside that the interface has a sentence for.
+const DISCARDED: [(&str, &str); 2] = [
+    (
+        "the worktree changed while the check ran",
+        "verify.discarded.changed",
+    ),
+    ("commit first", "verify.discarded.uncommitted"),
+];
+
+/// What is said of `reason`, the line `box` gave for a result it set aside: the interface's sentence
+/// when it has one, else the reason itself.
+pub fn discarded_said(reason: &str) -> Said {
+    let known = DISCARDED.iter().find(|(mark, _)| reason.contains(mark));
+    match known {
+        Some((_, key)) => Said::new(key),
+        None => Said::new("verify.discarded.other").text("reason", reason),
+    }
 }
 
 /// The rows for `task`: the required verbs first, then every other verb with a result or a request in the
@@ -87,6 +107,7 @@ fn request_row(task: &Task, verb: String, state: VerifyState, sha: &str) -> Veri
         tests: None,
         tests_touched: None,
         ran_on_mac: false,
+        discarded: None,
         verb,
     }
 }
@@ -102,6 +123,9 @@ fn result_row(task: &Task, verb: String) -> VerifyRow {
         tests: result.and_then(tests_word),
         tests_touched: result.and_then(touched_sentence),
         ran_on_mac: result.is_some_and(|r| r.place == Place::Mac),
+        discarded: result
+            .and_then(|r| r.discarded.as_deref())
+            .map(discarded_said),
         verb,
     }
 }
@@ -282,6 +306,32 @@ mod tests {
         assert_eq!(row.sha.as_deref(), Some(&HEAD[..SHORT_SHA]));
         assert_eq!(row.seconds, Some(38.0));
         assert!(row.is_head);
+    }
+
+    #[test]
+    fn a_result_the_service_set_aside_is_told_from_a_failure_and_carries_its_reason() {
+        let reason = "the worktree changed while the check ran (the command ended with 0): this is not a result for 1234567890ab";
+        let json = format!(
+            r#"{{"sha":"{HEAD}","exitCode":2,"seconds":3,"finishedAt":"t","isHead":true,"discarded":"{reason}"}}"#
+        );
+        let mut task = readable("m1");
+        let result = serde_json::from_str(&json).expect("a result");
+        task.results.insert("test".into(), result);
+        let row = &verify_rows(&task, None)[0];
+        assert_ne!(row.state.word(), Key("result.failed"));
+        assert_eq!(row.state.word(), Key("result.discarded"));
+        assert_ne!(row.state.tone(), Tone::Failed);
+        assert_eq!(
+            row.discarded,
+            Some(Said::new("verify.discarded.changed")),
+            "the reason in the interface's words"
+        );
+        let other = "the worktree is at 1234, not at the commit that was requested";
+        let said = discarded_said(other);
+        assert_eq!(
+            said,
+            Said::new("verify.discarded.other").text("reason", other)
+        );
     }
 
     #[test]

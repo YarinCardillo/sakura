@@ -1,0 +1,49 @@
+{
+  "harnesses": [
+    {
+      "adapter_path": null,
+      "adapter_version": null,
+      "found": false,
+      "id": "claude",
+      "label": "Claude",
+      "program_path": null,
+      "readiness": "unavailable",
+      "reason": "install_program",
+      "version": null
+    },
+    {
+      "adapter_path": null,
+      "adapter_version": null,
+      "found": false,
+      "id": "codex",
+      "label": "Codex",
+      "program_path": null,
+      "readiness": "unavailable",
+      "reason": "program_untrusted",
+      "version": null
+    },
+    {
+      "adapter_path": null,
+      "adapter_version": null,
+      "found": false,
+      "id": "goose",
+      "label": "Goose",
+      "program_path": null,
+      "readiness": "unavailable",
+      "reason": "install_program",
+      "version": null
+    }
+  ],
+  "logins": [
+    {
+      "folder": "/work/goose-home/.goose-local",
+      "harness": "goose",
+      "in_book_as": null,
+      "logged_in": null,
+      "proposed_name": "Goose",
+      "readiness": "unavailable",
+      "reason": "install_program",
+      "registered_account": null
+    }
+  ]
+}

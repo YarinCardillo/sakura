@@ -1,0 +1,481 @@
+{
+  "preset": "haiku",
+  "preset_label": "Haiku",
+  "edited": false,
+  "accounts_count": 0,
+  "agents": [],
+  "pace_accounts": {},
+  "nodes": [
+    {
+      "node": "start",
+      "rules": [
+        {
+          "id": "lanes_min",
+          "label": "Lanes at least",
+          "type": "int",
+          "choices": [],
+          "min": 1,
+          "max": 6,
+          "origin": "preset:haiku",
+          "read_only": false,
+          "value": 1
+        },
+        {
+          "id": "lanes",
+          "label": "Lanes at most",
+          "type": "int",
+          "choices": [],
+          "min": 1,
+          "max": 6,
+          "origin": "preset:haiku",
+          "read_only": false,
+          "value": 3
+        },
+        {
+          "id": "approve_spec",
+          "label": "Ask before a lane builds",
+          "type": "bool",
+          "choices": [],
+          "min": null,
+          "max": null,
+          "origin": "defaults",
+          "read_only": false,
+          "value": true
+        }
+      ]
+    },
+    {
+      "node": "plan",
+      "rules": [
+        {
+          "id": "steps.plan.on",
+          "label": "Plan",
+          "type": "bool",
+          "choices": [],
+          "min": null,
+          "max": null,
+          "origin": "preset:haiku",
+          "read_only": false,
+          "value": true
+        },
+        {
+          "id": "steps.plan.model",
+          "label": "Model",
+          "type": "choice",
+          "choices": [
+            "claude:haiku",
+            "claude:sonnet",
+            "claude:opus",
+            "codex"
+          ],
+          "min": null,
+          "max": null,
+          "origin": "personal",
+          "read_only": false,
+          "value": "claude:haiku",
+          "agent": {
+            "account": "claude-aa0b79cab9b0ea15",
+            "provider": "claude",
+            "model": "haiku",
+            "resolved": "",
+            "effort": "medium",
+            "effort_is_set": false,
+            "default_model": "haiku",
+            "accounts": [],
+            "note": ""
+          }
+        },
+        {
+          "id": "steps.plan.effort",
+          "label": "Effort",
+          "type": "choice",
+          "choices": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "min": null,
+          "max": null,
+          "origin": "defaults",
+          "read_only": false,
+          "value": "medium"
+        }
+      ]
+    },
+    {
+      "node": "plan_review",
+      "rules": [
+        {
+          "id": "reviews.plan_review.on",
+          "label": "Review the plan",
+          "type": "bool",
+          "choices": [],
+          "min": null,
+          "max": null,
+          "origin": "preset:haiku",
+          "read_only": false,
+          "value": true
+        },
+        {
+          "id": "reviews.plan_review.model",
+          "label": "Model",
+          "type": "choice",
+          "choices": [
+            "claude:haiku",
+            "claude:sonnet",
+            "claude:opus",
+            "codex"
+          ],
+          "min": null,
+          "max": null,
+          "origin": "personal",
+          "read_only": false,
+          "value": "claude:sonnet",
+          "agent": {
+            "account": "claude-aa0b79cab9b0ea15",
+            "provider": "claude",
+            "model": "sonnet",
+            "resolved": "",
+            "effort": "medium",
+            "effort_is_set": false,
+            "default_model": "sonnet",
+            "accounts": [],
+            "note": ""
+          }
+        },
+        {
+          "id": "reviews.plan_review.effort",
+          "label": "Effort",
+          "type": "choice",
+          "choices": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "min": null,
+          "max": null,
+          "origin": "defaults",
+          "read_only": false,
+          "value": "medium"
+        }
+      ]
+    },
+    {
+      "node": "build",
+      "rules": [
+        {
+          "id": "steps.build.on",
+          "label": "Build",
+          "type": "bool",
+          "choices": [],
+          "min": null,
+          "max": null,
+          "origin": "defaults",
+          "read_only": true,
+          "value": true
+        },
+        {
+          "id": "steps.build.model",
+          "label": "Model",
+          "type": "choice",
+          "choices": [
+            "claude:haiku",
+            "claude:sonnet",
+            "claude:opus",
+            "codex"
+          ],
+          "min": null,
+          "max": null,
+          "origin": "personal",
+          "read_only": false,
+          "value": "claude:haiku",
+          "agent": {
+            "account": "claude-aa0b79cab9b0ea15",
+            "provider": "claude",
+            "model": "haiku",
+            "resolved": "",
+            "effort": "medium",
+            "effort_is_set": false,
+            "default_model": "haiku",
+            "accounts": [],
+            "note": ""
+          }
+        },
+        {
+          "id": "steps.build.effort",
+          "label": "Effort",
+          "type": "choice",
+          "choices": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "min": null,
+          "max": null,
+          "origin": "defaults",
+          "read_only": false,
+          "value": "medium"
+        },
+        {
+          "id": "builders",
+          "label": "Builders at once",
+          "type": "int",
+          "choices": [],
+          "min": 1,
+          "max": 6,
+          "origin": "preset:haiku",
+          "read_only": false,
+          "value": 3
+        },
+        {
+          "id": "subagents",
+          "label": "Subagents",
+          "type": "int",
+          "choices": [],
+          "min": 0,
+          "max": 8,
+          "origin": "preset:haiku",
+          "read_only": false,
+          "value": 2
+        }
+      ]
+    },
+    {
+      "node": "task_review",
+      "rules": [
+        {
+          "id": "reviews.task_review.on",
+          "label": "Review each task",
+          "type": "bool",
+          "choices": [],
+          "min": null,
+          "max": null,
+          "origin": "preset:haiku",
+          "read_only": false,
+          "value": true
+        },
+        {
+          "id": "reviews.task_review.model",
+          "label": "Model",
+          "type": "choice",
+          "choices": [
+            "claude:haiku",
+            "claude:sonnet",
+            "claude:opus",
+            "codex"
+          ],
+          "min": null,
+          "max": null,
+          "origin": "personal",
+          "read_only": false,
+          "value": "claude:sonnet",
+          "agent": {
+            "account": "claude-aa0b79cab9b0ea15",
+            "provider": "claude",
+            "model": "sonnet",
+            "resolved": "",
+            "effort": "medium",
+            "effort_is_set": false,
+            "default_model": "sonnet",
+            "accounts": [],
+            "note": ""
+          }
+        },
+        {
+          "id": "reviews.task_review.effort",
+          "label": "Effort",
+          "type": "choice",
+          "choices": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "min": null,
+          "max": null,
+          "origin": "defaults",
+          "read_only": false,
+          "value": "medium"
+        },
+        {
+          "id": "reviews.task_review.rounds",
+          "label": "Rounds of changes",
+          "type": "int",
+          "choices": [],
+          "min": 0,
+          "max": 6,
+          "origin": "preset:haiku",
+          "read_only": false,
+          "value": 2
+        }
+      ]
+    },
+    {
+      "node": "final_review",
+      "rules": [
+        {
+          "id": "reviews.final_review.on",
+          "label": "Review the whole branch",
+          "type": "bool",
+          "choices": [],
+          "min": null,
+          "max": null,
+          "origin": "preset:haiku",
+          "read_only": false,
+          "value": false
+        },
+        {
+          "id": "reviews.final_review.rounds",
+          "label": "Rounds of changes",
+          "type": "int",
+          "choices": [],
+          "min": 0,
+          "max": 6,
+          "origin": "preset:haiku",
+          "read_only": false,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "node": "checks",
+      "rules": [
+        {
+          "id": "steps.checks.on",
+          "label": "Checks",
+          "type": "bool",
+          "choices": [],
+          "min": null,
+          "max": null,
+          "origin": "preset:haiku",
+          "read_only": false,
+          "value": true
+        },
+        {
+          "id": "evaluator",
+          "label": "Prove each row",
+          "type": "bool",
+          "choices": [],
+          "min": null,
+          "max": null,
+          "origin": "preset:haiku",
+          "read_only": false,
+          "value": false
+        },
+        {
+          "id": "steps.checks.model",
+          "label": "Model",
+          "type": "choice",
+          "choices": [
+            "claude:haiku",
+            "claude:sonnet",
+            "claude:opus",
+            "codex"
+          ],
+          "min": null,
+          "max": null,
+          "origin": "personal",
+          "read_only": false,
+          "value": "claude:haiku",
+          "agent": {
+            "account": "claude-aa0b79cab9b0ea15",
+            "provider": "claude",
+            "model": "haiku",
+            "resolved": "",
+            "effort": "medium",
+            "effort_is_set": false,
+            "default_model": "haiku",
+            "accounts": [],
+            "note": ""
+          }
+        },
+        {
+          "id": "steps.checks.effort",
+          "label": "Effort",
+          "type": "choice",
+          "choices": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "min": null,
+          "max": null,
+          "origin": "defaults",
+          "read_only": false,
+          "value": "medium"
+        }
+      ]
+    },
+    {
+      "node": "deliver",
+      "rules": [
+        {
+          "id": "reporter",
+          "label": "Write the report",
+          "type": "bool",
+          "choices": [],
+          "min": null,
+          "max": null,
+          "origin": "preset:haiku",
+          "read_only": false,
+          "value": true
+        },
+        {
+          "id": "report_language",
+          "label": "Report language",
+          "type": "choice",
+          "choices": [
+            "it",
+            "en"
+          ],
+          "min": null,
+          "max": null,
+          "origin": "preset:haiku",
+          "read_only": false,
+          "value": "it"
+        }
+      ]
+    },
+    {
+      "node": "guard",
+      "rules": [
+        {
+          "id": "guard.cage",
+          "label": "Cage",
+          "type": "text",
+          "choices": [],
+          "min": null,
+          "max": null,
+          "origin": "preset:haiku",
+          "read_only": true,
+          "value": "default"
+        },
+        {
+          "id": "guard.grants",
+          "label": "Grants",
+          "type": "list",
+          "choices": [],
+          "min": null,
+          "max": null,
+          "origin": "defaults",
+          "read_only": true,
+          "value": []
+        }
+      ]
+    }
+  ]
+}

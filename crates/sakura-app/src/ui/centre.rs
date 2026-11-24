@@ -1,9 +1,9 @@
-//! The centre of a lavoro's page: the view chosen, right under the header, whose row carries the switch
-//! between the centre's views. The agent's view is always there; the lavoro's own terminal is a second
+//! The centre of a task's page: the view chosen, right under the header, whose row carries the switch
+//! between the centre's views. The agent's view is always there; the task's own terminal is a second
 //! view beside it once one was opened. Opening the terminal never replaces, hides for good or ends the agent: each has its own
 //! session and its own place, and the way back is the switch itself. When the terminal's shell ends (an
 //! `exit`), only the terminal goes: the centre returns to the agent's view and one quiet line says so,
-//! with the way to open it again. Which view a lavoro shows is kept per lavoro by the desk; the one place
+//! with the way to open it again. Which view a task shows is kept per task by the desk; the one place
 //! where a view of the centre becomes its content is [`Desk::centre`].
 
 use super::chrome::keep_click;
@@ -23,10 +23,10 @@ use sakura_core::models::Task;
 /// The views of the centre, in the order of its row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CentreView {
-    /// The lavoro's agent.
+    /// The task's agent.
     #[default]
     Agent,
-    /// The lavoro's own terminal.
+    /// The task's own terminal.
     Terminal,
 }
 
@@ -69,7 +69,7 @@ impl Desk {
         self.consoles.read(cx).terminal(task).is_some()
     }
 
-    /// "Open a terminal" opens the lavoro's own terminal and shows it; "Close the terminal" ends it and
+    /// "Open a terminal" opens the task's own terminal and shows it; "Close the terminal" ends it and
     /// goes back to the agent. Neither touches the agent's session.
     pub fn toggle_terminal(&mut self, task: &str, window: &mut Window, cx: &mut Context<Self>) {
         if self.has_terminal(task, cx) {
@@ -83,7 +83,7 @@ impl Desk {
         }
     }
 
-    /// The status bar's terminal item: shows the terminal of the lavoro on screen, opening one when it
+    /// The status bar's terminal item: shows the terminal of the task on screen, opening one when it
     /// has none, and returns to the agent when the terminal is what is shown.
     pub fn switch_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(task) = self.shown(cx) else {
@@ -96,7 +96,7 @@ impl Desk {
         }
     }
 
-    /// Where the lavoro on screen stands with its terminal, for the status bar; none while no lavoro
+    /// Where the task on screen stands with its terminal, for the status bar; none while no task
     /// is shown.
     pub fn terminal_item(&self, cx: &gpui::App) -> Option<TerminalItem> {
         let task = self.shown(cx)?;
@@ -108,7 +108,7 @@ impl Desk {
         Some(item)
     }
 
-    /// The shell of a lavoro's terminal ended: the centre goes back to the agent's view and says once
+    /// The shell of a task's terminal ended: the centre goes back to the agent's view and says once
     /// that the terminal ended. Nothing else closes.
     pub(super) fn terminal_ended(&mut self, ended: &TerminalEnded, cx: &mut Context<Self>) {
         self.ended_terminals.insert(ended.task.clone(), ended.code);
@@ -121,7 +121,7 @@ impl Desk {
         cx.notify();
     }
 
-    /// The centre of `task`'s page: the view this lavoro shows. This is the one
+    /// The centre of `task`'s page: the view this task shows. This is the one
     /// place where a view of the centre becomes its content: a new view is a variant of [`CentreView`]
     /// and an arm here.
     pub(super) fn centre(
@@ -154,21 +154,21 @@ impl Desk {
             .into_any_element()
     }
 
-    /// The lavoro's own terminal as the centre shows it.
+    /// The task's own terminal as the centre shows it.
     fn terminal_side(&self, task: &Task, cx: &mut Context<Self>) -> AnyElement {
         let consoles = self.consoles.read(cx);
         let row = self.facts.read(cx).row(&task.name);
         match (consoles.terminal(&task.name), row) {
             (Some(console), Some(row)) => {
                 let palette = Theme::palette(cx);
-                console::view::view(row, console, consoles.can_open(), &palette, cx)
+                console::view::view(Some(row), console, consoles.can_open(), &palette, cx)
             }
             _ => div().into_any_element(),
         }
     }
 
     /// The switch between the centre's views, for the header's row: the agent always, the terminal while
-    /// the lavoro has one. It is there with one view too, so that opening a terminal moves nothing.
+    /// the task has one. It is there with one view too, so that opening a terminal moves nothing.
     pub(super) fn centre_switch(
         &self,
         task: &str,

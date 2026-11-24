@@ -1,0 +1,421 @@
+{
+ "preset": "standard",
+ "edited": false,
+ "accounts_count": 3,
+ "nodes": [
+  {
+   "node": "start",
+   "rules": [
+    {
+     "id": "master.model",
+     "label": "Master model",
+     "type": "choice",
+     "value": "Claude Opus",
+     "choices": [
+      "Claude Opus",
+      "Claude Sonnet",
+      "Codex"
+     ],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": false
+    },
+    {
+     "id": "master.account",
+     "label": "Account",
+     "type": "choice",
+     "value": "Personal",
+     "choices": [
+      "The project's account",
+      "Personal",
+      "Work",
+      "Codex"
+     ],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": false
+    },
+    {
+     "id": "master.starts_lanes_without_asking",
+     "label": "Master starts lanes without asking",
+     "type": "bool",
+     "value": true,
+     "choices": [],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": false
+    }
+   ]
+  },
+  {
+   "node": "plan",
+   "rules": [
+    {
+     "id": "steps.plan.on",
+     "label": "On",
+     "type": "bool",
+     "value": true,
+     "choices": [],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": false
+    },
+    {
+     "id": "steps.plan.model",
+     "label": "Model",
+     "type": "choice",
+     "value": "Claude Opus",
+     "choices": [
+      "Claude Opus",
+      "Claude Sonnet",
+      "Codex"
+     ],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": false
+    },
+    {
+     "id": "steps.plan.account",
+     "label": "Account",
+     "type": "choice",
+     "value": "Personal",
+     "choices": [
+      "The project's account",
+      "Personal",
+      "Work",
+      "Codex"
+     ],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": false
+    }
+   ]
+  },
+  {
+   "node": "plan_review",
+   "rules": [
+    {
+     "id": "reviews.plan_review.on",
+     "label": "On",
+     "type": "bool",
+     "value": true,
+     "choices": [],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": false
+    },
+    {
+     "id": "reviews.plan_review.model",
+     "label": "Model",
+     "type": "choice",
+     "value": "Codex",
+     "choices": [
+      "Claude Opus",
+      "Claude Sonnet",
+      "Codex"
+     ],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": false
+    },
+    {
+     "id": "reviews.plan_review.account",
+     "label": "Account",
+     "type": "choice",
+     "value": "Codex",
+     "choices": [
+      "The project's account",
+      "Personal",
+      "Work",
+      "Codex"
+     ],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": false
+    },
+    {
+     "id": "reviews.plan_review.rounds",
+     "label": "Sends back at most",
+     "type": "int",
+     "value": 2,
+     "choices": [],
+     "min": 0,
+     "max": 5,
+     "origin": "preset",
+     "read_only": false
+    }
+   ]
+  },
+  {
+   "node": "build",
+   "rules": [
+    {
+     "id": "steps.build.model",
+     "label": "Model",
+     "type": "choice",
+     "value": "Claude Sonnet",
+     "choices": [
+      "Claude Opus",
+      "Claude Sonnet",
+      "Codex"
+     ],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": false
+    },
+    {
+     "id": "steps.build.account",
+     "label": "Account",
+     "type": "choice",
+     "value": "Work",
+     "choices": [
+      "The project's account",
+      "Personal",
+      "Work",
+      "Codex"
+     ],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": false
+    },
+    {
+     "id": "subagents",
+     "label": "Subagents",
+     "type": "int",
+     "value": 0,
+     "choices": [],
+     "min": 0,
+     "max": 8,
+     "origin": "preset",
+     "read_only": false
+    }
+   ]
+  },
+  {
+   "node": "task_review",
+   "rules": [
+    {
+     "id": "reviews.task_review.on",
+     "label": "On",
+     "type": "bool",
+     "value": true,
+     "choices": [],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": false
+    },
+    {
+     "id": "reviews.task_review.model",
+     "label": "Model",
+     "type": "choice",
+     "value": "Codex",
+     "choices": [
+      "Claude Opus",
+      "Claude Sonnet",
+      "Codex"
+     ],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": false
+    },
+    {
+     "id": "reviews.task_review.account",
+     "label": "Account",
+     "type": "choice",
+     "value": "Codex",
+     "choices": [
+      "The project's account",
+      "Personal",
+      "Work",
+      "Codex"
+     ],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": false
+    },
+    {
+     "id": "reviews.task_review.rounds",
+     "label": "Sends back at most",
+     "type": "int",
+     "value": 2,
+     "choices": [],
+     "min": 0,
+     "max": 5,
+     "origin": "preset",
+     "read_only": false
+    }
+   ]
+  },
+  {
+   "node": "final_review",
+   "rules": [
+    {
+     "id": "reviews.final_review.on",
+     "label": "On",
+     "type": "bool",
+     "value": false,
+     "choices": [],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": false
+    },
+    {
+     "id": "reviews.final_review.model",
+     "label": "Model",
+     "type": "choice",
+     "value": "Claude Opus",
+     "choices": [
+      "Claude Opus",
+      "Claude Sonnet",
+      "Codex"
+     ],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": false
+    },
+    {
+     "id": "reviews.final_review.account",
+     "label": "Account",
+     "type": "choice",
+     "value": "Personal",
+     "choices": [
+      "The project's account",
+      "Personal",
+      "Work",
+      "Codex"
+     ],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": false
+    },
+    {
+     "id": "reviews.final_review.rounds",
+     "label": "Sends back at most",
+     "type": "int",
+     "value": 1,
+     "choices": [],
+     "min": 0,
+     "max": 5,
+     "origin": "preset",
+     "read_only": false
+    }
+   ]
+  },
+  {
+   "node": "checks",
+   "rules": [
+    {
+     "id": "steps.checks.on",
+     "label": "On",
+     "type": "bool",
+     "value": true,
+     "choices": [],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": false
+    },
+    {
+     "id": "steps.checks.real_run",
+     "label": "Real run before delivery",
+     "type": "bool",
+     "value": true,
+     "choices": [],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": false
+    }
+   ]
+  },
+  {
+   "node": "deliver",
+   "rules": [
+    {
+     "id": "deliver.approve_each",
+     "label": "You approve every delivery",
+     "type": "bool",
+     "value": true,
+     "choices": [],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": true
+    },
+    {
+     "id": "report_language",
+     "label": "Report language",
+     "type": "choice",
+     "value": "Italian",
+     "choices": [
+      "English",
+      "Italian"
+     ],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": false
+    },
+    {
+     "id": "deliver.phone_notice",
+     "label": "Phone notice",
+     "type": "bool",
+     "value": true,
+     "choices": [],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": false
+    }
+   ]
+  },
+  {
+   "node": "guard",
+   "rules": [
+    {
+     "id": "guard.cage",
+     "label": "Cage",
+     "type": "choice",
+     "value": "On for every lane",
+     "choices": [
+      "On for every lane"
+     ],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": true
+    },
+    {
+     "id": "guard.grants",
+     "label": "Grants",
+     "type": "choice",
+     "value": "From the grants file",
+     "choices": [
+      "From the grants file"
+     ],
+     "min": null,
+     "max": null,
+     "origin": "preset",
+     "read_only": true
+    }
+   ]
+  }
+ ]
+}

@@ -1,10 +1,11 @@
 //! The "Files" view of the right pane: the whole tree of a task, each level read when its folder is
 //! opened, and under it the open file, read only, which follows the agent. Quick open (Cmd+P) lists the
-//! task's files by name. Everything is read through `box` (`box tree`, `box file`, `box search`), behind
-//! a [`Source`]; nothing is read on a timer.
+//! task's files by name. Everything is read behind a [`Source`]: in-process ([`DirectSource`]), and
+//! through `box` (`box tree`, `box file`, `box search`) only for a repository the in-process reader does
+//! not read; nothing is read on a timer.
 //!
 //! Entry point, one [`FilesPane`] per open task:
-//! - [`FilesPane::new`] takes the task's [`Source`] ([`BoxSource`] over the app's `box`) and the folder
+//! - [`FilesPane::new`] takes the task's [`Source`] ([`DirectSource`] over the app's readers) and the folder
 //!   its agent works in (the conversation's workspace), which the agent's places are relative to.
 //! - The pane asks it to show a place with [`FilesPane::show_location`], for each tool call of the
 //!   conversation that names one (the protocol's `locations`). While following is on the file opens at
@@ -28,11 +29,17 @@ mod source;
 mod syntax;
 mod tree_rows;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "boxes"))]
 mod quick_open_tests;
-#[cfg(test)]
+#[cfg(all(test, feature = "boxes"))]
 mod tests;
 
+#[cfg(not(feature = "boxes"))]
+pub use file_view::{FileView, FileViewEvent};
+#[cfg(not(feature = "boxes"))]
+pub use follow::{Follow, Location};
 pub use pane::{FilesEvent, FilesPane};
 pub use quick_open::{QuickOpen, QuickOpenEvent, Target};
-pub use source::{on_runtime, BoxSource, Reading, Source};
+pub use source::{joined, on_runtime, Reading, Source};
+#[cfg(feature = "boxes")]
+pub use source::{BoxSource, DirectSource};

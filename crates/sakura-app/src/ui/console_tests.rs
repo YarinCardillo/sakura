@@ -290,7 +290,7 @@ const AGENT_AND_SHELL: &str = r#"case "$1" in
   shell) printf 'shell of %s\n' "$2"; read line; exit "${line:-0}" ;;
 esac"#;
 
-/// Opens the window on the lavoro whose agent runs and waits for its terminal.
+/// Opens the window on the task whose agent runs and waits for its terminal.
 fn open_on_the_agent(
     cx: &mut TestAppContext,
     script: PathBuf,

@@ -7,17 +7,20 @@ use super::{
     system_folder_picker, BoxSettings, Deps, LanguageControl, Notify, Settings, SettingsEvent,
     TerminalText, ThemeChoice,
 };
+use crate::data::actions::Accounts;
 use crate::data::projects::Projects;
 use crate::data::source::Source;
 use crate::prefs::Preferences;
 use crate::theme::{Appearance, Theme};
 use crate::ui::centre::CentreView;
 use crate::ui::console::rules::ConsoleKind;
+use crate::ui::console::At;
 use crate::ui::desk::Desk;
 use gpui::{
     AnyWindowHandle, App, AppContext as _, Context, Entity, Global, Subscription, WeakEntity,
     Window,
 };
+use sakura_core::models::{Account, Place};
 use std::rc::Rc;
 
 /// What Settings needs of the app while its window can be opened.
@@ -34,7 +37,7 @@ pub struct Host {
 impl Global for Host {}
 
 impl Host {
-    /// The host of the main `window`, whose `desk` shows the lavori of `source`.
+    /// The host of the main `window`, whose `desk` shows the tasks of `source`.
     pub fn new(
         source: Source,
         projects: Entity<Projects>,
@@ -75,11 +78,8 @@ pub fn show_project(name: &str, cx: &mut App) {
     }));
 }
 
-/// One step of a snapshot's script on the Settings window: a section by its name (`agent`),
-/// `project=<name>`, `add=<folder>` (the folder the Mac's picker would have given), `scroll=<points>`,
-/// `font=<family>` and `size=<points>` (the terminal's text, as the person would choose it; no family
-/// is Sakura's own), `smallest` (the window at the smallest it gets) and `snap=<file>`, which saves the
-/// window as it is now.
+/// Drives Settings through the same controls as the window.
+/// For `add`, substitute the named folder for the system picker's result.
 #[cfg(feature = "snapshot")]
 pub fn drive(step: &str, cx: &mut App) {
     let Some(view) = show(cx) else {
@@ -97,11 +97,12 @@ pub fn drive(step: &str, cx: &mut App) {
             settings.pick_folder = Rc::new(move |_| gpui::Task::ready(Some(folder.clone())));
             settings.add_project(window, cx);
         }),
-        "scroll" => view.update(cx, |settings, _| {
-            let down = gpui::px(argument.parse().unwrap_or(0.0));
-            let mut offset = gpui::Point::default();
-            offset.y = -down;
-            settings.scroll.set_offset(offset);
+        "scroll" => scroll_page(argument.parse().unwrap_or(0.0), window, cx),
+        "search" => view.update(cx, |settings, cx| {
+            let search = settings.search.clone();
+            search.update(cx, |search, cx| {
+                search.set_value(argument.clone(), window, cx)
+            });
         }),
         "font" => view.update(cx, |settings, cx| {
             let family = (!argument.is_empty()).then(|| argument.clone());
@@ -116,7 +117,7 @@ pub fn drive(step: &str, cx: &mut App) {
             window.resize(gpui::size(SETTINGS_MIN_WIDTH, SETTINGS_MIN_HEIGHT));
         }
         "snap" => {
-            window.draw(cx).clear(cx);
+            crate::snapshot::draw_frame(window, cx);
             crate::snapshot::save(window, std::path::Path::new(&argument));
         }
         section => {
@@ -132,6 +133,23 @@ pub fn drive(step: &str, cx: &mut App) {
     if let Err(error) = done {
         eprintln!("sakura: Settings step {step:?} failed: {error}");
     }
+}
+
+/// The page scrolled down by `down` points, as a wheel over its middle scrolls it.
+#[cfg(feature = "snapshot")]
+fn scroll_page(down: f32, window: &mut Window, cx: &mut App) {
+    use crate::theme::settings::SECTIONS_WIDTH;
+    let viewport = window.viewport_size();
+    let middle = gpui::point(
+        SECTIONS_WIDTH + (viewport.width - SECTIONS_WIDTH) / 2.,
+        viewport.height / 2.,
+    );
+    let wheel = gpui::ScrollEvent {
+        position: middle,
+        delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.), gpui::px(-down))),
+        ..Default::default()
+    };
+    window.dispatch_event(gpui::PlatformInput::Scroll(wheel), cx);
 }
 
 /// What the window is given: the preferences as they are now.
@@ -171,12 +189,7 @@ fn deps(source: Rc<BoxSettings>, cx: &App) -> Deps {
 
 /// The folder the service keeps its data in, the person's home written as `~`.
 fn data_folder() -> String {
-    let folder = sakura_core::watcher::agentbox_home();
-    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
-    match home.and_then(|home| folder.strip_prefix(home).ok().map(|rest| rest.to_owned())) {
-        Some(rest) => format!("~/{}", rest.display()),
-        None => folder.display().to_string(),
-    }
+    super::home_as_tilde(&sakura_core::watcher::agentbox_home())
 }
 
 /// The terminal's text is kept and every open terminal is styled again with it at once.
@@ -216,7 +229,7 @@ fn said(event: &SettingsEvent, cx: &mut App) {
             let host = cx.global::<Host>();
             let (projects, desk) = (host.projects.clone(), host.desk.clone());
             projects.update(cx, |projects, cx| projects.load(cx));
-            // What a lavoro can check and play is its project's: the lavori are read again with it.
+            // What a task can check and play is its project's: the tasks are read again with it.
             if let Some(desk) = desk.upgrade() {
                 let facts = desk.read(cx).facts.clone();
                 facts.update(cx, |facts, cx| facts.refresh_all(cx));
@@ -245,24 +258,55 @@ fn sign_in(account: String, cx: &mut App) {
     let (desk, window) = (host.desk.clone(), host.window);
     drop(window.update(cx, |_, window, cx| {
         drop(desk.update(cx, |desk, cx| desk.sign_in_to(account, window, cx)));
-        window.activate_window();
+        crate::window::activate(window);
     }));
 }
 
 impl Desk {
-    /// Opens the terminal sign-in of `account` in the lavoro on screen. With no lavoro on screen
-    /// there is no terminal to sign in from, and nothing opens.
-    pub(in crate::ui) fn sign_in_to(
+    /// Opens the terminal sign-in of `account` in the task on screen; with no task on screen, in
+    /// the window's own centre, in the place of the first page.
+    pub(crate) fn sign_in_to(
         &mut self,
         account: String,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(task) = self.shown(cx) else {
-            return;
+        if self.is_mac_account(&account, cx) {
+            return self.open_sign_in(account, window, cx);
+        }
+        let sign_in = move |desk: &mut Desk, window: &mut Window, cx: &mut Context<Desk>| {
+            desk.open_sign_in(account, window, cx)
         };
-        self.open_console(&task, ConsoleKind::Login(account), window, cx);
+        self.with_boxes(Box::new(sign_in), window, cx);
+    }
+
+    /// Whether `account` is one of the person's own logins on the Mac, which needs no box.
+    fn is_mac_account(&self, account: &str, cx: &Context<Self>) -> bool {
+        let actions = self.actions.read(cx);
+        let Accounts::Loaded(accounts) = actions.accounts() else {
+            return false;
+        };
+        let is_mac = |listed: &Account| listed.name == account && listed.place == Place::Mac;
+        accounts.iter().any(is_mac)
+    }
+
+    /// Opens the sign-in of `account` where the person sees it: in the task on screen, or in the
+    /// window's own centre when none is on screen or the page that adds a project covers it.
+    fn open_sign_in(&mut self, account: String, window: &mut Window, cx: &mut Context<Self>) {
+        let kind = ConsoleKind::Login(account);
+        let Some(task) = self.sign_in_lavoro(cx) else {
+            return self.consoles.update(cx, |consoles, cx| {
+                consoles.open(At::Window, kind, window, cx)
+            });
+        };
+        self.open_console(&task, kind, window, cx);
         self.show_centre_view(&task, CentreView::Agent, cx);
+    }
+
+    /// The task a sign-in asked now shows in: the one on screen, unless the page that adds a
+    /// project is there in its place.
+    pub(crate) fn sign_in_lavoro(&self, cx: &Context<Self>) -> Option<String> {
+        self.shown(cx).filter(|_| !self.is_adding_project)
     }
 }
 
@@ -298,6 +342,31 @@ mod tests {
         });
         wait_for(cx, "the lavori to be read again", |_| {
             statuses(calls(&dir)) > before
+        });
+    }
+
+    #[gpui::test]
+    fn with_no_lavoro_a_sign_in_asked_in_settings_opens_in_the_window_until_it_is_left(
+        cx: &mut TestAppContext,
+    ) {
+        use crate::ui::interaction_tests::{click, wait_for};
+        use crate::ui::login_tests::{first_page, wait_for_the_window_s_sign_in, BOX_ACCOUNT};
+        let (_dir, cx, desk) = first_page(cx, "sleep 20");
+        let (source, projects) =
+            desk.read_with(cx, |desk, _| (desk.source.clone(), desk.projects.clone()));
+        let window = cx.update(|window, _| window.window_handle());
+        // Asked from the app, as the Settings window asks: not from inside the main window.
+        cx.cx.update(|cx| {
+            cx.set_global(Host::new(source, projects, desk.downgrade(), window));
+            let asked = SettingsEvent::SignInAsked {
+                account: BOX_ACCOUNT.into(),
+            };
+            said(&asked, cx);
+        });
+        wait_for_the_window_s_sign_in(cx, &desk);
+        click(cx, "login-cancel");
+        wait_for(cx, "the first page", |cx| {
+            cx.debug_bounds("first-task").is_some()
         });
     }
 

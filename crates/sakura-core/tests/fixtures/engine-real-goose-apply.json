@@ -1,0 +1,5 @@
+{
+  "exit_code": 0,
+  "output": "{\"accounts\": [{\"id\": \"goose-fixture\", \"provider\": \"goose\", \"label\": \"Local models\", \"folder\": \"/work/goose-home/.goose-local\"}], \"master_account\": {\"provider\": \"goose\", \"id\": \"goose-fixture\"}}",
+  "result": "done"
+}

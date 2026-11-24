@@ -1,5 +1,5 @@
-//! The window comes back as it was. Its tabs, its panes and the lavoro shown are kept where they change;
-//! here the window's place on the screen and the view of the right pane each lavoro had are kept in the
+//! The window comes back as it was. Its tabs, its panes and the task shown are kept where they change;
+//! here the window's place on the screen and the view of the right pane each task had are kept in the
 //! preferences as they change, and read back when a window is built: at launch and when the app is opened
 //! again with no window. Nothing is kept on a timer.
 
@@ -10,14 +10,14 @@ use gpui::{App, Context, Subscription, Window};
 use std::collections::{BTreeMap, HashMap};
 
 impl Desk {
-    /// The view of the right pane each lavoro had, as the preferences kept them.
+    /// The view of the right pane each task had, as the preferences kept them.
     pub(super) fn pane_views_from(preferences: &Preferences) -> HashMap<String, PaneView> {
         let kept = preferences.pane_views.iter();
         let named = |(task, view): (&String, &String)| Some((task.clone(), PaneView::named(view)?));
         kept.filter_map(named).collect()
     }
 
-    /// Keeps the window's place when it is moved or resized, and each lavoro's view of the right pane
+    /// Keeps the window's place when it is moved or resized, and each task's view of the right pane
     /// when one changes.
     pub(super) fn keep_window(window: &mut Window, cx: &mut Context<Self>) -> [Subscription; 2] {
         let place = cx.observe_window_bounds(window, |_, window, cx| keep_place(window, cx));

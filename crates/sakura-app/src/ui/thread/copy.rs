@@ -22,14 +22,28 @@ pub const SIGN_IN: Key = Key("thread.sign_in");
 pub const RETRY: Key = Key("common.retry");
 pub const NEEDS_YOU: Key = Key("thread.needs_you");
 pub const NO_SESSION: Key = Key("thread.no_session");
+/// What an empty Master says it is for, and the two requests it offers to start from.
+#[cfg(not(feature = "boxes"))]
+pub const ASK_MASTER: Key = Key("thread.ask_master");
+#[cfg(not(feature = "boxes"))]
+pub const EXAMPLE_START: Key = Key("thread.example_start");
+#[cfg(not(feature = "boxes"))]
+pub const EXAMPLE_STATUS: Key = Key("thread.example_status");
+#[cfg(not(feature = "boxes"))]
+pub const START_LABEL: Key = Key("thread.example_start_label");
+#[cfg(not(feature = "boxes"))]
+pub const STATUS_LABEL: Key = Key("thread.example_status_label");
 pub const CONNECTING: Key = Key("thread.connecting");
 pub const PREPARING: Key = Key("thread.preparing");
 pub const PREPARING_LINE: Key = Key("start.preparing");
 pub const LOADING: Key = Key("thread.loading");
+/// Under a message written, or sent, while the conversation loads: it goes when the conversation has loaded.
+pub const LOADING_HOLD: Key = Key("thread.loading_hold");
 pub const SIGN_IN_NEEDED: Key = Key("thread.sign_in_needed");
 pub const SIGN_IN_HINT: Key = Key("thread.sign_in_hint");
 pub const EMPTY_READY: Key = Key("thread.ready");
 pub const KEPT_LOST: Key = Key("thread.kept_lost");
+pub const MASTER_KEPT_LOST: Key = Key("master.kept_lost");
 pub const NO_CONVERSATION: Key = Key("thread.no_conversation");
 pub const NO_ACCOUNT: Key = Key("thread.no_account");
 pub const NO_ACCOUNT_AT_ALL: Key = Key("thread.no_account_at_all");
@@ -42,6 +56,32 @@ pub const NEW_FILE: Key = Key("thread.new_file");
 pub const OUTSIDE: Key = Key("thread.outside");
 pub const MODE: Key = Key("thread.mode");
 pub const NO_SUBJECT: Key = Key("thread.no_subject");
+pub const MODEL: Key = Key("master.model");
+pub const DICTATE: Key = Key("master.dictate");
+pub const DICTATION_UNAVAILABLE: Key = Key("master.dictation_unavailable");
+pub const ATTACH: Key = Key("master.attach");
+pub const ATTACHED: Key = Key("master.attached");
+pub const REFUSE_TOO_LARGE: Key = Key("master.refuse.too_large");
+pub const REFUSE_UNSUPPORTED: Key = Key("master.refuse.unsupported");
+pub const REFUSE_UNREADABLE: Key = Key("master.refuse.unreadable");
+pub const REFUSE_TOO_MANY: Key = Key("master.refuse.too_many");
+pub const REFUSE_TOTAL: Key = Key("master.refuse.total");
+pub const REFUSE_IMAGES: Key = Key("master.refuse.images");
+pub const REFUSE_FILES: Key = Key("master.refuse.files");
+pub const REFUSE_NOT_KEPT: Key = Key("master.refuse.not_kept");
+pub const SIZE_MB: Key = Key("master.size.mb");
+pub const SIZE_KB: Key = Key("master.size.kb");
+pub const MASTER_PLACEHOLDER: Key = Key("master.placeholder");
+pub const PROJECT_ANY: Key = Key("master.project.any");
+pub const PROJECT_LINE: Key = Key("master.project_line");
+pub const CARD_LANE: Key = Key("master.card.lane");
+pub const CARD_PROPOSAL: Key = Key("master.card.proposal");
+pub const CARD_APPROVE: Key = Key("master.card.approve");
+pub const CARD_DECLINE: Key = Key("master.card.decline");
+pub const CARD_OPEN_INBOX: Key = Key("master.card.open_inbox");
+pub const CARD_STEP: Key = Key("master.card.step");
+pub const CARD_STEP_UNKNOWN: Key = Key("master.card.step_unknown");
+pub const CARD_MORE_LINES: Key = Key("master.card.more_lines");
 
 /// What is said when the person's own login on this Mac no longer works: with the account's name when
 /// it is known.
@@ -82,6 +122,40 @@ pub fn kind_word(kind: ToolKind) -> Key {
     }
 }
 
+/// The prefixes the adapter puts before the engine's tools: the server's name, in the two spellings it has.
+const ENGINE_TOOL_PREFIXES: [&str; 2] = ["mcp__sakura-master__", "mcp__sakura__"];
+
+/// The engine's own tool a call is (`lane_open`, `knowledge_propose`), by the title the adapter gives it.
+pub fn engine_tool_name(title: &str) -> Option<&str> {
+    let title = title.trim();
+    ENGINE_TOOL_PREFIXES
+        .iter()
+        .find_map(|prefix| title.strip_prefix(prefix))
+}
+
+/// What a call of the engine's own tools (the master's, named `mcp__sakura__<tool>`) or of the tool search is, in a
+/// line of what was looked at; `None` for any other call, which keeps the agent's own title.
+pub fn tool_words(title: &str) -> Option<Key> {
+    let title = title.trim();
+    if title == "ToolSearch" {
+        return Some(Key("thread.tool.search"));
+    }
+    let tool = engine_tool_name(title)?;
+    Some(match tool {
+        "lanes" => Key("thread.tool.lanes"),
+        "projects" => Key("thread.tool.projects"),
+        "waits" => Key("thread.tool.waits"),
+        "who_does_what" => Key("thread.tool.who_does_what"),
+        "board_read" => Key("thread.tool.board_read"),
+        "board_post" => Key("thread.tool.board_post"),
+        "lane_open" => Key("thread.tool.lane_open"),
+        "lane_say" => Key("thread.tool.lane_say"),
+        "lane_stop" => Key("thread.tool.lane_stop"),
+        "knowledge_propose" => Key("thread.tool.knowledge_propose"),
+        _ => Key("thread.tool.other"),
+    })
+}
+
 /// The card's sentence: what the agent asks for, by the reason the policy did not answer by itself.
 pub fn permission_question(reason: Reason) -> Key {
     match reason {
@@ -93,6 +167,11 @@ pub fn permission_question(reason: Reason) -> Key {
         Reason::UnknownTarget => Key("thread.question.target"),
         Reason::UnknownField => Key("thread.question.field"),
         Reason::NoSingleUseOption => Key("thread.question.lasting"),
+        Reason::CommandOnMac => Key("thread.question.mac_command"),
+        Reason::MoveOnMac => Key("thread.question.mac_move"),
+        Reason::LinkedFile => Key("thread.question.linked"),
+        Reason::GitMetadata => Key("thread.question.git_metadata"),
+        Reason::EngineAsks => Key("thread.question.engine"),
     }
 }
 
@@ -131,7 +210,9 @@ pub fn problem_sentence(kind: ProblemKind) -> Key {
         ProblemKind::Overrun => Key("thread.problem.overrun"),
         ProblemKind::Full => Key("thread.problem.full"),
         ProblemKind::TimedOut => Key("thread.problem.timed_out"),
-        ProblemKind::RequestFailed => Key("thread.problem.request_failed"),
+        ProblemKind::RequestFailed | ProblemKind::SessionMissing => {
+            Key("thread.problem.request_failed")
+        }
         ProblemKind::Refusal => Key("thread.problem.refusal"),
         ProblemKind::Stopped => Key("thread.problem.stopped"),
         ProblemKind::MaxTokens => Key("thread.problem.max_tokens"),
@@ -200,6 +281,40 @@ mod tests {
     use super::*;
 
     #[test]
+    fn engine_tool_rows_say_what_the_master_looked_at() {
+        crate::l10n::set_for_test(crate::l10n::Language::English);
+        let said = |title: &str| tool_words(title).map(|key| crate::l10n::tr(key).to_string());
+        assert_eq!(
+            said("mcp__sakura__lanes").as_deref(),
+            Some("Looked at the open lanes")
+        );
+        assert_eq!(
+            said("mcp__sakura__projects").as_deref(),
+            Some("Looked at the projects")
+        );
+        assert_eq!(
+            said("mcp__sakura__waits").as_deref(),
+            Some("Looked at what waits on you")
+        );
+        assert_eq!(
+            said("mcp__sakura__lane_open").as_deref(),
+            Some("Opened a lane")
+        );
+        assert_eq!(said("ToolSearch").as_deref(), Some("Looked for a tool"));
+        assert_eq!(
+            said("mcp__sakura__something_new").as_deref(),
+            Some("Asked the engine")
+        );
+    }
+
+    #[test]
+    fn any_other_tool_keeps_the_agents_own_title() {
+        assert_eq!(tool_words("Read src/main.rs"), None);
+        assert_eq!(tool_words("mcp__github__issues"), None);
+        assert_eq!(tool_words(""), None);
+    }
+
+    #[test]
     fn elapsed_under_a_minute_is_seconds_and_over_it_minutes_and_two_digit_seconds() {
         assert_eq!(elapsed(Duration::from_millis(900)), "0 s");
         assert_eq!(elapsed(Duration::from_secs(8)), "8 s");
@@ -254,6 +369,11 @@ mod tests {
             Reason::UnknownTarget,
             Reason::UnknownField,
             Reason::NoSingleUseOption,
+            Reason::CommandOnMac,
+            Reason::MoveOnMac,
+            Reason::LinkedFile,
+            Reason::GitMetadata,
+            Reason::EngineAsks,
         ];
         let questions: HashSet<Key> = reasons.iter().map(|r| permission_question(*r)).collect();
         assert_eq!(questions.len(), reasons.len());

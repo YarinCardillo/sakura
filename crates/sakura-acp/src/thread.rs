@@ -127,6 +127,8 @@ pub enum ProblemKind {
     TimedOut,
     /// The agent answered a request with an error.
     RequestFailed,
+    /// The provider confirmed that the requested session is missing.
+    SessionMissing,
     /// The model refused to go on.
     Refusal,
     /// The person stopped the turn: no failure, one quiet line where it ended.
@@ -169,6 +171,14 @@ pub enum ThreadEvent {
     ReplayStarted,
     /// The stored session has been replayed.
     ReplayFinished,
+}
+
+/// What the Claude adapter writes into a stored session for a turn that was stopped before it answered: a
+/// placeholder of the adapter's, not something the agent said.
+const STOP_PLACEHOLDER: &str = "No response requested.";
+
+fn is_stop_placeholder(text: &str) -> bool {
+    text.trim() == STOP_PLACEHOLDER
 }
 
 /// Whether the agent is working.
@@ -243,6 +253,7 @@ impl Thread {
         Self::default()
     }
 
+    #[cfg(test)]
     /// A conversation that holds at most `limits`.
     pub fn with_limits(limits: Limits) -> Self {
         Self {
@@ -251,6 +262,7 @@ impl Thread {
         }
     }
 
+    #[cfg(test)]
     /// Whether the limits were reached and the agent's output is no longer taken in.
     pub fn is_full(&self) -> bool {
         self.is_full
@@ -352,6 +364,7 @@ impl Thread {
     fn take_in(&mut self, update: Update) {
         match update {
             Update::UserText(text) => self.user_text(text),
+            Update::AgentText(text) if self.is_replaying && is_stop_placeholder(&text) => {}
             Update::AgentText(text) => self.agent_text(text, false),
             Update::Thought(text) => self.agent_text(text, true),
             Update::ToolCall(fields) => {

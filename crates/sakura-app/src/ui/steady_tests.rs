@@ -41,7 +41,7 @@ const HEADER: [&str; 16] = [
 /// Every element of the sidebar's rows and labels (but the trailing figures: the age of old facts joins
 /// them with time, not with a selection).
 const SIDEBAR: [&str; 13] = [
-    "group-review",
+    "group-needs-you",
     "row-sample-folders",
     "glyph-sample-folders",
     "label-sample-folders",
@@ -246,7 +246,7 @@ fn showing_the_terminal_and_going_back_moves_nothing_in_the_status_bar_nor_the_r
             ])
             .collect();
         let before = all(cx, &watched);
-        // The item opens the lavoro's terminal and takes the fill of a chosen view.
+        // The item opens the task's terminal and takes the fill of a chosen view.
         click(cx, "status-terminal");
         wait_for(cx, "the terminal's view", |cx| {
             cx.debug_bounds("centre-view-terminal").is_some()
@@ -259,7 +259,7 @@ fn showing_the_terminal_and_going_back_moves_nothing_in_the_status_bar_nor_the_r
     });
 }
 
-/// The lavoro of the fixture whose agent runs.
+/// The task of the fixture whose agent runs.
 const RUNNING_TASK: &str = "sample-folders";
 /// A `box` whose `stop` takes five seconds: a press on "Stop" really starts the action, and its pending
 /// word stays on screen meanwhile.
@@ -273,7 +273,7 @@ fn a_press_that_changes_a_buttons_word_changes_no_size() {
         wait_for(cx, "the stop button of the header", |cx| {
             cx.debug_bounds("header-stop").is_some()
         });
-        // This `box` has no changes to count on "Changes", and the work of this lavoro is not verified,
+        // This `box` has no changes to count on "Changes", and the work of this task is not verified,
         // so the hold stands where "Take" would: every other element of the header, and the button.
         let header = HEADER
             .iter()
@@ -355,13 +355,35 @@ fn moving_the_keyboard_focus_moves_nothing() {
 }
 
 #[test]
+fn a_count_that_comes_or_goes_moves_no_view_of_the_row() {
+    real_text::run(|cx| {
+        let cx = open(cx);
+        let views = ["pane-view-checks", "pane-view-git"];
+        let lefts = |cx: &mut VisualTestContext| views.map(|view| bounds(cx, view).left());
+        // Nine files changed and no check failed, then a task with no figure read at all.
+        click(cx, "row-sample-folders");
+        assert!(cx.debug_bounds("pane-count-changes").is_some());
+        assert!(cx.debug_bounds("pane-count-checks").is_none());
+        let counted = lefts(cx);
+        click(cx, "row-broken-check");
+        assert!(cx.debug_bounds("pane-count-changes").is_none());
+        assert_eq!(lefts(cx), counted, "the room of the count is kept");
+    });
+}
+
+#[test]
 fn a_count_keeps_the_room_of_two_figures_so_one_more_digit_moves_nothing() {
     real_text::run(|cx| {
         let (cx, desk, _) = open_with(cx, None);
         wait_for(cx, "the rows", |cx| cx.debug_bounds(TASK).is_some());
         click(cx, TASK);
+        // Short diffs start open, so the tenth file's header may be under the fold: the patch is read.
         wait_for(cx, "the whole patch", |cx| {
-            cx.debug_bounds("changes-header-9").is_some()
+            desk.read_with(cx, |desk, cx| {
+                let read = desk.changes.read(cx).task("sample-accent");
+                read.and_then(|read| read.patch())
+                    .is_some_and(|patch| patch.files.len() == 10)
+            })
         });
         let ten = bounds(cx, "pane-count-changes");
         let after_ten = bounds(cx, "pane-view-checks").left() - ten.right();

@@ -1,0 +1,67 @@
+{
+  "engine": {
+    "pace": "normal", "target_pct": 90, "lanes_min": 1, "lanes": 4,
+    "preset": "standard", "edited": false, "yield_to_person": true, "yielding": false,
+    "presets": [
+      {"name": "solo", "label": "Solo", "description": "One agent.", "chosen": false},
+      {"name": "standard", "label": "Standard", "description": "The team.", "chosen": true},
+      {"name": "verified", "label": "Verified", "description": "With an evaluator.", "chosen": false},
+      {"name": "lean", "label": "Lean", "description": "Fewer steps.", "chosen": false}],
+    "keeper": {"on": true, "since": "2026-11-18T07:58:00Z",
+               "last_restart": {"at": "2026-11-18T07:58:00Z", "resumed": ["demo/a", "demo/b", "demo/c"], "waiting": ["demo/d"]}}
+  },
+  "accounts": [
+    {"id": "personal", "label": "Personal", "provider": "claude", "plan": "Max", "week_pct": 41,
+     "week_resets_at": "2026-11-23T09:00:00Z", "five_hour_pct": 12, "forecast_at_reset_pct": 86,
+     "stale": false, "hidden": false, "target": "[\"account\",\"claude\",\"personal\"]",
+     "actions": [
+       {"key": "l", "label": "Rename", "needs": ["label"], "optional": [], "confirm": false},
+       {"key": "n", "label": "Disable", "needs": [], "optional": [], "confirm": true}]},
+    {"id": "work", "label": "Work", "provider": "claude", "plan": "Team", "week_pct": 63,
+     "week_resets_at": "2026-11-26T18:00:00Z", "five_hour_pct": 30, "forecast_at_reset_pct": 93,
+     "stale": false, "hidden": false, "target": "[\"account\",\"claude\",\"work\"]",
+     "actions": [
+       {"key": "l", "label": "Rename", "needs": ["label"], "optional": [], "confirm": false},
+       {"key": "n", "label": "Disable", "needs": [], "optional": [], "confirm": true}]},
+    {"id": "codex", "label": "Codex", "provider": "codex", "plan": "Pro", "week_pct": 7,
+     "week_resets_at": "2026-11-24T11:05:00Z", "five_hour_pct": 2, "forecast_at_reset_pct": 31,
+     "stale": false, "hidden": false, "target": "[\"account\",\"codex\",\"codex\"]",
+     "actions": [
+       {"key": "l", "label": "Rename", "needs": ["label"], "optional": [], "confirm": false},
+       {"key": "n", "label": "Disable", "needs": [], "optional": [], "confirm": true}]}
+  ],
+  "automations": {
+    "target": "[\"host\",\"automations\"]",
+    "actions": [{"key": "A", "label": "Automation on or off", "needs": ["name", "on"], "optional": [], "confirm": false}],
+    "items": [
+      {"name": "red-ci-watch", "description": "A ready pull request that turns red comes back to its lane",
+       "schedule_text": "every 5 minutes", "enabled": true, "installed": true, "last_run_at": null, "last_result": null},
+      {"name": "morning-digest", "description": "Write the morning digest",
+       "schedule_text": "daily 07:00", "enabled": true, "installed": true, "last_run_at": "2026-11-18T07:00:00Z", "last_result": "ok"},
+      {"name": "silent-lane-watch", "description": "A lane with no activity asks you whether to stop it",
+       "schedule_text": "every 30 minutes", "enabled": false, "installed": true, "last_run_at": null, "last_result": null},
+      {"name": "keeper", "description": "Resume lanes after a restart", "schedule_text": "always on",
+       "enabled": true, "installed": true, "last_run_at": null, "last_result": null},
+      {"name": "phone-page", "description": "Serve the phone page", "schedule_text": "always on",
+       "enabled": true, "installed": true, "last_run_at": null, "last_result": null}]
+  },
+  "digest": {
+    "target": "[\"host\",\"digest-settings\"]",
+    "actions": [
+      {"key": "I", "label": "Digest settings", "needs": [], "optional": ["at", "lookback_hours", "language", "model", "account"], "confirm": false},
+      {"key": "J", "label": "Digest source on or off", "needs": ["name", "on"], "optional": [], "confirm": false}],
+    "connect": {"target": "[\"host\",\"connectors\"]", "actions": [
+      {"key": "O", "label": "Connect", "needs": ["kind"], "optional": ["label", "address"], "confirm": false},
+      {"key": "o", "label": "Disconnect", "needs": ["name"], "optional": [], "confirm": false}]},
+    "at": "07:00", "lookback_hours": 24, "language": "it", "model": "sonnet", "account": "work",
+    "next_at": "2026-11-19T07:00:00Z", "last_run_at": "2026-11-18T07:00:00Z",
+    "sources": [
+      {"id": "github", "label": "GitHub", "reads": "Pull requests and issues that wait on you", "kind": "connector", "connector": "github", "enabled": true, "last_good_run": "2026-11-18T07:00:00Z"},
+      {"id": "notion", "label": "Notion", "reads": "", "kind": "connector", "connector": "notion", "enabled": true, "last_good_run": "2026-11-18T07:00:00Z"}]
+  },
+  "connectors": [
+    {"id": "github", "kind": "github", "label": "GitHub", "connected": true, "detail": "Signed in as you", "last_used_at": "2026-11-18T07:00:00Z"},
+    {"id": "notion", "kind": "notion", "label": "Notion", "connected": true, "detail": "Token found in the Keychain", "last_used_at": "2026-11-18T07:00:00Z"},
+    {"id": "linear", "kind": "linear", "label": "Linear", "connected": false, "detail": "No token in the Keychain", "last_used_at": null}
+  ]
+}

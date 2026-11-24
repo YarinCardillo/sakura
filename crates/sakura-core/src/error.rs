@@ -17,6 +17,10 @@ pub enum ErrorCode {
     Unsupported,
     /// `box cancel` found no queued or running check to cancel.
     NothingToCancel,
+    /// The engine's `sakura` command was not found at any place it is looked for.
+    EngineMissing,
+    /// The engine ran and its answer cannot be used: it failed, took too long, or speaks another version.
+    EngineFailed,
     TerminalClosed,
     Internal,
 }
