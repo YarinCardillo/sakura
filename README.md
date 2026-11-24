@@ -3,7 +3,7 @@
 A desktop app for running several coding agents at once and deciding only what needs you.
 
 <p align="center">
-  <img src="docs/images/sakura-engine.gif" width="960" alt="How the Sakura engine runs a task: work comes in from GitHub, Notion, Linear or an artifact, becomes a lane on its own branch, passes the spec, tests, review and checks gates with agents taking turns inside its sandbox, and merges back as a draft pull request while you set the builders and the pace.">
+  <img src="docs/images/sakura-engine.gif" width="960" alt="How the Sakura engine runs a task: work comes in from GitHub, Notion, Linear or a feed, becomes a lane on its own branch, passes the spec, tests, review and checks gates with agents taking turns inside its sandbox, and merges back as a draft pull request while you set the builders and the pace.">
 </p>
 
 You tell the Master what you want, or start a lane yourself. A lane is one piece of work in one project: the
