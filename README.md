@@ -1,5 +1,3 @@
-# Sakura
-
 A desktop app for running several coding agents at once and deciding only what needs you.
 
 <p align="center">
